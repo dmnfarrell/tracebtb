@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block head %}
+	{{ js_resources|indent(4)|safe }}
+  {{ css_resources|indent(4)|safe }}
+	{{ script|indent(4)|safe }}
+{% endblock %}
+
+{% block main %}
+	<div class="container-fluid">
+	<div class="row">
+  <div class="col-md-6">
+		<form action="/">
+			{{ form.name.label }}
+			{{ form.name }}
+
+			<input type="submit" class="button" value="Submit">
+		</form>
+  </div>
+ </div>
+<div class="row">
+	<div class="col-md-8">
+    {{plotdiv|safe}}
+  </div>
+
+	<div class="col-md-4">
+    {% include "tree.html" %}
+  </div>
+  </div>
+</div>
+
+{% endblock %}
