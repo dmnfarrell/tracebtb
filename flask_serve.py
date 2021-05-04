@@ -114,7 +114,7 @@ def bokeh_map(df=None, long=None, lat=None,
     from collections import OrderedDict
 
     tile_provider = get_provider(tile_provider)
-    tools = "pan,wheel_zoom,hover,tap,reset,save"
+    tools = "pan,wheel_zoom,hover,tap,lasso_select,reset,save"
     sizing_mode='stretch_both'
 
     # range bounds supplied in web mercator coordinates
@@ -151,7 +151,7 @@ def bokeh_map(df=None, long=None, lat=None,
 
         var inds = cb_obj.indices;
         var line = "<span style=%r><b>";
-        var text = d.text.concat(line);
+        var text = d.text.concat(line+'\\n');
         text = text.concat(String(cb_obj.x));
         d.text = text;
 
@@ -160,6 +160,17 @@ def bokeh_map(df=None, long=None, lat=None,
     point_events = [ events.Tap, events.DoubleTap ]
     p.js_on_event(events.Tap, tap_event)
 
+    source.selected.js_on_change('indices',
+        CustomJS(args=dict(s=source,div=infodiv), code="""
+        var inds = cb_obj.indices;
+        var d = s.data;
+        for (var i = 0; i < inds.length; i++) {
+            console.log(i);
+        }
+        
+    """))
+
+    #dropdown
     menu = [('carttodbpositron','CARTODBPOSITRON')]
     dropdown = Dropdown(label="Tile", menu=menu)
     callback = CustomJS(args=dict(source=source,plot=p),code="""
@@ -174,8 +185,6 @@ def bokeh_map(df=None, long=None, lat=None,
 
     names = list(zip(df.name,df.name))
     callback = CustomJS(args=dict(s=source,p=p,d=infodiv),code="""
-
-        var line = "<span style=%r><b>" + cb_obj.event_name + "</b>(" + args.join(", ") + ")</span>\\n";
         d.text = "hello";
     """)
     multiselect = MultiSelect(value=["s"], options=names)
@@ -194,8 +203,9 @@ def bokeh_map(df=None, long=None, lat=None,
     script, div = components(l)
     return script, div
 
-def get_tree():
-    """show a tree"""
+def draw_tree():
+    """Draw tree based on sample distances"""
+
 
     return
 
