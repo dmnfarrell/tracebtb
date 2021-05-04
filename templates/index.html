@@ -9,24 +9,36 @@
 {% block main %}
 	<div class="container-fluid">
 	<div class="row">
-  <div class="col-md-6">
+  <div class="col-md-3">
+		<div class="mt-2 p-3 bg-light">
 		<form action="/">
-			{{ form.name.label }}
-			{{ form.name }}
+			<div class="form-outline mb-4">
+			{{ form.colorby.label }}
+			{{ form.colorby }}
+			</div>
+			<div class="form-group">
+			{{ form.tile.label }}
+			{{ form.tile }}
+		  </div>
+			<div class="form-group">
+			{{ form.animal.label }}
+			{{ form.animal }}
+		  </div>
 
-			<input type="submit" class="button" value="Submit">
+			<input type="submit" class="button" value="Update">
+
 		</form>
-  </div>
+   </div>
  </div>
-<div class="row">
-	<div class="col-md-8">
+
+	<div class="col-md-6">
     {{plotdiv|safe}}
   </div>
 
-	<div class="col-md-4">
+	<div class="col-md-3">
     {% include "tree.html" %}
   </div>
-  </div>
-</div>
 
+ </div>
+</div>
 {% endblock %}

@@ -34,6 +34,11 @@ home = os.path.expanduser("~")
 module_path = os.path.dirname(os.path.abspath(__file__))
 DATABASE = '../notebooks/'
 species_colors = {'Cow':'green', 'Badger':'blue', 'Deer':'red'}
+sb_colors = {'SB0054':'blue','SB0041':'green'}
+clade_colors = {2:'yellow',3:'green'}
+cmaps = {'species': species_colors,'spoligotype':sb_colors,'clade':clade_colors}
+providers = ['CARTODBPOSITRON','STAMEN_TERRAIN','STAMEN_TONER','OSM','ESRI_IMAGERY']
+
 tree_style = {
     "layout":'r',
     "edge_type": 'p',
@@ -57,12 +62,12 @@ tree_style = {
 webapp = Flask(__name__)
 
 class ControlsForm(Form):
-    name = SelectField('name', choices=[])
-    path = TextField('path', default='results')
-    n = TextField('n', default='2')
-    #kinds = [(i,i) for i in plotkinds]
-    #kind = SelectField('plot kind', choices=kinds)
-    #submit = SubmitField()
+    colorby = SelectField('Color By:', choices=['clade','spoligotype','species'])
+    tile = SelectField('Tile:', choices=providers)
+    database = TextField('database', default='localhost')
+    animal = SelectField('Animal:', choices=[])
+    lat = FloatField('Lat',default=-6.2)
+    long = FloatField('Lat',default=53.5)
 
 def get_db():
     db = getattr(g, '_database', None)
@@ -95,58 +100,97 @@ def wgs84_to_web_mercator(df, lon="LON", lat="LAT"):
       df["y"] = np.log(np.tan((90 + df[lat]) * np.pi/360.0)) * k
       return df
 
-def bokeh_map(df=None):
+def bokeh_map(df=None, long=None, lat=None,
+              tile_provider='CARTODBPOSITRON', colorby='species'):
     """Bokeh map"""
 
     from bokeh.plotting import figure, show
     from bokeh.embed import components
-    from bokeh.tile_providers import CARTODBPOSITRON,STAMEN_TERRAIN, get_provider
-    from bokeh.models import DataTable, GeoJSONDataSource, ColumnDataSource, HoverTool, CustomJS, Dropdown
+    from bokeh.tile_providers import get_provider
+    from bokeh.models import (DataTable, GeoJSONDataSource, ColumnDataSource, HoverTool,
+            CustomJS, MultiSelect, Dropdown, Div)
     from bokeh.layouts import column, row
     import json
     from collections import OrderedDict
-    tile_provider = get_provider(CARTODBPOSITRON)
-    tile_provider2 = get_provider(STAMEN_TERRAIN)
+
+    tile_provider = get_provider(tile_provider)
     tools = "pan,wheel_zoom,hover,tap,reset,save"
-    sizing_mode='stretch_width'
+    sizing_mode='stretch_both'
 
     # range bounds supplied in web mercator coordinates
     k = 6378137
-    long = -6.2
-    lat = 53.5
+    if lat == None:
+        lat = 53.2
+    if long == None:
+        long = -6.2
+
+    #get coords
     x = long * (k * np.pi/180.0)
     y = np.log(np.tan((90 + lat) * np.pi/360.0)) * k
+    df = wgs84_to_web_mercator(df, lon="LONG", lat="LAT")
+    colormap = cmaps[colorby]
+    df['color'] = [colormap[i] if i in colormap else 'gray' for i in df[colorby]]
 
+    source = ColumnDataSource(df)
+    #draw figure
     p = figure(x_range=(x-100000, x+100000), y_range=(y-100000, y+100000),
                x_axis_type="mercator", y_axis_type="mercator", tools=tools,
                plot_height=500, sizing_mode=sizing_mode)
     p.add_tile(tile_provider)
-    #p.add_tile(tile_provider2)
-
-    #geo_source = GeoJSONDataSource(df.to_json())
-    df = wgs84_to_web_mercator(df, lon="LONG", lat="LAT")
-    df['color'] = [species_colors[i] if i in species_colors else 'gray' for i in df.species]
-    #print (df.iloc[4])
-    source = ColumnDataSource(df)
     p.circle(x='x', y='y', size=15, alpha=0.7, color='color', source=source)
     #data_table = DataTable(source=source, columns=columns, width=400, height=280)
+    p.toolbar.logo = None
 
-    menu = [("Item 1", "CARTODBPOSITRON"), ("Item 2", "STAMEN_TERRAIN")]
+    infodiv = Div(width=400, height=p.plot_height, height_policy="fixed")
+    infodiv.text = 'info'
 
-    dropdown = Dropdown(label="Layer", menu=menu)
-    dropdown.js_on_event("menu_item_click",
-            CustomJS(code="console.log('dropdown: ' + this.item, this.toString())"))
+    #callbacks
+    #tap event - get mapr coords from plot and send to form so
+    #we can refresh lat and long??
+    tap_event = CustomJS(args=dict(s=source,plot=p,d=infodiv),code="""
+
+        var inds = cb_obj.indices;
+        var line = "<span style=%r><b>";
+        var text = d.text.concat(line);
+        text = text.concat(String(cb_obj.x));
+        d.text = text;
+
+    """)
+    from bokeh import events
+    point_events = [ events.Tap, events.DoubleTap ]
+    p.js_on_event(events.Tap, tap_event)
+
+    menu = [('carttodbpositron','CARTODBPOSITRON')]
+    dropdown = Dropdown(label="Tile", menu=menu)
+    callback = CustomJS(args=dict(source=source,plot=p),code="""
+        var r = plot.renderers;
+        console.log(r);
+        var b = cb_obj.value;
+        var data = source.data;
+        var x = data['x']
+        source.change.emit();
+    """)
+    dropdown.js_on_event("menu_item_click", callback)
+
+    names = list(zip(df.name,df.name))
+    callback = CustomJS(args=dict(s=source,p=p,d=infodiv),code="""
+
+        var line = "<span style=%r><b>" + cb_obj.event_name + "</b>(" + args.join(", ") + ")</span>\\n";
+        d.text = "hello";
+    """)
+    multiselect = MultiSelect(value=["s"], options=names)
+    multiselect.js_on_change("value", callback)
 
     hover = p.select(dict(type=HoverTool))
     hover.tooltips = OrderedDict([
         ("name", "@name"),
         ("species", "@species"),
-        ("spo type", "@SB"),
+        ("spoligotype", "@spoligotype"),
         ("clade", "@clade"),
         ("nearest", "@nearest"),
     ])
-    p.toolbar.logo = None
-    l = column(p, dropdown)
+
+    l = row(column(dropdown,multiselect,p),column(infodiv))
     script, div = components(l)
     return script, div
 
@@ -179,18 +223,25 @@ def index():
     js_resources = INLINE.render_js()
     css_resources = INLINE.render_css()
 
-    path = request.args.get("path")
+    colorby = request.args.get("colorby")
+    tile = request.args.get("tile")
+    lat = request.args.get('lat')
+    long = request.args.get('long')
+
+    if tile == None:
+        tile= 'CARTODBPOSITRON'
+    if colorby == None:
+        colorby = 'species'
+
     msg = help_msg()
     df = pd.read_csv('wicklow_test.csv')
-    form = ControlsForm()
-    #map = base_map()
-    script, div = bokeh_map(df)
+    form = ControlsForm(**request.args)
 
-    #show_dataframe(df, map)
-    #map = folium_map._repr_html_()
-    #map.save('templates/map.html')
+    script, div = bokeh_map(df, tile_provider=tile, colorby=colorby, lat=lat)
+
     sample_tree()
     return render_template("index.html",form=form,script=script,plotdiv=div,
+            long=long,lat=lat,
             js_resources=js_resources, css_resources=css_resources, msg=msg)
 
 @webapp.route('/links')
