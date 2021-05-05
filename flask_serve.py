@@ -100,7 +100,7 @@ def wgs84_to_web_mercator(df, lon="LON", lat="LAT"):
       df["y"] = np.log(np.tan((90 + df[lat]) * np.pi/360.0)) * k
       return df
 
-def bokeh_map(df=None, long=None, lat=None,
+def bokeh_map(df=None, long=None1, lat=None,
               tile_provider='CARTODBPOSITRON', colorby='species'):
     """Bokeh map"""
 
@@ -167,7 +167,7 @@ def bokeh_map(df=None, long=None, lat=None,
         for (var i = 0; i < inds.length; i++) {
             console.log(i);
         }
-        
+
     """))
 
     #dropdown
