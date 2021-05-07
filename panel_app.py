@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """
     BTBgenie prototype web app with Panel.
@@ -50,7 +50,7 @@ sb_colors = {'SB0054':'blue','SB0041':'green'}
 clade_colors = {2:'yellow',3:'green'}
 cmaps = {'species': species_colors,'spoligotype':sb_colors,'clade':clade_colors}
 providers = ['CARTODBPOSITRON','STAMEN_TERRAIN','OSM','ESRI_IMAGERY']
-df = pd.read_csv('wicklow_test.csv')
+df = pd.read_csv('ireland_test_data.csv')
 
 tree_style = {
     "layout":'r',
@@ -192,80 +192,99 @@ def map_dash():
     """Map dashboard"""
 
     names = list(df.name.unique())
+    cols = df.columns[:6]
+    cats=['species','clade','spoligotype','county']
     map_pane = pn.pane.Bokeh(width=400)
     tree_pane = pn.pane.HTML(width=300)
     sample_tree()
-    tile_select = pnw.Select(name='tile layer',options=providers,width=200)
-    colorby_select = pnw.Select(name='color by',options=['species','clade','spoligotype'],width=200)
-    name_select = pnw.MultiSelect(name='name',options=names,size=4,width=200)
-    btn = pnw.Button(name='Tree', button_type='primary',width=200)
+    tile_select = pnw.Select(name='tile layer',options=providers,width=200)    
+    colorby_select = pnw.Select(name='color by',options=cats,width=200)
+    label_select = pnw.Select(name='label',options=['']+cats,width=200)
+    name_select = pnw.MultiSelect(name='name',options=names,size=4,width=200)   
+    btn = pnw.Button(name='Reset', button_type='primary',width=200)
     info_pane = pn.pane.HTML(style=style1,width=200, sizing_mode='stretch_both')
-    df_pane = pn.pane.DataFrame(df,height=200,sizing_mode='scale_height',max_rows=6)
-
-    def update1(attr,new,old):
+    df_pane = pn.pane.DataFrame(df[cols],height=200,sizing_mode='scale_both',max_rows=6)
+    empty_pane = pn.pane.HTML(width=300,style=style1,sizing_mode='scale_height')
+    empty_pane.object = 'lskdklasdlkjsad'
+    
+    def update1(attr,new,old):     
         #print(new,old)
         info_pane.object = '<p>%s,%s</p>' %(int(new),int(old))
-
+        
     def items_selected(event):
         items = name_select.value
         info_pane.object = ','.join(items)
         p = map_pane.object
         source = p.renderers[1].data_source
         sel = df[df.name.isin(items)]
-        df_pane.object = sel
+        df_pane.object = sel[cols]
         #show these points only on map
         source.data = dict(sel)
         #get a tree
-        get_tree(sel)
-        tree_pane.object = open('tree.html','r').read()
+        if len(sel)>=3:
+            get_tree(sel)
+            tree_pane.object = open('tree.html','r').read()
         return
-
+    
     def points_selected(attr,new,old):
         #print (new)
         ind =[int(n) for n in new]
-        #for n in new:
+        #for n in new:            
         #     info_pane.object = '<p>%s</p>' %n
         sel = df.loc[ind]
-        df_pane.object = sel
-
+        df_pane.object = sel[cols]
+        
         #get nearest
         if len(sel)>0:
             #print (found.iloc[0].nearest)
             s = sel.iloc[0].nearest
             near = s.split()
             info_pane.object = s
-        if len(sel)>3:
+        if len(sel)>=3:
             get_tree(sel)
             tree_pane.object = open('tree.html','r').read()
         return
-
+    
     def draw_map(event):
-        p = map_pane.object = bokeh_map(df)
+        p = map_pane.object = bokeh_map(df)  
         p.x_range.on_change('start', update1)
         source = p.renderers[1].data_source
-        source.selected.on_change('indices', points_selected)
+        source.selected.on_change('indices', points_selected)   
+        tree_pane.object = '' 
         return
-
-    def update_map(event):
+    
+    def update_map(event):         
         p = map_pane.object
+        source = p.renderers[1].data_source
+        p.renderers = [x for x in p.renderers if not str(x).startswith('TileRenderer')]            
+        #p.add_tile(tile_select.value)
+        rend = renderers.TileRenderer(tile_source= get_provider(tile_select.value))
+        p.renderers.insert(0, rend) 
         colorby = colorby_select.value
-        colormap = cmaps[colorby]
-        df['color'] = [colormap[i] if i in colormap else 'gray' for i in df[colorby]]
-        p.add_tile(get_provider(tile_select.value))
         info_pane.object = '<p>%s,%s</p>' %(p.x_range.start,p.x_range.end)
+        if label_select.value != '':
+            #remove old labels?
+            
+            labels = LabelSet(x='x', y='y', text=label_select.value,
+                         x_offset=5, y_offset=5, source=source, render_mode='canvas')
+            p.add_layout(labels)
         return
-
+    
     def update_tree(event):
         sample_tree()
         tree_pane.object = open('tree.html','r').read()
-
+        
     draw_map(None)
-    btn.on_click(update_tree)
+    btn.on_click(draw_map)
+    #label_box = pnw.Checkbox(name='Show labels')
     tile_select.param.watch(update_map,'value')
     colorby_select.param.watch(update_map,'value')
+    label_select.param.watch(update_map,'value')
     name_select.param.watch(items_selected,'value')
-    app = pn.Column(pn.Row(pn.Column(tile_select,colorby_select,name_select,btn,info_pane,sizing_mode='stretch_height'),
-                           pn.Column(map_pane,width=600),tree_pane),df_pane)
+    
+    #layout dashboard
+    app = pn.Column(pn.Row(pn.Column(tile_select,colorby_select,label_select,name_select,btn,info_pane,sizing_mode='stretch_height'),
+                           pn.Column(map_pane,width=600),tree_pane),pn.Column(df_pane,empty_pane))
     return app
 
 bootstrap = pn.template.BootstrapTemplate(title='BTBGenie Sample App',
@@ -274,3 +293,6 @@ pn.config.sizing_mode = 'stretch_width'
 app = map_dash()
 bootstrap.main.append(app)
 bootstrap.servable()
+
+if __name__ == '__main__':
+	pn.serve(bootstrap, port=5000)
