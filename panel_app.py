@@ -25,7 +25,9 @@ import numpy as np
 import pandas as pd
 import string
 import sqlite3
+from collections import OrderedDict
 import toytree, toyplot
+from snipgenie import snp_typing
 
 from collections import OrderedDict
 from bokeh.layouts import column
@@ -33,9 +35,10 @@ from bokeh.models import ColumnDataSource, Slider
 from bokeh.plotting import figure
 from bokeh.themes import Theme
 from bokeh.io import show, output_notebook
-from bokeh.models import (DataTable, GeoJSONDataSource, ColumnDataSource, HoverTool,
-            CustomJS, MultiSelect, Dropdown, Div)
+from bokeh.models import (DataTable, GeoJSONDataSource, ColumnDataSource, HoverTool, renderers,
+                          Label, LabelSet, CustomJS, MultiSelect, Dropdown, Div)
 from bokeh.tile_providers import CARTODBPOSITRON, get_provider
+
 import panel as pn
 import panel.widgets as pnw
 
@@ -46,7 +49,7 @@ species_colors = {'Cow':'green', 'Badger':'blue', 'Deer':'red'}
 sb_colors = {'SB0054':'blue','SB0041':'green'}
 clade_colors = {2:'yellow',3:'green'}
 cmaps = {'species': species_colors,'spoligotype':sb_colors,'clade':clade_colors}
-providers = ['CARTODBPOSITRON','STAMEN_TERRAIN','STAMEN_TONER','OSM','ESRI_IMAGERY']
+providers = ['CARTODBPOSITRON','STAMEN_TERRAIN','OSM','ESRI_IMAGERY']
 df = pd.read_csv('wicklow_test.csv')
 
 tree_style = {
@@ -95,7 +98,9 @@ template = """
 {% endblock %}
 """
 
-def sample_tree(n=20):
+style1 = {'background':'lightgray','padding':'5px','font':'monospace'}
+
+def sample_tree(n=10):
 
     import toytree
     tre = toytree.rtree.coaltree(n)
@@ -108,6 +113,23 @@ def sample_tree(n=20):
                     width=350,
                     height=500,
                     scalebar=True, **tree_style)
+    toyplot.html.render(canvas, "tree.html")
+    return
+
+def get_tree(df):
+    """get a tree from a selection of samples
+       uses encoded snp data from dataframe/db to make a distance matrix
+    """
+
+    #decode snps
+    snpmat = df.snps.apply(snp_typing.decode_snps)
+    snpmat.index = df.name
+    #print (snpmat[:4])
+    #make tree
+    tre = snp_typing.tree_from_snps(snpmat.T)
+    #render to html
+    canvas, axes, mark = tre.draw(width=400, height=400)
+
     toyplot.html.render(canvas, "tree.html")
     return
 
@@ -177,19 +199,45 @@ def map_dash():
     colorby_select = pnw.Select(name='color by',options=['species','clade','spoligotype'],width=200)
     name_select = pnw.MultiSelect(name='name',options=names,size=4,width=200)
     btn = pnw.Button(name='Tree', button_type='primary',width=200)
-    info_pane = pn.pane.HTML(style={'background':'lightgray','padding':'5px'},width=200, sizing_mode='stretch_both')
-    df_pane = pn.pane.DataFrame(df,height=200,sizing_mode='scale_height')
+    info_pane = pn.pane.HTML(style=style1,width=200, sizing_mode='stretch_both')
+    df_pane = pn.pane.DataFrame(df,height=200,sizing_mode='scale_height',max_rows=6)
 
     def update1(attr,new,old):
         #print(new,old)
         info_pane.object = '<p>%s,%s</p>' %(int(new),int(old))
 
+    def items_selected(event):
+        items = name_select.value
+        info_pane.object = ','.join(items)
+        p = map_pane.object
+        source = p.renderers[1].data_source
+        sel = df[df.name.isin(items)]
+        df_pane.object = sel
+        #show these points only on map
+        source.data = dict(sel)
+        #get a tree
+        get_tree(sel)
+        tree_pane.object = open('tree.html','r').read()
+        return
+
     def points_selected(attr,new,old):
         #print (new)
-        ind =[int(n)-1 for n in new]
-        for n in new:
-            info_pane.object = '<p>%s</p>' %n
-        df_pane.object = df.loc[ind]
+        ind =[int(n) for n in new]
+        #for n in new:
+        #     info_pane.object = '<p>%s</p>' %n
+        sel = df.loc[ind]
+        df_pane.object = sel
+
+        #get nearest
+        if len(sel)>0:
+            #print (found.iloc[0].nearest)
+            s = sel.iloc[0].nearest
+            near = s.split()
+            info_pane.object = s
+        if len(sel)>3:
+            get_tree(sel)
+            tree_pane.object = open('tree.html','r').read()
+        return
 
     def draw_map(event):
         p = map_pane.object = bokeh_map(df)
@@ -215,11 +263,13 @@ def map_dash():
     btn.on_click(update_tree)
     tile_select.param.watch(update_map,'value')
     colorby_select.param.watch(update_map,'value')
+    name_select.param.watch(items_selected,'value')
     app = pn.Column(pn.Row(pn.Column(tile_select,colorby_select,name_select,btn,info_pane,sizing_mode='stretch_height'),
-            pn.Column(map_pane,width=700),tree_pane),df_pane)
+                           pn.Column(map_pane,width=600),tree_pane),df_pane)
     return app
 
-bootstrap = pn.template.BootstrapTemplate(title='BTBGenie Sample App',favicon='static/logo.png')
+bootstrap = pn.template.BootstrapTemplate(title='BTBGenie Sample App',
+            favicon='static/logo.png',logo='static/logo.png',header_color='blue')
 pn.config.sizing_mode = 'stretch_width'
 app = map_dash()
 bootstrap.main.append(app)
