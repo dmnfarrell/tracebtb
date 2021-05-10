@@ -27,7 +27,7 @@ import string
 import sqlite3
 from collections import OrderedDict
 import toytree, toyplot
-from snipgenie import snp_typing
+from snipgenie import snp_typing, trees, tools
 
 from collections import OrderedDict
 from bokeh.layouts import column
@@ -45,12 +45,17 @@ import panel.widgets as pnw
 home = os.path.expanduser("~")
 module_path = os.path.dirname(os.path.abspath(__file__))
 DATABASE = '../notebooks/'
-species_colors = {'Cow':'green', 'Badger':'blue', 'Deer':'red'}
-sb_colors = {'SB0054':'blue','SB0041':'green'}
-clade_colors = {2:'yellow',3:'green'}
-cmaps = {'species': species_colors,'spoligotype':sb_colors,'clade':clade_colors}
-providers = ['CARTODBPOSITRON','STAMEN_TERRAIN','OSM','ESRI_IMAGERY']
 df = pd.read_csv('ireland_test_data.csv')
+df = df.fillna('')
+
+species_colors = {'Cow':'green', 'Badger':'blue', 'Deer':'red','Dog':'orange'}
+sb_colors = trees.colors_from_labels(df,'name','spoligotype')
+clade_colors = {'Monaghan-1':'brown','Monaghan-2':'orange','Monaghan-3':'red',
+                'Wicklow-1':'green','NI-1':'blue','Unknown':'gray','':'gray'}
+county_colors = trees.colors_from_labels(df,'name','county')
+cmaps = {'species': species_colors,'spoligotype':sb_colors,'clade':clade_colors,'county':county_colors}
+providers = ['CARTODBPOSITRON','STAMEN_TERRAIN','OSM','ESRI_IMAGERY']
+
 
 tree_style = {
     "layout":'r',
@@ -98,11 +103,10 @@ template = """
 {% endblock %}
 """
 
-style1 = {'background':'lightgray','padding':'5px','font':'monospace'}
+style1 = {'background':'#f5f5d6','padding':'5px','font':'monospace'}
 
 def sample_tree(n=10):
 
-    import toytree
     tre = toytree.rtree.coaltree(n)
     ## assign random edge lengths and supports to each node
     for node in tre.treenode.traverse():
@@ -116,7 +120,7 @@ def sample_tree(n=10):
     toyplot.html.render(canvas, "tree.html")
     return
 
-def get_tree(df):
+def get_tree(df, colorby=None, layout='r', font_size=10):
     """get a tree from a selection of samples
        uses encoded snp data from dataframe/db to make a distance matrix
     """
@@ -126,12 +130,31 @@ def get_tree(df):
     snpmat.index = df.name
     #print (snpmat[:4])
     #make tree
+    #h = len(df)*20
     tre = snp_typing.tree_from_snps(snpmat.T)
+    tipnames = tre.get_tip_labels()
+    node_colors = None
+    node_sizes = None
+    if colorby not in ['',None]:
+        mapping = dict(zip(df.name,df[colorby]))
+        colormap =  cmaps[colorby]
+        tip_colors = [colormap[mapping[i]] if (i in mapping and i!='') else 'gray' for i in tipnames]
+        if len(df)>30:
+            node_sizes=[0 if i else 6 for i in tre.get_node_values(None, 1, 0)]
+            node_colors = [colormap[mapping[n]] if n in mapping else 'gray' for n in tre.get_node_values('name', True, True)]
+            tipnames = ['' for i in tipnames]
+    else:
+        tip_colors = None
+    tip_labels_style={
+            "font-size": "%spx" %font_size,
+            "-toyplot-anchor-shift": "13px",
+        }
     #render to html
-    canvas, axes, mark = tre.draw(width=400, height=400)
-
-    toyplot.html.render(canvas, "tree.html")
-    return
+    canvas, axes, mark = tre.draw(tip_labels=tipnames, tip_labels_colors=tip_colors,tip_labels_style=tip_labels_style,
+                                  layout=layout,node_colors=node_colors,node_sizes=node_sizes,
+                                  scalebar=True, width=400, height=500);
+    toyplot.html.render(canvas, "tree.html");
+    return canvas
 
 def wgs84_to_web_mercator(df, lon="LON", lat="LAT"):
 
@@ -150,19 +173,19 @@ def test_map():
 
 def bokeh_map(df=None, long=None, lat=None,
               tile_provider='CARTODBPOSITRON', colorby='species',
-              select_callback=None):
+              labels=None):
     """Bokeh map"""
 
     tile_provider = get_provider(tile_provider)
-    tools = "pan,wheel_zoom,hover,tap,lasso_select,reset,save"
+    tools = "pan,wheel_zoom,box_zoom,hover,tap,lasso_select,reset,save"
     sizing_mode='stretch_both'
 
     # range bounds supplied in web mercator coordinates
     k = 6378137
     if lat == None:
-        lat = 53.2
+        lat = 53.5
     if long == None:
-        long = -6.2
+        long = -7
 
     #get coords
     x = long * (k * np.pi/180.0)
@@ -170,14 +193,20 @@ def bokeh_map(df=None, long=None, lat=None,
     df = wgs84_to_web_mercator(df, lon="LONG", lat="LAT")
     colormap = cmaps[colorby]
     df['color'] = [colormap[i] if i in colormap else 'gray' for i in df[colorby]]
+    df['label'] = ''
     source = ColumnDataSource(df)
     #draw figure
-    p = figure(x_range=(x-100000, x+100000), y_range=(y-100000, y+100000),
+    p = figure(x_range=(x-200000, x+200000), y_range=(y-200000, y+200000),
                x_axis_type="mercator", y_axis_type="mercator", tools=tools,
                plot_width=500, plot_height=500, sizing_mode=sizing_mode)
     p.add_tile(tile_provider)
-    p.circle(x='x', y='y', size=15, alpha=0.7, color='color', source=source)
+    p.circle(x='x', y='y', size=15, alpha=0.7, color='color', source=source)#, legend_group=colorby)
+
+    labels = LabelSet(x='x', y='y', text='label',text_font_size='10pt',
+                     x_offset=5, y_offset=5, source=source, render_mode='canvas')
+    p.add_layout(labels)
     p.toolbar.logo = None
+    p.match_aspect = True
     hover = p.select(dict(type=HoverTool))
     hover.tooltips = OrderedDict([
         ("name", "@name"),
@@ -185,55 +214,82 @@ def bokeh_map(df=None, long=None, lat=None,
         ("spoligotype", "@spoligotype"),
         ("clade", "@clade"),
         ("nearest", "@nearest"),
+        ("county", "@county"),
     ])
     return p
 
 def map_dash():
     """Map dashboard"""
 
-    names = list(df.name.unique())
+    names = sorted(list(df.name.unique()))
     cols = df.columns[:6]
     cats=['species','clade','spoligotype','county']
+    labels=['','name','clade']
     map_pane = pn.pane.Bokeh(width=400)
     tree_pane = pn.pane.HTML(width=300)
-    sample_tree()
-    tile_select = pnw.Select(name='tile layer',options=providers,width=200)    
+    #tree_slider = pnw.FloatSlider(start=0,end=1,width=200)
+    tree_layout_select = pnw.Select(name='tree layout',options=['r','c','d'],width=200)
+    tile_select = pnw.Select(name='tile layer',options=providers,width=200)
     colorby_select = pnw.Select(name='color by',options=cats,width=200)
-    label_select = pnw.Select(name='label',options=['']+cats,width=200)
-    name_select = pnw.MultiSelect(name='name',options=names,size=4,width=200)   
+    label_select = pnw.Select(name='label',options=labels,width=200)
+    name_select = pnw.MultiSelect(name='name',options=names,size=8,width=200)
     btn = pnw.Button(name='Reset', button_type='primary',width=200)
-    info_pane = pn.pane.HTML(style=style1,width=200, sizing_mode='stretch_both')
-    df_pane = pn.pane.DataFrame(df[cols],height=200,sizing_mode='scale_both',max_rows=6)
+    info_pane = pn.pane.HTML(style=style1,width=200, height=200,sizing_mode='stretch_both')
+    df_pane = pn.pane.DataFrame(df[cols],width=500,height=200,sizing_mode='scale_both',max_rows=20,index=False)
     empty_pane = pn.pane.HTML(width=300,style=style1,sizing_mode='scale_height')
     empty_pane.object = 'lskdklasdlkjsad'
-    
-    def update1(attr,new,old):     
+
+    def update_info(attr,new,old):
         #print(new,old)
         info_pane.object = '<p>%s,%s</p>' %(int(new),int(old))
-        
+
+    def zoom_to_points(sel, p, pad=50000):
+        #zoom with aspect conserved
+        x1=sel.x.min()-pad
+        x2=sel.x.max()+pad
+        y1=sel.y.min()-pad
+        y2=sel.y.max()+pad
+        xr = x2-x1
+        yr = y2-y1
+        if yr<xr:
+            y2 = y1+xr-pad*1.3
+        else:
+            x2 = x1+yr-pad*1.3
+
+        p.x_range.update(start=x1,end=x2)
+        p.y_range.update(start=y1,end=y2)
+        return
+
     def items_selected(event):
+
         items = name_select.value
-        info_pane.object = ','.join(items)
+        colorby = colorby_select.value
+        info_pane.object = '\n'.join(items)
         p = map_pane.object
         source = p.renderers[1].data_source
         sel = df[df.name.isin(items)]
         df_pane.object = sel[cols]
         #show these points only on map
         source.data = dict(sel)
+
+        #zoom to points selected
+        zoom_to_points(sel, p)
+
         #get a tree
         if len(sel)>=3:
-            get_tree(sel)
+            get_tree(sel, colorby, layout=tree_layout_select.value)
             tree_pane.object = open('tree.html','r').read()
+        else:
+            tree_pane.object = ''
         return
-    
+
     def points_selected(attr,new,old):
+
         #print (new)
+        colorby = colorby_select.value
         ind =[int(n) for n in new]
-        #for n in new:            
-        #     info_pane.object = '<p>%s</p>' %n
         sel = df.loc[ind]
         df_pane.object = sel[cols]
-        
         #get nearest
         if len(sel)>0:
             #print (found.iloc[0].nearest)
@@ -241,39 +297,45 @@ def map_dash():
             near = s.split()
             info_pane.object = s
         if len(sel)>=3:
-            get_tree(sel)
+            get_tree(sel, colorby)
             tree_pane.object = open('tree.html','r').read()
         return
-    
+
     def draw_map(event):
-        p = map_pane.object = bokeh_map(df)  
-        p.x_range.on_change('start', update1)
+
+        p = map_pane.object = bokeh_map(df)
+        p.x_range.on_change('start', update_info)
         source = p.renderers[1].data_source
-        source.selected.on_change('indices', points_selected)   
-        tree_pane.object = '' 
+        source.selected.on_change('indices', points_selected)
+        tree_pane.object = ''
         return
-    
-    def update_map(event):         
+
+    def update_map(event):
+
         p = map_pane.object
         source = p.renderers[1].data_source
-        p.renderers = [x for x in p.renderers if not str(x).startswith('TileRenderer')]            
+        p.renderers = [x for x in p.renderers if not str(x).startswith('TileRenderer')]
         #p.add_tile(tile_select.value)
         rend = renderers.TileRenderer(tile_source= get_provider(tile_select.value))
-        p.renderers.insert(0, rend) 
+        p.renderers.insert(0, rend)
         colorby = colorby_select.value
+        colormap = cmaps[colorby]
+        df['color'] = [colormap[i] if i in colormap else 'gray' for i in df[colorby]]
+
         info_pane.object = '<p>%s,%s</p>' %(p.x_range.start,p.x_range.end)
         if label_select.value != '':
-            #remove old labels?
-            
-            labels = LabelSet(x='x', y='y', text=label_select.value,
-                         x_offset=5, y_offset=5, source=source, render_mode='canvas')
-            p.add_layout(labels)
+            df['label'] = df[label_select.value]
+        else:
+            df['label'] = ''
+        source.data = dict(df)
+        update_tree(event)
         return
-    
+
     def update_tree(event):
-        sample_tree()
+
+        get_tree(df, colorby_select.value)
         tree_pane.object = open('tree.html','r').read()
-        
+
     draw_map(None)
     btn.on_click(draw_map)
     #label_box = pnw.Checkbox(name='Show labels')
@@ -281,10 +343,12 @@ def map_dash():
     colorby_select.param.watch(update_map,'value')
     label_select.param.watch(update_map,'value')
     name_select.param.watch(items_selected,'value')
-    
+    tree_layout_select.param.watch(items_selected,'value')
+
     #layout dashboard
-    app = pn.Column(pn.Row(pn.Column(tile_select,colorby_select,label_select,name_select,btn,info_pane,sizing_mode='stretch_height'),
-                           pn.Column(map_pane,width=600),tree_pane),pn.Column(df_pane,empty_pane))
+    app = pn.Column(pn.Row(pn.Column(tile_select,colorby_select,label_select,name_select,tree_layout_select,btn,
+                                     background='whitesmoke',sizing_mode='stretch_height'),
+                           pn.Column(map_pane,width=600),tree_pane),pn.Row(pn.Row(info_pane,scroll=True),df_pane,height=200,scroll=True))
     return app
 
 bootstrap = pn.template.BootstrapTemplate(title='BTBGenie Sample App',
