@@ -120,8 +120,8 @@ def sample_tree(n=10):
     toyplot.html.render(canvas, "tree.html")
     return
 
-def get_tree(df, colorby=None, layout='r', font_size=10):
-    """get a tree from a selection of samples
+def get_tree(df):
+    """Get a tree from a selection of samples
        uses encoded snp data from dataframe/db to make a distance matrix
     """
 
@@ -129,9 +129,14 @@ def get_tree(df, colorby=None, layout='r', font_size=10):
     snpmat = df.snps.apply(snp_typing.decode_snps)
     snpmat.index = df.name
     #print (snpmat[:4])
-    #make tree
-    #h = len(df)*20
     tre = snp_typing.tree_from_snps(snpmat.T)
+    return tre
+
+def draw_tree(tre, df, colorby=None, layout='r', font_size=10, root=None):
+    """draw the tree with given options"""
+
+    if root not in ['',None]:
+        tre = tre.root(root)
     tipnames = tre.get_tip_labels()
     node_colors = None
     node_sizes = None
@@ -139,7 +144,7 @@ def get_tree(df, colorby=None, layout='r', font_size=10):
         mapping = dict(zip(df.name,df[colorby]))
         colormap =  cmaps[colorby]
         tip_colors = [colormap[mapping[i]] if (i in mapping and i!='') else 'gray' for i in tipnames]
-        if len(df)>30:
+        if len(tipnames)>40:
             node_sizes=[0 if i else 6 for i in tre.get_node_values(None, 1, 0)]
             node_colors = [colormap[mapping[n]] if n in mapping else 'gray' for n in tre.get_node_values('name', True, True)]
             tipnames = ['' for i in tipnames]
@@ -222,6 +227,7 @@ def map_dash():
     """Map dashboard"""
 
     names = sorted(list(df.name.unique()))
+    tre = None
     cols = df.columns[:6]
     cats=['species','clade','spoligotype','county']
     labels=['','name','clade']
@@ -229,6 +235,7 @@ def map_dash():
     tree_pane = pn.pane.HTML(width=300)
     #tree_slider = pnw.FloatSlider(start=0,end=1,width=200)
     tree_layout_select = pnw.Select(name='tree layout',options=['r','c','d'],width=200)
+    root_select = pnw.Select(name='root on',options=[''],width=200)
     tile_select = pnw.Select(name='tile layer',options=providers,width=200)
     colorby_select = pnw.Select(name='color by',options=cats,width=200)
     label_select = pnw.Select(name='label',options=labels,width=200)
@@ -238,6 +245,7 @@ def map_dash():
     df_pane = pn.pane.DataFrame(df[cols],width=500,height=200,sizing_mode='scale_both',max_rows=20,index=False)
     empty_pane = pn.pane.HTML(width=300,style=style1,sizing_mode='scale_height')
     empty_pane.object = 'lskdklasdlkjsad'
+    loading = pn.indicators.LoadingSpinner(value=False, width=100, height=100)
 
     def update_info(attr,new,old):
         #print(new,old)
@@ -262,7 +270,9 @@ def map_dash():
 
     def items_selected(event):
 
+        global tre
         items = name_select.value
+        root_select.options = ['']+items
         colorby = colorby_select.value
         info_pane.object = '\n'.join(items)
         p = map_pane.object
@@ -277,28 +287,42 @@ def map_dash():
 
         #get a tree
         if len(sel)>=3:
-            get_tree(sel, colorby, layout=tree_layout_select.value)
+            loading.value = True
+            tre = get_tree(sel)
+            draw_tree(tre, sel, colorby, layout=tree_layout_select.value)
             tree_pane.object = open('tree.html','r').read()
+            loading.value = False
         else:
             tree_pane.object = ''
         return
 
     def points_selected(attr,new,old):
+        """bokeh callback for lasso"""
 
-        #print (new)
+        global tre
         colorby = colorby_select.value
         ind =[int(n) for n in new]
         sel = df.loc[ind]
         df_pane.object = sel[cols]
+        if len(sel)>=3:
+            tre = get_tree(sel)
+            draw_tree(tre, sel, colorby, layout=tree_layout_select.value)
+            tree_pane.object = open('tree.html','r').read()
+        return
+
+    def tap_callback(event):
+        #tap tool callback
+
+        p = map_pane.object
+        source = p.renderers[1].data_source
+        ind = source.selected.indices
+        sel = df.loc[ind]
+        df_pane.object = sel[cols]
         #get nearest
         if len(sel)>0:
-            #print (found.iloc[0].nearest)
             s = sel.iloc[0].nearest
             near = s.split()
             info_pane.object = s
-        if len(sel)>=3:
-            get_tree(sel, colorby)
-            tree_pane.object = open('tree.html','r').read()
         return
 
     def draw_map(event):
@@ -307,6 +331,7 @@ def map_dash():
         p.x_range.on_change('start', update_info)
         source = p.renderers[1].data_source
         source.selected.on_change('indices', points_selected)
+        p.on_event('tap',tap_callback)
         tree_pane.object = ''
         return
 
@@ -315,7 +340,6 @@ def map_dash():
         p = map_pane.object
         source = p.renderers[1].data_source
         p.renderers = [x for x in p.renderers if not str(x).startswith('TileRenderer')]
-        #p.add_tile(tile_select.value)
         rend = renderers.TileRenderer(tile_source= get_provider(tile_select.value))
         p.renderers.insert(0, rend)
         colorby = colorby_select.value
@@ -332,9 +356,13 @@ def map_dash():
         return
 
     def update_tree(event):
-
-        get_tree(df, colorby_select.value)
-        tree_pane.object = open('tree.html','r').read()
+        global tre
+        #use subset of samples if selected
+        items = name_select.value
+        if tre != None:
+            sel = df[df.name.isin(items)]
+            draw_tree(tre, sel, colorby_select.value, layout=tree_layout_select.value, root=root_select.value)
+            tree_pane.object = open('tree.html','r').read()
 
     draw_map(None)
     btn.on_click(draw_map)
@@ -343,12 +371,13 @@ def map_dash():
     colorby_select.param.watch(update_map,'value')
     label_select.param.watch(update_map,'value')
     name_select.param.watch(items_selected,'value')
-    tree_layout_select.param.watch(items_selected,'value')
+    tree_layout_select.param.watch(update_tree,'value')
+    root_select.param.watch(update_tree,'value')
 
     #layout dashboard
-    app = pn.Column(pn.Row(pn.Column(tile_select,colorby_select,label_select,name_select,tree_layout_select,btn,
+    app = pn.Column(pn.Row(pn.Column(tile_select,colorby_select,label_select,name_select,tree_layout_select,root_select,btn,
                                      background='whitesmoke',sizing_mode='stretch_height'),
-                           pn.Column(map_pane,width=600),tree_pane),pn.Row(pn.Row(info_pane,scroll=True),df_pane,height=200,scroll=True))
+                           pn.Column(map_pane,width=600),tree_pane,loading),pn.Row(pn.Row(info_pane,scroll=True),df_pane,height=200,scroll=True))
     return app
 
 bootstrap = pn.template.BootstrapTemplate(title='BTBGenie Sample App',
