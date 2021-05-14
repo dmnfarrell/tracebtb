@@ -229,13 +229,14 @@ def bokeh_map(df=None, long=None, lat=None,
     colormap = cmaps[colorby]
     df['color'] = [colormap[i] if i in colormap else 'gray' for i in df[colorby]]
     df['label'] = ''
+    df['size'] = 10
     source = ColumnDataSource(df)
     #draw figure
     p = figure(x_range=(x-200000, x+200000), y_range=(y-200000, y+200000),
                x_axis_type="mercator", y_axis_type="mercator", tools=tools,
                plot_width=500, plot_height=500, sizing_mode=sizing_mode)
     p.add_tile(tile_provider)
-    p.circle(x='x', y='y', size=15, alpha=0.7, color='color', source=source)#, legend_group=colorby)
+    p.circle(x='x', y='y', size='size', alpha=0.7, color='color', source=source)#, legend_group=colorby)
 
     labels = LabelSet(x='x', y='y', text='label',text_font_size='10pt',
                      x_offset=5, y_offset=5, source=source, render_mode='canvas')
@@ -277,8 +278,9 @@ def map_dash():
     df_pane = pn.pane.DataFrame(df[cols],width=500,height=200,sizing_mode='scale_both',max_rows=20,index=False)
     snps_pane = pn.pane.DataFrame(width=500,height=200,sizing_mode='scale_both')
     tip_align_box = pnw.Checkbox(name="tip labels align",value=False)
-    edge_type_select = pnw.Select(name= "edge_type",options=['p','b','c'],width=100)
-    settings_pane = pn.Column(tip_align_box,edge_type_select,width=100)
+    edge_type_select = pnw.Select(name= "edge type",options=['p','b','c'],width=100)
+    point_size_entry = pnw.IntInput(name="map point size", step=1, start=2, end=30, value=10)
+    settings_pane = pn.Column(tip_align_box,edge_type_select,point_size_entry,width=100)
     tab_pane = pn.Tabs(('samples', df_pane), ('snp dist',snps_pane), ('info', info_pane))
     plot_tab_pane = pn.Tabs(('tree', tree_pane), ('dists',plot_pane), ('settings',settings_pane))
 
@@ -321,6 +323,7 @@ def map_dash():
         colorby = colorby_select.value
         colormap = cmaps[colorby]
         df['color'] = [colormap[i] if i in colormap else 'gray' for i in df[colorby]]
+        df['size'] = point_size_entry.value
         sel = df[df.name.isin(items)]
         df_pane.object = sel[cols]
         #show these points only on map
@@ -413,6 +416,7 @@ def map_dash():
         else:
             d = df
         d['color'] = [colormap[i] if i in colormap else 'gray' for i in d[colorby]]
+        d['size'] = point_size_entry.value
         if label_select.value != '':
             d['label'] = d[label_select.value]
         else:
