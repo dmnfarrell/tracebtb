@@ -206,7 +206,7 @@ def test_map():
     p.add_tile(tile_provider)
     return p
 
-def bokeh_map(df=None, long=None, lat=None,
+def bokeh_map(df=None, long=None, lat=None, height=600,
               tile_provider='CARTODBPOSITRON', colorby='species',
               labels=None):
     """Bokeh map"""
@@ -225,6 +225,7 @@ def bokeh_map(df=None, long=None, lat=None,
     #get coords
     x = long * (k * np.pi/180.0)
     y = np.log(np.tan((90 + lat) * np.pi/360.0)) * k
+    print (x,y)
     df = wgs84_to_web_mercator(df, lon="LONG", lat="LAT")
     colormap = cmaps[colorby]
     df['color'] = [colormap[i] if i in colormap else 'gray' for i in df[colorby]]
@@ -234,7 +235,7 @@ def bokeh_map(df=None, long=None, lat=None,
     #draw figure
     p = figure(x_range=(x-200000, x+200000), y_range=(y-200000, y+200000),
                x_axis_type="mercator", y_axis_type="mercator", tools=tools,
-               plot_width=500, plot_height=500, sizing_mode=sizing_mode)
+               plot_width=height, plot_height=height, sizing_mode=sizing_mode)
     p.add_tile(tile_provider)
     p.circle(x='x', y='y', size='size', alpha=0.7, color='color', source=source)#, legend_group=colorby)
 
@@ -242,7 +243,7 @@ def bokeh_map(df=None, long=None, lat=None,
                      x_offset=5, y_offset=5, source=source, render_mode='canvas')
     p.add_layout(labels)
     p.toolbar.logo = None
-    p.match_aspect = True
+    #p.match_aspect = True
     hover = p.select(dict(type=HoverTool))
     hover.tooltips = OrderedDict([
         ("name", "@name"),
@@ -263,6 +264,7 @@ def map_dash():
     cols = df.columns[:6]
     cats=['species','clade','spoligotype','county']
     labels=['','name','clade']
+    counties=['All','Wicklow','Monaghan','NI']
     map_pane = pn.pane.Bokeh(width=400)
     tree_pane = pn.pane.HTML(width=300)
     plot_pane = pn.pane.Matplotlib(height=500)
@@ -273,6 +275,7 @@ def map_dash():
     colorby_select = pnw.Select(name='color by',options=cats,width=200)
     label_select = pnw.Select(name='label',options=labels,width=200)
     name_select = pnw.MultiSelect(name='name',options=names,size=8,width=200)
+    county_select = pnw.Select(name='county',options=counties,width=200)
     btn = pnw.Button(name='Reset', button_type='primary',width=200)
     info_pane = pn.pane.HTML(style=style1,width=200, height=200,sizing_mode='stretch_both')
     df_pane = pn.pane.DataFrame(df[cols],width=500,height=200,sizing_mode='scale_both',max_rows=20,index=False)
@@ -293,23 +296,16 @@ def map_dash():
         #print(new,old)
         info_pane.object = '<p>%s,%s</p>' %(int(new),int(old))
 
-    def zoom_to_points(sel, p, pad=50000):
+    def zoom_to_points(sel, p, pad=200000):
         #zoom with aspect conserved
-        x1=sel.x.min()-pad
-        x2=sel.x.max()+pad
-        y1=sel.y.min()-pad
-        y2=sel.y.max()+pad
-        xr = x2-x1
-        yr = y2-y1
-        if yr<xr:
-            y2 = y1+xr#-pad#*1.3
+        if len(sel)==1:
+            x=sel.iloc[0].x
+            y=sel.iloc[0].y
         else:
-            x2 = x1+yr#-pad#*1.3
-        yr = y2-y1
-        xr = x2-x1
-        info_pane.object = 'aspect=%s' %(xr/yr)
-        p.x_range.update(start=x1,end=x2)
-        p.y_range.update(start=y1,end=y2)
+            x=-779236
+            y=7076025
+        p.x_range.update(start=x-pad,end=x+pad)
+        p.y_range.update(start=y-pad,end=y+pad)
         return
 
     def items_selected(event):
@@ -331,6 +327,7 @@ def map_dash():
 
         #zoom to points selected
         zoom_to_points(sel, p)
+        update_tile()
 
         #get a tree
         if len(sel)>=3:
@@ -348,6 +345,16 @@ def map_dash():
         else:
             tree_pane.object = ''
             snps_pane.object = ''
+        return
+
+    def county_selected(event):
+        global sel
+        county = county_select.value
+        if county == 'All':
+            sel = df
+        else:
+            sel = df[df.county==county]
+        update_map(event)
         return
 
     def points_selected(attr,new,old):
@@ -400,15 +407,19 @@ def map_dash():
         plot_pane.object = None
         return
 
+    def update_tile():
+        p = map_pane.object
+        p.renderers = [x for x in p.renderers if not str(x).startswith('TileRenderer')]
+        rend = renderers.TileRenderer(tile_source= get_provider(tile_select.value))
+        p.renderers.insert(0, rend)
+
     def update_map(event):
 
         global sel,df
         p = map_pane.object
         info_pane.object = '<p>%s,%s</p>' %(p.x_range.start,p.x_range.end)
         source = p.renderers[1].data_source
-        p.renderers = [x for x in p.renderers if not str(x).startswith('TileRenderer')]
-        rend = renderers.TileRenderer(tile_source= get_provider(tile_select.value))
-        p.renderers.insert(0, rend)
+        update_tile()
         colorby = colorby_select.value
         colormap = cmaps[colorby]
         if sel is not None:
@@ -444,13 +455,15 @@ def map_dash():
     colorby_select.param.watch(update_map,'value')
     label_select.param.watch(update_map,'value')
     name_select.param.watch(items_selected,'value')
+    county_select.param.watch(county_selected,'value')
     tree_layout_select.param.watch(update_tree,'value')
     root_select.param.watch(update_tree,'value')
 
     #layout dashboard
-    app = pn.Column(pn.Row(pn.Column(tile_select,colorby_select,label_select,name_select,tree_layout_select,root_select,btn,
+    app = pn.Column(pn.Row(pn.Column(tile_select,colorby_select,label_select,name_select,county_select,tree_layout_select,root_select,btn,
                                      background='whitesmoke',sizing_mode='stretch_height'),
-                           pn.Column(map_pane,width=600),plot_tab_pane,loading),pn.Row(tab_pane,height=200,scroll=True))
+                           pn.Column(map_pane,width=600,sizing_mode='stretch_both'),pn.Column(plot_tab_pane,sizing_mode='fixed'),loading),
+                                    pn.Column(tab_pane,width=400,scroll=True))
     return app
 
 bootstrap = pn.template.BootstrapTemplate(title='BTBGenie WGS Mapper',
