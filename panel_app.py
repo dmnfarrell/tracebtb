@@ -225,7 +225,6 @@ def bokeh_map(df=None, long=None, lat=None, height=600,
     #get coords
     x = long * (k * np.pi/180.0)
     y = np.log(np.tan((90 + lat) * np.pi/360.0)) * k
-    print (x,y)
     df = wgs84_to_web_mercator(df, lon="LONG", lat="LAT")
     colormap = cmaps[colorby]
     df['color'] = [colormap[i] if i in colormap else 'gray' for i in df[colorby]]
@@ -407,7 +406,7 @@ def map_dash():
         plot_pane.object = None
         return
 
-    def update_tile():
+    def update_tile(event=None):
         p = map_pane.object
         p.renderers = [x for x in p.renderers if not str(x).startswith('TileRenderer')]
         rend = renderers.TileRenderer(tile_source= get_provider(tile_select.value))
@@ -419,7 +418,7 @@ def map_dash():
         p = map_pane.object
         info_pane.object = '<p>%s,%s</p>' %(p.x_range.start,p.x_range.end)
         source = p.renderers[1].data_source
-        update_tile()
+        #update_tile()
         colorby = colorby_select.value
         colormap = cmaps[colorby]
         if sel is not None:
@@ -451,7 +450,7 @@ def map_dash():
     draw_map(None)
     btn.on_click(draw_map)
     #label_box = pnw.Checkbox(name='Show labels')
-    tile_select.param.watch(update_map,'value')
+    tile_select.param.watch(update_tile,'value')
     colorby_select.param.watch(update_map,'value')
     label_select.param.watch(update_map,'value')
     name_select.param.watch(items_selected,'value')
@@ -462,8 +461,8 @@ def map_dash():
     #layout dashboard
     app = pn.Column(pn.Row(pn.Column(tile_select,colorby_select,label_select,name_select,county_select,tree_layout_select,root_select,btn,
                                      background='whitesmoke',sizing_mode='stretch_height'),
-                           pn.Column(map_pane,width=600,sizing_mode='stretch_both'),pn.Column(plot_tab_pane,sizing_mode='fixed'),loading),
-                                    pn.Column(tab_pane,width=400,scroll=True))
+                           pn.Column(map_pane,width=600,sizing_mode='stretch_both'),pn.Column(plot_tab_pane,width=350,sizing_mode='stretch_height'),loading),
+                                    pn.Column(tab_pane,height=400,scroll=True),sizing_mode='stretch_both')
     return app
 
 bootstrap = pn.template.BootstrapTemplate(title='BTBGenie WGS Mapper',
