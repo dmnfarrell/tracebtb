@@ -1,6 +1,8 @@
-# BTBgenie sample web application
+# BTBGenIE tools
 
-## Requirements for running locally
+## Web application
+
+### Requirements for running locally
 
 Python install with the following packages:
 
@@ -9,13 +11,13 @@ Python install with the following packages:
 * toytree
 * pandas
 
-## Running the dashboard
+### Running the dashboard
 
 ```bash
 panel serve --show panel_app.py
 ```
 
-or 
+or
 
 ```
 ./panel_app.py

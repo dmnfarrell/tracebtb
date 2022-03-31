@@ -337,9 +337,9 @@ def map_dash():
                                root=root_select.value)
             tree_pane.object = canvas
             #dist matrix
-            m = dist_matrix(sel)
-            plot_pane.object = dist_plot(m)
-            snps_pane.object = m
+            #m = dist_matrix(sel)
+            #plot_pane.object = dist_plot(m)
+            #snps_pane.object = m
             loading.value = False
         else:
             tree_pane.object = ''
