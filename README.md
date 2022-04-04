@@ -23,8 +23,6 @@ or
 ./panel_app.py
 ```
 
-<img src=static/scr1.png width=480px>
-
 ## Links
 
 * https://twitter.com/btbgenie

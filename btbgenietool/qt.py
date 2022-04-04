@@ -1,6 +1,6 @@
 
 """
-    snipgenie app
+    btbgenietool imports
     Created January 2021
     Copyright (C) Damien Farrell
 

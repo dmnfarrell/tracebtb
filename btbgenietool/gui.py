@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-    btbgenie tool.
+    btbgenietool GUI.
     Created Mar 2022
     Copyright (C) Damien Farrell
 
@@ -116,7 +116,7 @@ class App(QMainWindow):
         #self.left_tabs.addTab(self.info, 'tree')
         self.add_tree_viewer()
         l.addWidget(self.left_tabs)
-        self.meta_table = tables.FilesTable(left, app=self, dataframe=pd.DataFrame())
+        self.meta_table = tables.DefaultTable(left, app=self, dataframe=pd.DataFrame())
         #l.addWidget(self.meta_table)
         self.left_tabs.addTab(self.meta_table, 'metadata')
 
@@ -133,7 +133,8 @@ class App(QMainWindow):
 
         self.gv = gis.GISViewer(right)
         #self.gv.loadDefault()
-        self.right_tabs.addTab(self.gv, 'map')
+        idx = self.right_tabs.addTab(self.gv, 'map')
+        self.right_tabs.setCurrentIndex(idx)
 
         #self.info.append("Welcome\n")
         self.m.setSizes([50,200,150])
@@ -350,18 +351,21 @@ class App(QMainWindow):
         t.setDataFrame(df)
         t.resizeColumns()
         #map
-        self.gv.importShapefile('/storage/btbgenie/monaghan/metadata/counties.shp')
-        #lpis
+        #self.gv.importShapefile('/storage/btbgenie/monaghan/metadata/counties.shp')
 
         #centroids
         self.gv.importShapefile('/storage/btbgenie/monaghan/metadata/centroids.shp')
+        #parcels
+        self.gv.importShapefile('/storage/btbgenie/monaghan/metadata/lpis_merged.shp' )
+        self.gv.plot()
 
         #tree
         tv = self.treeviewer
         tv.load_tree('/storage/btbgenie/monaghan/monaghan_results/tree.newick')
         tv.style['layout'] = 'c'
         tv.style['tip_labels'] = False
-        tv.update()
+        tv.set_zoom(2)
+        #tv.update()
         #movement
         return
 
@@ -374,9 +378,8 @@ class App(QMainWindow):
             self.left_tabs.setCurrentIndex(idx)
         return
 
-    def show_map(self):
+    def add_map(self):
 
-        from . import gis
         if not hasattr(self, 'gisviewer'):
             self.gisviewer = gis.GISViewer()
         if not 'map' in self.get_tabs():
@@ -500,7 +503,7 @@ class App(QMainWindow):
                 return
             elif reply == QMessageBox.Yes:
                 self.save_project()
-        self.save_settings()
+        #self.save_settings()
         event.accept()
         return
 
@@ -514,7 +517,7 @@ class App(QMainWindow):
         """Open the online documentation"""
 
         #import webbrowser
-        link='https://github.com/dmnfarrell/snipgenie'
+        link='https://github.com/dmnfarrell/btbgenietools'
         #webbrowser.open(link,autoraise=1)
         from PySide2.QtWebEngineWidgets import QWebEngineView
         browser = QWebEngineView()
@@ -531,7 +534,7 @@ class App(QMainWindow):
         pandasver = pd.__version__
         pythonver = platform.python_version()
         mplver = matplotlib.__version__
-        qtver = PySide2.QtCore.__version__        
+        qtver = PySide2.QtCore.__version__
 
         text='BTBGenIE tool\n'\
             +'version '+__version__+'\n'\

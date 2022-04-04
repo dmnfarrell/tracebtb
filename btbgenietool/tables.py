@@ -50,7 +50,7 @@ class DataFrameTable(QTableView):
     """
     QTableView with pandas DataFrame as model.
     """
-    def __init__(self, parent=None, dataframe=None, fontsize=12, *args):
+    def __init__(self, parent=None, dataframe=None, fontsize=10, *args):
 
         QTableView.__init__(self)
         self.clicked.connect(self.showSelection)
@@ -472,15 +472,7 @@ class DefaultTable(DataFrameTable):
     """
     QTableView with pandas DataFrame as model.
     """
-    def __init__(self, parent=None, app=None, dataframe=None, *args):
-        DataFrameTable.__init__(self, parent, dataframe)
-        self.app = app
-        self.setWordWrap(False)
 
-class FilesTable(DataFrameTable):
-    """
-    QTableView for files view.
-    """
     def __init__(self, parent=None, app=None, dataframe=None, *args):
         #super(DataFrameTable, self).__init__()
         DataFrameTable.__init__(self)

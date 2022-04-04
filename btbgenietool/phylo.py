@@ -334,6 +334,10 @@ class TreeViewer(QWidget):
         zoom = self.zoomslider.value()/10
         self.browser.setZoomFactor(zoom)
 
+    def set_zoom(self, value):
+        self.browser.setZoomFactor(value)
+        return
+
     def clustermap(self):
         #canvas = toyplot.Canvas(width=600, height=800)
         #axes = canvas.cartesian()
