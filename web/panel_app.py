@@ -227,9 +227,25 @@ def test_map():
     p.add_tile(tile_provider)
     return p
 
+def get_moves(df):
+    """get moves for a sample"""
+
+    cols=['ANIMAL_ID','HERD_NO','move_from','move_date','time_from_last_bd']
+    t = df.merge(allmov,left_on='ANIMAL_ID',right_on='tag',how='inner')[cols]
+
+    t = t.merge(lpis_cent,left_on='move_from',right_on='SPH_HERD_N')
+    t = t.sort_values('move_date')
+    if len(t)==0:
+        return
+    x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
+    t = pd.concat([t,x])
+    t = t.drop(columns='geometry')
+    t = wgs84_to_web_mercator(t, lon="LONG", lat="LAT")
+    return t
+
 def bokeh_map(df=None, long=None, lat=None, height=600,
-              tile_provider='CARTODBPOSITRON', colorby='county',
-              labels=None):
+              tile_provider='CARTODBPOSITRON', colorby='County',
+              labels=None, arrows=None):
     """Bokeh map"""
 
     tile_provider = get_provider(tile_provider)
@@ -247,25 +263,42 @@ def bokeh_map(df=None, long=None, lat=None, height=600,
     x = long * (k * np.pi/180.0)
     y = np.log(np.tan((90 + lat) * np.pi/360.0)) * k
     df = wgs84_to_web_mercator(df, lon="LONG", lat="LAT")
-    SPECIES = ['Bovine','Badger','Deer']
-    MARKERS = ['circle', 'triangle','square']
+
     colormap = cmaps[colorby]
     df['color'] = [colormap[i] if i in colormap else 'gray' for i in df[colorby]]
     df['label'] = ''
     df['size'] = 10
     source = ColumnDataSource(df)
+
+    if len(df)==1:
+        x_range=(x-200000, x+200000)
+        y_range=(y-200000, y+200000)
+    else:
+        x_range=None; y_range=None
+
     #draw figure
-    p = figure(tools=tools, #x_range=(x-200000, x+200000), y_range=(y-200000, y+200000),
+    p = figure(tools=tools, #x_range=x_range,y_range=y_range,
                #x_axis_type="mercator", y_axis_type="mercator",
-               plot_width=height, plot_height=height, sizing_mode=sizing_mode)
+               plot_width=height, plot_height=height, sizing_mode=sizing_mode)#, active_scroll='wheel_zoom')
     p.add_tile(tile_provider)
-    p.circle(x='x', y='y', size='size', alpha=0.7, color='color', source=source)
-                #marker=factor_mark('species', MARKERS, SPECIES))
+    p.circle(x='x', y='y', size='size', alpha=0.7, color='color', source=source,
+                nonselection_fill_alpha=0.7, selection_fill_color="red", selection_line_color="black")
                 #, legend_group=colorby)
 
     labels = LabelSet(x='x', y='y', text='label',text_font_size='10pt',
                      x_offset=5, y_offset=5, source=source, render_mode='canvas')
     p.add_layout(labels)
+
+    #arrows for moves
+    a_source = ColumnDataSource(data=dict(
+            x=[], y=[], x2=[], y2=[] ))
+
+    arrows = Arrow(end=VeeHead(fill_color="black", size=10, line_alpha=.9),
+                       x_start='x', y_start='y',
+                       x_end='x2', y_end='y2',
+                       source=source)
+    p.renderers.append(arrows)
+    p.add_layout(arrows)
 
     #p.legend.location = "top_left"
     #p.legend.click_policy="mute"
@@ -273,15 +306,15 @@ def bokeh_map(df=None, long=None, lat=None, height=600,
     p.match_aspect = True
     hover = p.select(dict(type=HoverTool))
     hover.tooltips = OrderedDict([
-        ("name", "@name"),
-        ("species", "@species"),
+        ("name", "@sample"),
+        ("species", "@Species"),
         ("SB", "@SB"),
         ("snp12", "@snp12"),
         ("snp50", "@snp50"),
-        #("nearest", "@nearest"),
-        ("county", "@county"),
+        ("county", "@County"),
     ])
     return p
+
 
 def map_dash(df):
     """Map dashboard"""
@@ -291,8 +324,8 @@ def map_dash(df):
     tre = None
     sel = None
     cols = df.columns[:6]
-    cats=['county','species','snp12','snp50','SB']
-    labels=['','name','snp12']
+    cats=['County','Species','snp12','snp50','SB']
+    labels=['','name','snp12','snp50','SB']
     counties=['All','Wicklow','Monaghan','NI']
     map_pane = pn.pane.Bokeh(width=400)
     tree_pane = pn.pane.HTML(width=300)
@@ -314,8 +347,8 @@ def map_dash(df):
     outliers_btn = pnw.Button(name='Find outliers', button_type='primary',width=200)
     help_btn = pnw.Button(name='Help', button_type='primary',width=200)
 
-    style1 = {'background':'#f5f5d6','padding':'5px','font':'monospace'}
-    info_pane = pn.pane.HTML(style=style1,width=200, height=200,sizing_mode='stretch_both')
+    style1 = {'background':'lightgray','padding':'5px','font-family':'monospace'}
+    info_pane = pn.pane.HTML(style=style1, width=200, height=200,sizing_mode='stretch_both')
     df_pane = pn.pane.DataFrame(df[cols],width=500,height=200,sizing_mode='scale_both',max_rows=20,index=False)
     snps_pane = pnw.Tabulator()
     meta_pane = pnw.Tabulator(df[cols],pagination='remote', page_size=20, width=500,height=600)
@@ -351,17 +384,19 @@ def map_dash(df):
         p.y_range.update(start=y-pad,end=y+pad)
         return
 
-    def items_selected(event):
+    def names_selected(event):
+        names = name_select.value
+        items_selected(names)
+
+    def clusters_selected(event):
+        clusters = cluster_select.value
+        names = get_cluster_samples(df, clusters)
+        items_selected(names)
+
+    def items_selected(names):
 
         global tre, sel
-        clusters = cluster_select.value
-        if len(clusters)==0:
-            names = name_select.value
-        else:
-            names = get_cluster_samples(clusters)
-
         root_select.options = ['']+names
-        info_pane.object = '\n'.join(names)
         p = map_pane.object
         source = p.renderers[1].data_source
         colorby = colorby_select.value
@@ -370,7 +405,7 @@ def map_dash(df):
         df['size'] = point_size_entry.value
         #selected data
         sel = df[df.name.isin(names)]
-        df_pane.object = sel[cols]
+        info_pane.object = sel[cols]
         #show these points only on map
         source.data = dict(sel)
 
@@ -408,7 +443,7 @@ def map_dash(df):
         if county == 'All':
             sel = df
         else:
-            sel = df[df.county==county]
+            sel = df[df.County==county]
         update_map(event)
         return
 
@@ -431,7 +466,7 @@ def map_dash(df):
             plot_pane.object = dist_plot(m)
             snps_pane.object = m
             loading.value = False
-            info_pane.object = sel
+            #info_pane.object = sel
         return
 
     def tap_callback(event):
@@ -440,9 +475,9 @@ def map_dash(df):
         p = map_pane.object
         source = p.renderers[1].data_source
         ind = source.selected.indices
-        sel = df.loc[ind]
-        #df_pane.object = sel[cols]
-
+        info_pane.object = str(ind)
+        df = pd.DataFrame(source.data)
+        sel = df.iloc[ind]
         return
 
     def find_related_callback(event):
@@ -451,11 +486,14 @@ def map_dash(df):
         p = map_pane.object
         source = p.renderers[1].data_source
         ind = source.selected.indices
-        sel = df.loc[ind]
+        info_pane.object = str(ind)
+        df = pd.DataFrame(source.data)
+        sel = df.iloc[ind]
         if len(sel)>0:
             names = sel['sample']
             sel = find_related(names)
-            info_pane.object = sel
+            if sel is None:
+                return
         update_map(event)
         return
 
@@ -463,15 +501,19 @@ def map_dash(df):
         """Find related isolates"""
 
         cl = df[df.name.isin(names)].snp12.unique()
+        if len(cl)==0:
+            return
         sub = df[df.snp12.isin(cl)]
         return sub
 
     def draw_map(event):
+        """Redraw from scratch"""
 
         global sel
         sel = None
+        cluster_select.value = []
         p = map_pane.object = bokeh_map(df)
-        p.x_range.on_change('start', update_info)
+        #p.x_range.on_change('start', update_info)
         source = p.renderers[1].data_source
         source.selected.on_change('indices', points_selected)
         p.on_event('tap',tap_callback)
@@ -488,10 +530,10 @@ def map_dash(df):
         p.renderers.insert(0, rend)
 
     def update_map(event):
-        """Updated colors or labels"""
+        """Updated colors or labels without replotting"""
+
         global sel,df
         p = map_pane.object
-        info_pane.object = '<p>%s,%s</p>' %(p.x_range.start,p.x_range.end)
         source = p.renderers[1].data_source
         colorby = colorby_select.value
         colormap = cmaps[colorby]
@@ -499,6 +541,7 @@ def map_dash(df):
             d = sel
         else:
             d = df
+        info_pane.object = d[['sample','snp12']]
         d['color'] = [colormap[i] if i in colormap else 'gray' for i in d[colorby]]
         d['size'] = point_size_entry.value
         if label_select.value != '':
@@ -522,16 +565,26 @@ def map_dash(df):
                                node_size=node_size_entry.value,
                                root=root_select.value)
             tree_pane.object = canvas
+        return
 
     def show_moves(event):
 
+        global sel
+        p = map_pane.object
+        #arrows source
+        if sel is not None:
+            d = sel
+        else:
+            d = df
+        a_source = p.renderers[2].source
+        t = get_moves(sel)
+        if t is None:
+            return
+        info_pane.object = t
+        coords = get_coords_data(t)
+        info_pane.object = str(coords)
+        a_source.data = coords
         return
-
-    def connect_points(coords, p):
-
-        p.multi_line([[1, 3, 2], [3, 4, 6, 6]],
-             color=["firebrick"], alpha=[0.8], line_width=4)
-
 
     draw_map(None)
     reset_btn.on_click(draw_map)
@@ -543,8 +596,8 @@ def map_dash(df):
     tile_select.param.watch(update_tile,'value')
     colorby_select.param.watch(update_map,'value')
     label_select.param.watch(update_map,'value')
-    name_select.param.watch(items_selected,'value')
-    cluster_select.param.watch(items_selected,'value')
+    name_select.param.watch(names_selected,'value')
+    cluster_select.param.watch(clusters_selected,'value')
     county_select.param.watch(county_selected,'value')
     #show_parcels_box.param.watch(update_map,'value')
     tree_layout_select.param.watch(update_tree,'value')
