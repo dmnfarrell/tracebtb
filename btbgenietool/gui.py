@@ -30,13 +30,32 @@ import numpy as np
 import pylab as plt
 from Bio import SeqIO
 import matplotlib as mpl
-from . import widgets, tables, phylo, gis
+from . import widgets, tables, phylo
+import geopandas as gpd
+from shapely.geometry import Point, LineString, Polygon, MultiPolygon
+from matplotlib_scalebar.scalebar import ScaleBar
 
 home = os.path.expanduser("~")
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
-logoimg = os.path.join(module_path, 'logo.png')
+logoimg = os.path.join(module_path, 'logo.svg')
 stylepath = os.path.join(module_path, 'styles')
 iconpath = os.path.join(module_path, 'icons')
+
+dockstyle = '''
+    QDockWidget {
+        max-width:1000px;
+    }
+    QDockWidget::title {
+        background-color: #80bfff;
+    }
+    QScrollBar:vertical {
+         width: 15px;
+         margin: 1px 0 1px 0;
+     }
+    QScrollBar::handle:vertical {
+         min-height: 20px;
+     }
+'''
 
 class App(QMainWindow):
     """GUI Application using PySide2 widgets"""
@@ -50,9 +69,9 @@ class App(QMainWindow):
         self.create_menu()
         self.main = QSplitter(self)
         screen_resolution = QGuiApplication.primaryScreen().availableGeometry()
-        width, height = screen_resolution.width()*0.7, screen_resolution.height()*.7
-        if screen_resolution.width()>1280:
-            self.setGeometry(QtCore.QRect(200, 200, width, height))
+        width, height = screen_resolution.width()*0.9, screen_resolution.height()*.8
+        if screen_resolution.width()>1920:
+            self.setGeometry(QtCore.QRect(100, 100, width, height))
         else:
             self.showMaximized()
         self.setMinimumSize(400,300)
@@ -60,7 +79,7 @@ class App(QMainWindow):
         self.recent_files = ['']
         self.main.setFocus()
         self.setCentralWidget(self.main)
-        #self.create_tool_bar()
+        self.create_tool_bar()
         self.setup_gui()
         #self.load_settings()
         #self.show_recent_files()
@@ -84,70 +103,90 @@ class App(QMainWindow):
                  'Save': {'action': lambda: self.save_project(),'file':'save'},
                  'Zoom out': {'action':self.zoom_out,'file':'zoom-out'},
                  'Zoom in': {'action':self.zoom_in,'file':'zoom-in'},
+                 'Update map': {'action':self.replot,'file':'plot-map'},
                  'Quit': {'action':self.quit,'file':'application-exit'}
                 }
 
         toolbar = QToolBar("Main Toolbar")
         self.addToolBar(toolbar)
-        for i in items:
-            if 'file' in items[i]:
-                iconfile = os.path.join(iconpath,items[i]['file']+'.png')
-                icon = QIcon(iconfile)
-            else:
-                icon = QIcon.fromTheme(items[i]['icon'])
-            btn = QAction(icon, i, self)
-            btn.triggered.connect(items[i]['action'])
-            #btn.setCheckable(True)
-            toolbar.addAction(btn)
+        #toolbar.setOrientation(QtCore.Qt.Vertical)
+        widgets.addToolBarItems(toolbar, self, items)
         return
+
+    def add_dock(self, widget, name, side='left', scrollarea=True):
+        """Add a dock widget"""
+
+        dock = QDockWidget(name)
+        dock.setStyleSheet(dockstyle)
+        if scrollarea == True:
+            area = QScrollArea()
+            area.setWidgetResizable(True)
+            dock.setWidget(area)
+            area.setWidget(widget)
+        else:
+            dock.setWidget(widget)
+        if side == 'left':
+            self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
+        else:
+            self.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
+        if side == 'floating':
+            dock.setFloating(True)
+        self.docks[name] = dock
+        dock.setSizePolicy( QSizePolicy.Expanding, QSizePolicy.Minimum )
+        return dock
+
+    def create_controls(self):
+        """controls for mapping"""
+
+        m = QWidget()
+        #select cluster
+        clusts = []
+        w = QComboBox(main)
+        w.addItems(clusts)
+        #select clust level
+
+        #zoom to county
+        counties = []
+        w = QComboBox(main)
+        w.addItems(counties)
+
+        return m
 
     def setup_gui(self):
         """Add all GUI elements"""
 
-        self.m = QSplitter(self.main)
+        self.docks = {}
+        self.main = main = QWidget()
+        self.main.setFocus()
+        self.setCentralWidget(self.main)
+        l = QVBoxLayout(main)
 
-        self.left = left = QWidget()
-        self.m.addWidget(left)
-        l = QVBoxLayout(left)
+        self.meta_table = tables.SampleTable(self, dataframe=pd.DataFrame, app=self)
+        t = self.table_widget = tables.DataFrameWidget(parent=self, table=self.meta_table,
+                            toolbar=True)
+        self.add_dock(self.table_widget, 'meta data', scrollarea=False)
 
-        self.left_tabs = QTabWidget(left)
-        self.left_tabs.setTabsClosable(True)
-        self.left_tabs.tabCloseRequested.connect(self.close_right_tab)
-        #self.left_tabs.addTab(self.info, 'tree')
-        self.add_tree_viewer()
-        l.addWidget(self.left_tabs)
-        self.meta_table = tables.DefaultTable(left, app=self, dataframe=pd.DataFrame())
-        #l.addWidget(self.meta_table)
-        self.left_tabs.addTab(self.meta_table, 'metadata')
+        self.tabs = QTabWidget(main)
+        l.addWidget(self.tabs)
+        self.tabs.setTabsClosable(True)
+        self.tabs.tabCloseRequested.connect(self.close_tab)
 
-        self.right = right = QWidget()
-        self.m.addWidget(self.right)
-        l2 = QVBoxLayout(right)
+        self.info = widgets.Editor(main, readOnly=True, fontsize=11)
+        self.tabs.addTab(self.info, 'log')
 
-        self.right_tabs = QTabWidget(right)
-        self.right_tabs.setTabsClosable(True)
-        self.right_tabs.tabCloseRequested.connect(self.close_right_tab)
-        l2.addWidget(self.right_tabs)
-        self.info = widgets.Editor(right, readOnly=True, fontsize=11)
-        self.right_tabs.addTab(self.info, 'log')
+        self.plotview = widgets.PlotViewer(self)
+        idx = self.tabs.addTab(self.plotview, 'map')
+        self.tabs.setCurrentIndex(idx)
 
-        self.gv = gis.GISViewer(right)
-        #self.gv.loadDefault()
-        idx = self.right_tabs.addTab(self.gv, 'map')
-        self.right_tabs.setCurrentIndex(idx)
+        self.treeviewer = phylo.TreeViewer(self)
+        #self.add_dock(self.treeviewer, 'phylogeny', 'right')
 
-        #self.info.append("Welcome\n")
-        self.m.setSizes([50,200,150])
-        self.m.setStretchFactor(1,0)
-
+        self.info.append("Welcome\n")
         self.statusBar = QStatusBar()
         self.projectlabel = QLabel('')
         self.projectlabel.setStyleSheet('color: blue')
         self.projectlabel.setAlignment(Qt.AlignLeft)
         self.statusBar.addWidget(self.projectlabel, 1)
-        lbl = QLabel("Output folder:")
-        self.statusBar.addWidget(lbl,1)
-        lbl.setAlignment(Qt.AlignRight)
 
         self.progressbar = QProgressBar()
         self.progressbar.setRange(0,1)
@@ -166,18 +205,8 @@ class App(QMainWindow):
         """Close current tab"""
 
         #index = self.tabs.currentIndex()
-        name = self.tabs.tabText(index)
-        self.tabs.removeTab(index)
-        return
-
-    @QtCore.Slot(int)
-    def close_right_tab(self, index):
-        """Close right tab"""
-
-        name = self.right_tabs.tabText(index)
-        if name == 'log':
-            return
-        self.right_tabs.removeTab(index)
+        #name = self.tabs.tabText(index)
+        #self.tabs.removeTab(index)
         return
 
     def create_menu(self):
@@ -255,13 +284,11 @@ class App(QMainWindow):
         filename = self.proj_file
         data={}
         data['inputs'] = self.meta_table.getDataFrame()
-        keys = ['outputdir','results','ref_genome','ref_gb','mask_file']
+        keys = ['outputdir']
         for k in keys:
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
-        if hasattr(self, 'gisviewer'):
-            d=self.gisviewer.saveData()
-            data['gisviewer'] = d
+
         if hasattr(self, 'treeviewer'):
             d=self.treeviewer.saveData()
             data['treeviewer'] = d
@@ -327,7 +354,7 @@ class App(QMainWindow):
         self.projectlabel.setText(self.proj_file)
         self.outdirLabel.setText(self.outputdir)
 
-        self.right_tabs.setCurrentIndex(0)
+        self.tabs.setCurrentIndex(0)
         self.add_recent_file(filename)
         return
 
@@ -344,54 +371,39 @@ class App(QMainWindow):
         return
 
     def load_test(self):
+        """Load test dataset"""
 
         #metadata
-        df = pd.read_csv('/storage/btbgenie/monaghan/metadata/master.csv')
+        df = pd.read_csv('testing/samples.csv')
+        df.set_index('sample',inplace=True)
         t = self.meta_table
         t.setDataFrame(df)
         t.resizeColumns()
-        #map
-        #self.gv.importShapefile('/storage/btbgenie/monaghan/metadata/counties.shp')
 
+        #reference map
+        self.map = gpd.read_file('testing/counties.shp').to_crs("EPSG:29902")
         #centroids
-        self.gv.importShapefile('/storage/btbgenie/monaghan/metadata/centroids.shp')
-        #parcels
-        self.gv.importShapefile('/storage/btbgenie/monaghan/metadata/lpis_merged.shp' )
-        self.gv.plot()
+        self.cent = gpd.read_file('testing/centroids.shp')
+        self.cent['snp12'] = self.cent.snp12.astype(str)
+        print (self.cent)
+        self.replot()
 
         #tree
         tv = self.treeviewer
-        tv.load_tree('/storage/btbgenie/monaghan/monaghan_results/tree.newick')
+        tv.load_tree('testing/tree.newick')
         tv.style['layout'] = 'c'
         tv.style['tip_labels'] = False
         tv.set_zoom(2)
         #tv.update()
         #movement
-        return
 
-    def add_tree_viewer(self):
-        """Show tree viewer"""
-
-        if not hasattr(self, 'treeviewer'):
-            self.treeviewer = phylo.TreeViewer(self)
-            idx = self.left_tabs.addTab(self.treeviewer, 'phylogeny')
-            self.left_tabs.setCurrentIndex(idx)
-        return
-
-    def add_map(self):
-
-        if not hasattr(self, 'gisviewer'):
-            self.gisviewer = gis.GISViewer()
-        if not 'map' in self.get_tabs():
-            idx = self.right_tabs.addTab(self.gisviewer, 'map')
-            self.right_tabs.setCurrentIndex(idx)
         return
 
     def get_tabs(self):
 
         n=[]
-        for i in range(self.right_tabs.count()):
-            n.append(self.right_tabs.tabText(i))
+        for i in range(self.tabs.count()):
+            n.append(self.tabs.tabText(i))
         return n
 
     def processing_completed(self):
@@ -421,6 +433,35 @@ class App(QMainWindow):
         self.info.verticalScrollBar().setValue(1)
         return
 
+    def sample_details(self, row):
+        return
+
+    def replot(self):
+
+
+        #data = self.cent[self.cent['sample']]
+        fig,ax = plt.subplots(1,1)
+        self.map.plot(edgecolor='black',color='#F6F4F3',ax=ax)
+        #self.cent.plot(ax=ax)
+        col='snp12'
+        g = get_cluster_samples(self.cent,col=col)
+        plot_clusters(g,col,ax=ax,legend=True)
+        #ax.set_xlim((290000,351822))
+        #ax.set_ylim((170000,240000))
+        ax.add_artist(ScaleBar(dx=1,location=3))
+        ax.axis('off')
+        fig.tight_layout()
+        self.plotview.set_figure(fig)
+        return
+
+    def plot_selected(self):
+
+        df = self.meta_table.model.df
+        self.rows = self.meta_table.getSelectedRows()
+        self.sub = df.index[rows]
+        self.replot()
+        return
+
     def plot_snp_matrix(self):
 
         mat = pd.read_csv(self.results['snp_dist'],index_col=0)
@@ -437,8 +478,8 @@ class App(QMainWindow):
             html = f.read()
             bv.browser.setHtml(html)
 
-        idx = self.right_tabs.addTab(bv, 'snp dist')
-        self.right_tabs.setCurrentIndex(idx)
+        idx = self.tabs.addTab(bv, 'snp dist')
+        self.tabs.setCurrentIndex(idx)
         return
 
     def show_browser_tab(self, link, name):
@@ -446,8 +487,8 @@ class App(QMainWindow):
         from PySide2.QtWebEngineWidgets import QWebEngineView
         browser = QWebEngineView()
         browser.setUrl(link)
-        idx = self.right_tabs.addTab(browser, name)
-        self.right_tabs.setCurrentIndex(idx)
+        idx = self.tabs.addTab(browser, name)
+        self.tabs.setCurrentIndex(idx)
         return
 
     def get_selected(self):
@@ -507,12 +548,6 @@ class App(QMainWindow):
         event.accept()
         return
 
-    def _check_snap(self):
-        if os.environ.has_key('SNAP_USER_COMMON'):
-            print ('running inside snap')
-            return True
-        return False
-
     def online_documentation(self,event=None):
         """Open the online documentation"""
 
@@ -522,8 +557,8 @@ class App(QMainWindow):
         from PySide2.QtWebEngineWidgets import QWebEngineView
         browser = QWebEngineView()
         browser.setUrl(link)
-        idx = self.right_tabs.addTab(browser, 'help')
-        self.right_tabs.setCurrentIndex(idx)
+        idx = self.tabs.addTab(browser, 'help')
+        self.tabs.setCurrentIndex(idx)
         return
 
     def about(self):
@@ -567,8 +602,7 @@ class Worker(QtCore.QRunnable):
     def run(self):
         try:
             result = self.fn(
-                *self.args, **self.kwargs,
-            )
+                *self.args, **self.kwargs)
         except:
             traceback.print_exc()
             exctype, value = sys.exc_info()[:2]
@@ -628,6 +662,62 @@ class AppOptions(widgets.BaseOptions):
         self.opts = {'threads':{'type':'spinbox','default':4,'range':(1,cpus)},
                     }
         return
+
+def get_cluster_samples(cent,col,n=3):
+    #get samples in relevant clusters with more than n members
+    v=cent[col].value_counts()
+    v=v[v>=n]
+    #print (col, v.index)
+    clusts=v.index
+    g = cent[cent[col]!='-1']
+    g = g[g[col].isin(clusts)]
+    g = g.sort_values(col)
+    #print (col, len(g))
+    print (list(g[col].unique()))
+    return g
+
+def get_clusts_info(cent,col):
+    from shapely.geometry import Polygon
+    new=[]
+    for i,df in cent.groupby(col):
+        if len(df)<3:
+            continue
+        d=df.dissolve(by=col)
+        d['geometry'] = d.geometry.centroid
+        d['area'] = df.dissolve(by=col).envelope.area/1e6
+        d['animals'] = len(df)
+        new.append(d[['geometry','area','animals']])
+    return pd.concat(new).reset_index().sort_values('animals',ascending=False)
+
+def plot_clusters(df,col=None,xlim=None,ylim=None,legend=True,title='',colors=None,
+                  ms=None,cmap='Paired',ax=None):
+
+    #mon.plot(linewidth=0.8, ax=ax, edgecolor='black',legend=legend,color='white', lw=1,alpha=0.5)
+    if ms==None:
+        df['ms'] = (df.species.astype('category').cat.codes+1)*60
+    else:
+        df['ms'] = ms
+    #df['shape'] = df.Species.apply(lambda x: 'o' if x=='Bovine' else 's')
+    #print (col,len(df))
+    if colors is not None:
+        df.plot(c=colors,ax=ax,alpha=0.8, markersize=df['ms'],edgecolor='0.1',marker='o',lw=0,
+                  legend=legend)#,legend_kwds={'fontsize':9})
+    else:
+        df.plot(column=col,ax=ax,alpha=0.8, markersize=df['ms'],edgecolor='0.1',marker='o',lw=0,
+              cmap=cmap,legend=legend)#,legend_kwds={'fontsize':9})
+    if col != None:
+        cent_cl = get_clusts_info(df,col)
+        for x, y, label in zip(cent_cl.geometry.x, cent_cl.geometry.y, cent_cl[col]):
+            ax.annotate(label, xy=(x, y), xytext=(0, 0), textcoords="offset points")
+
+    '''minx, miny, maxx, maxy = counties.total_bounds
+    if xlim!=None:
+        ax.set_xlim(xlim[0], xlim[1])
+    if ylim!=None:
+       xlim
+    ax.set_title(title,fontsize=20)'''
+    ax.axis('off')
+    return
 
 def main():
     "Run the application"

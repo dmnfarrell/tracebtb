@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-    btbgenietool GIS component.
+    snipgenie GIS component.
     Created Jan 2021
     Copyright (C) Damien Farrell
 
@@ -20,7 +20,7 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 """
 
-import sys,os,io,traceback,subprocess
+import sys,os,traceback,subprocess
 import glob,platform,shutil
 from .qt import *
 import pandas as pd
@@ -29,11 +29,8 @@ import pylab as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
-from . import widgets, tools
+from . import widgets
 import geopandas as gpd
-from PySide2.QtWebEngineWidgets import QWebEngineView
-import folium
-from branca.element import Figure
 
 home = os.path.expanduser("~")
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
@@ -150,16 +147,11 @@ class GISViewer(QWidget):
         self.splitter.setStretchFactor(1,0)
         vbox.addWidget(self.splitter)
         self.setLayout(layout)
-        #pframe = QWidget()
-        #self.splitter.addWidget(pframe)
-        #self.addPlotWidget(pframe)
-        #pl = QVBoxLayout(pframe)
-        self.plotview = QWebEngineView()
-        self.splitter.addWidget(self.plotview)
-        #pl.addWidget(self.plotview)
+        pframe = QWidget()
+        self.splitter.addWidget(pframe)
+        self.addPlotWidget(pframe)
         self.top = QWidget()
         self.splitter.addWidget(self.top)
-
         #layout.addWidget(self.top)
         hbox = QHBoxLayout(self.top)
         self.tree = QTreeWidget()
@@ -204,16 +196,13 @@ class GISViewer(QWidget):
 
         item = self.tree.itemAt( pos )
         menu = QMenu(self.tree)
-        crsAction = menu.addAction("Set CRS")
+        editAction = menu.addAction("Edit Table")
         propsAction = menu.addAction("Properties")
         colorAction = menu.addAction("Set Color")
-        editAction = menu.addAction("Edit Table")
         deleteAction = menu.addAction("Delete")
         setfileAction = menu.addAction("Set File")
         action = menu.exec_(self.tree.mapToGlobal(pos))
-        if action == crsAction:
-            self.set_crs(item)
-        elif action == editAction:
+        if action == editAction:
             self.edit(item)
         elif action == colorAction:
             self.setColor(item)
@@ -267,7 +256,7 @@ class GISViewer(QWidget):
         self.importShapefile(url, 'ireland counties', 'white')
         return
 
-    def importShapefile(self, filename, name=None, color=None, update=False):
+    def importShapefile(self, filename, name=None, color=None):
 
         ext = os.path.splitext(filename)[1]
         if ext == '.zip':
@@ -276,8 +265,7 @@ class GISViewer(QWidget):
         if name == None:
             name = os.path.basename(filename)
         self.addEntry(name, gdf, color, filename)
-        if update==True:
-            self.plot()
+        self.plot()
         return
 
     def importFile(self):
@@ -340,16 +328,6 @@ class GISViewer(QWidget):
             self.addEntry(lyr.name, lyr.gdf, lyr.color)
         return
 
-    def set_crs(self, item):
-
-        name = item.text(0)
-        layer = self.layers[name]
-        gdf = layer.gdf
-        newcrs = 'EPSG:29902'
-        layer.gdf = gdf.to_crs(newcrs)
-        self.replot()
-        return
-
     def setColor(self, item):
 
         qcolor = QColorDialog.getColor()
@@ -359,66 +337,9 @@ class GISViewer(QWidget):
         self.replot()
         return
 
-    def plot_points(self, gdf):
-
-        m = self.m
-        gdf = gdf.set_crs('EPSG:29902').to_crs('EPSG:4632')
-        #colors = tools.random_colors(n=len(labels),seed=20)
-
-        print (gdf)
-        for i,r in gdf.iterrows():
-            x=r.geometry.x
-            y=r.geometry.y
-            w=0.005
-            pts = ((y-w/1.5,x-w),(y+w/1.5,x+w))
-            folium.Circle(location=(y,x), radius=400,
-                          color=False,fill=True,fill_opacity=0.6,
-                          fill_color='blue',tooltip=r.snp12).add_to(m)
-
-    def plot(self):
-        """Plot with folium"""
-
-        order = self.getLayerOrder()
-        checked = self.getChecked()
-        column = None
-        i=1
-
-        fig = Figure(width=900, height=900)
-        m = folium.Map(location=[54.1, -7.0], crs='EPSG3857',tiles='Stamen Terrain',
-                              width=1250, height=900)#, min_zoom=12)
-        style1 = {'fillColor': 'blue', 'color': 'black','weight':2}
-
-        data = io.BytesIO()
-        m.save(data, close_file=False)
-        self.plotview.setHtml(data.getvalue().decode())
-        self.m = m
-        #layer = self.layers['centroids.shp']
-        #self.plot_points(layer.gdf)
-
-        layer = self.layers['lpis_merged.shp']
-        print (layer.gdf.crs)
-        p = folium.GeoJson(layer.gdf.to_crs('EPSG:3857'),style_function=lambda x:style1)
-        print (p)
-        m.add_child(p)
-        return
-
-    def plotleaflet(self):
-        """ipyleaflet plot"""
-
-        from ipyleaflet import Map, basemaps, basemap_to_tiles
-
-        m = Map(basemap=basemaps.CartoDB.Positron, center=(54.1, -7.0), zoom=9, height=800)
-
-        m.save('temp.html')
-        with open('temp.html', 'r') as f:
-            html = f.read()
-            self.plotview.setHtml(html)
-        return
-
-    def plot_mpl(self, evt=None, ax=None, limits={}):
+    def plot(self, evt=None, ax=None, limits={}):
         """Plot maps"""
 
-        #print (limits)
         subplots = self.subplotsaction.isChecked()
         order = self.getLayerOrder()
         checked = self.getChecked()
@@ -540,7 +461,7 @@ class GISViewer(QWidget):
 
         name = item.text(0)
         layer = self.layers[name]
-
+        
         from . import tables
         table = tables.DataFrameTable(self)
         table.model.df = layer.gdf
@@ -554,7 +475,7 @@ class GISViewer(QWidget):
         colormaps = sorted(m for m in plt.cm.datad if not m.endswith("_r"))
         name = item.text(0)
         layer = self.layers[name]
-        crs_vals = ['','EPSG:4326','WGS84','EPSG:29902']
+        crs_vals = ['','EPSG:29990']
         cols = ['']+list(layer.gdf.columns)
         cols.remove('geometry')
         clrs = ['black','white']+qcolors

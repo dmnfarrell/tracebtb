@@ -221,7 +221,7 @@ def addToolBarItems(toolbar, parent, items):
 
     for i in items:
         if 'file' in items[i]:
-            iconfile = os.path.join(iconpath,items[i]['file']+'.png')
+            iconfile = os.path.join(iconpath,items[i]['file'])
             icon = QIcon(iconfile)
         else:
             icon = QIcon.fromTheme(items[i]['icon'])
@@ -671,7 +671,7 @@ class FileViewer(QDialog):
         recnames = list(recs.keys())
         return
 
-class PlotViewer(QDialog):
+class PlotViewer(QWidget):
     """matplotlib plots widget"""
     def __init__(self, parent=None):
 
@@ -679,21 +679,74 @@ class PlotViewer(QDialog):
         self.setGeometry(QtCore.QRect(200, 200, 600, 600))
         self.grid = QGridLayout()
         self.setLayout(self.grid)
-        #self.show()
-        #self.show_figure()
+        self.create_figure()
+        self.setWindowTitle('plots')
         return
 
-    def show_figure(self, fig):
+    def create_figure(self, fig=None):
+        """Create canvas and figure"""
 
         from matplotlib.backends.backend_qt5agg import FigureCanvas
         from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
         import matplotlib.pyplot as plt
         #ax.plot(range(10))
+        if fig == None:
+            fig, ax = plt.subplots(1,1, figsize=(7,5), dpi=120)
+            self.ax = ax
+        if hasattr(self, 'canvas'):
+            self.layout().removeWidget(self.canvas)
         canvas = FigureCanvas(fig)
         self.grid.addWidget(canvas)
         self.toolbar = NavigationToolbar(canvas, self)
         self.grid.addWidget(self.toolbar)
         self.fig = fig
+        self.canvas = canvas
+
+        iconfile = os.path.join(iconpath,'reduce.png')
+        a = QAction(QIcon(iconfile), "Reduce elements",  self)
+        a.triggered.connect(lambda: self.zoom(zoomin=False))
+        self.toolbar.addAction(a)
+        iconfile = os.path.join(iconpath,'enlarge.png')
+        a = QAction(QIcon(iconfile), "Enlarge elements",  self)
+        a.triggered.connect(lambda: self.zoom(zoomin=True))
+        self.toolbar.addAction(a)
+        return
+
+    def set_figure(self, fig):
+        """Set the figure"""
+
+        self.clear()
+        self.create_figure(fig)
+        #self.ax = fig.ax
+        self.canvas.draw()
+        return
+
+    def clear(self):
+        """Clear plot"""
+
+        self.fig.clear()
+        self.ax = self.fig.add_subplot(111)
+        self.canvas.draw()
+        return
+
+    def redraw(self):
+        self.canvas.draw()
+
+    def zoom(self, zoomin=True):
+        """Zoom in/out to plot by changing size of elements"""
+
+        if zoomin == False:
+            val=-1.0
+        else:
+            val=1.0
+
+        if len(self.opts['general'].kwds) == 0:
+            return
+
+        self.opts['format'].increment('linewidth',val/5)
+        self.opts['format'].increment('ms',val)
+        self.opts['labels'].increment('fontsize',val)
+        self.refraw()
         return
 
 class BrowserViewer(QDialog):

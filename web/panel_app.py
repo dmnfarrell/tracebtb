@@ -244,7 +244,7 @@ def get_moves(df):
     return t
 
 def bokeh_map(df=None, long=None, lat=None, height=600,
-              tile_provider='CARTODBPOSITRON', colorby='County',
+              tile_provider='CARTODBPOSITRON', colorby='county',
               labels=None, arrows=None):
     """Bokeh map"""
 
@@ -324,7 +324,7 @@ def map_dash(df):
     tre = None
     sel = None
     cols = df.columns[:6]
-    cats=['County','Species','snp12','snp50','SB']
+    cats=['county','Species','snp12','snp50','SB']
     labels=['','name','snp12','snp50','SB']
     counties=['All','Wicklow','Monaghan','NI']
     map_pane = pn.pane.Bokeh(width=400)
@@ -443,7 +443,7 @@ def map_dash(df):
         if county == 'All':
             sel = df
         else:
-            sel = df[df.County==county]
+            sel = df[df.county==county]
         update_map(event)
         return
 
