@@ -804,7 +804,7 @@ class SampleTable(DataFrameTable):
         elif action == exportAction:
             self.exportTable()
         elif action == plotpointsAction:
-            self.app.plot_selected()
+            self.app.plot_table_selection()
         return
 
     def edit(self, index, trigger, event):

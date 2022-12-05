@@ -30,16 +30,39 @@ import numpy as np
 import pylab as plt
 from Bio import SeqIO
 import matplotlib as mpl
-from . import widgets, tables, phylo
+from . import widgets, tables, plotting, phylo
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
 from matplotlib_scalebar.scalebar import ScaleBar
+import contextily as cx
 
 home = os.path.expanduser("~")
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 logoimg = os.path.join(module_path, 'logo.svg')
 stylepath = os.path.join(module_path, 'styles')
 iconpath = os.path.join(module_path, 'icons')
+
+counties = ['Wicklow','Monaghan']
+cladelevels = ['snp3','snp5','snp12','snp20','snp50']
+providers = {'None':None,
+            'default': cx.providers.Stamen.Terrain,
+            'Tonerlite': cx.providers.Stamen.TonerLite,
+            'OSM':cx.providers.OpenStreetMap.Mapnik,
+            'CartoDB':cx.providers.CartoDB.Positron,
+            'Watercolor': cx.providers.Stamen.Watercolor}
+
+#cx.providers.CartoDB.Positron
+
+style = '''
+    QWidget {
+        max-width: 130px;
+        min-width: 30px;
+        font-size: 12px;
+    }
+    QPlainTextEdit {
+        max-height: 80px;
+    }
+    '''
 
 dockstyle = '''
     QDockWidget {
@@ -77,6 +100,7 @@ class App(QMainWindow):
         self.setMinimumSize(400,300)
 
         self.recent_files = ['']
+        self.scratch_items = {}
         self.main.setFocus()
         self.setCentralWidget(self.main)
         self.create_tool_bar()
@@ -103,7 +127,8 @@ class App(QMainWindow):
                  'Save': {'action': lambda: self.save_project(),'file':'save'},
                  'Zoom out': {'action':self.zoom_out,'file':'zoom-out'},
                  'Zoom in': {'action':self.zoom_in,'file':'zoom-in'},
-                 'Update map': {'action':self.replot,'file':'plot-map'},
+                 'Scratchpad': {'action':self.show_scratchpad,'file':'scratchpad'},
+                 'Send to scratchpad': {'action':self.save_to_scratchpad,'file':'to-scratchpad'},
                  'Quit': {'action':self.quit,'file':'application-exit'}
                 }
 
@@ -139,46 +164,101 @@ class App(QMainWindow):
         """controls for mapping"""
 
         m = QWidget()
+        m.setStyleSheet(style)
+        m.setMaximumWidth(140)
+        m.setMinimumWidth(100)
+        l = QVBoxLayout()
+        l.setAlignment(QtCore.Qt.AlignTop)
+        m.setLayout(l)
         #select cluster
-        clusts = []
-        w = QComboBox(main)
-        w.addItems(clusts)
+        self.cladelevelw = w = QComboBox(m)
+        w.addItems(cladelevels)
+        l.addWidget(QLabel('Clade level:'))
+        l.addWidget(w)
+        w.currentIndexChanged.connect(self.update_clades)
         #select clust level
-
+        self.cladew = w = QComboBox(m)
+        l.addWidget(QLabel('Clade:'))
+        l.addWidget(w)
+        w.currentIndexChanged.connect(self.plot_selected)
         #zoom to county
-        counties = []
-        w = QComboBox(main)
+        w = QComboBox(m)
         w.addItems(counties)
+        l.addWidget(QLabel('Zoom to:'))
+        l.addWidget(w)
+        #labels
+        self.labelsw = w = QComboBox(m)
+        l.addWidget(QLabel('Labels:'))
+        l.addWidget(w)
+        #color points by
+        self.colorbyw = w = QComboBox(m)
+        l.addWidget(QLabel('Color by:'))
+        l.addWidget(w)
+        #toggle cx
+        self.contextw = w = QComboBox(m)
+        l.addWidget(QLabel('Context map:'))
+        l.addWidget(w)
+        w.addItems(providers.keys())
+        self.markersizew = w = QSpinBox(m)
+        w.setRange(1,100)
+        w.setValue(50)
+        l.addWidget(QLabel('Marker size:'))
+        l.addWidget(w)
 
+        self.plotkindw = w = QComboBox(m)
+        l.addWidget(QLabel('Plot type:'))
+        l.addWidget(w)
+        w.addItems(['points','hexbin'])
+        b = widgets.createButton(m, None, self.replot, 'refresh', 30)
+        l.addWidget(b)
+        #b = widgets.createButton(m, None, self.plot_selected, 'plot-scatter', 30)
+        #l.addWidget(b)
         return m
+
+    def update_clades(self):
+
+        level = self.cladelevelw.currentText()
+        clades = sorted(list(self.cent[level].unique()))
+        self.cladew.clear()
+        self.cladew.addItems(clades)
+        return
 
     def setup_gui(self):
         """Add all GUI elements"""
 
         self.docks = {}
         self.main = main = QWidget()
+        self.m = QSplitter()
+
         self.main.setFocus()
         self.setCentralWidget(self.main)
         l = QVBoxLayout(main)
+        l.addWidget(self.m)
 
         self.meta_table = tables.SampleTable(self, dataframe=pd.DataFrame, app=self)
         t = self.table_widget = tables.DataFrameWidget(parent=self, table=self.meta_table,
                             toolbar=True)
-        self.add_dock(self.table_widget, 'meta data', scrollarea=False)
+        #self.add_dock(self.table_widget, 'meta data', scrollarea=False)
+        self.m.addWidget(self.table_widget)
 
+        w = self.create_controls()
+        self.m.addWidget(w)
         self.tabs = QTabWidget(main)
-        l.addWidget(self.tabs)
+        self.m.addWidget(self.tabs)
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
 
         self.info = widgets.Editor(main, readOnly=True, fontsize=11)
         self.tabs.addTab(self.info, 'log')
 
-        self.plotview = widgets.PlotViewer(self)
+        self.plotview = widgets.PlotViewer(self, controls=False)
         idx = self.tabs.addTab(self.plotview, 'map')
         self.tabs.setCurrentIndex(idx)
 
-        self.treeviewer = phylo.TreeViewer(self)
+        self.browser = QWebEngineView()
+        idx = self.tabs.addTab(self.browser, 'interactive')
+
+        #self.treeviewer = phylo.TreeViewer(self)
         #self.add_dock(self.treeviewer, 'phylogeny', 'right')
 
         self.info.append("Welcome\n")
@@ -232,7 +312,7 @@ class App(QMainWindow):
                 QtCore.Qt.CTRL + QtCore.Qt.Key_Q)
         self.menuBar().addMenu(self.file_menu)
 
-        self.view_menu = QMenu('&View', self)
+        self.view_menu = QMenu('View', self)
         self.menuBar().addMenu(self.view_menu)
         icon = QIcon(os.path.join(iconpath,'zoom-in.png'))
         self.view_menu.addAction(icon, 'Zoom In', self.zoom_in,
@@ -244,9 +324,16 @@ class App(QMainWindow):
         self.tools_menu = QMenu('Tools', self)
         self.menuBar().addMenu(self.tools_menu)
 
-        self.settings_menu = QMenu('&Settings', self)
+        self.settings_menu = QMenu('Settings', self)
         self.menuBar().addMenu(self.settings_menu)
         #self.settings_menu.addAction('Set Output Folder', self.set_output_folder)
+
+        self.scratch_menu = QMenu('Scratchpad', self)
+        self.menuBar().addMenu(self.scratch_menu)
+        icon = QIcon(os.path.join(iconpath,'scratchpad.png'))
+        self.scratch_menu.addAction(icon,'Show Scratchpad', lambda: self.show_scratchpad())
+        icon = QIcon(os.path.join(iconpath,'scratchpad-plot.png'))
+        self.scratch_menu.addAction(icon,'Plot to Scratchpad', lambda: self.save_to_scratchpad())
 
         self.help_menu = QMenu('&Help', self)
         self.menuBar().addMenu(self.help_menu)
@@ -374,30 +461,43 @@ class App(QMainWindow):
         """Load test dataset"""
 
         #metadata
-        df = pd.read_csv('testing/samples.csv')
+        #df = pd.read_csv('testing/samples.csv')
+        df = pd.read_csv('testing/ireland_test_data.csv')
         df.set_index('sample',inplace=True)
         t = self.meta_table
         t.setDataFrame(df)
         t.resizeColumns()
-
         #reference map
         self.map = gpd.read_file('testing/counties.shp').to_crs("EPSG:29902")
         #centroids
         self.cent = gpd.read_file('testing/centroids.shp')
-        self.cent['snp12'] = self.cent.snp12.astype(str)
-        print (self.cent)
-        self.replot()
+        self.cent = self.gdf_from_table(df)
+        for col in cladelevels:
+            self.cent[col] = self.cent[col].astype(str)
+        self.update_clades()
+        #print (self.cent)
+        self.cladew.setCurrentIndex(1)
+        cols = ['']+list(self.cent.columns)
+        self.labelsw.addItems(cols)
+        self.colorbyw.addItems(cols)
+        self.plot_selected()
 
         #tree
-        tv = self.treeviewer
+        '''tv = self.treeviewer
         tv.load_tree('testing/tree.newick')
         tv.style['layout'] = 'c'
         tv.style['tip_labels'] = False
-        tv.set_zoom(2)
+        tv.set_zoom(2)'''
         #tv.update()
         #movement
 
         return
+
+    def gdf_from_table(self, df, lon='LONG',lat='LAT'):
+
+        cent = gpd.GeoDataFrame(df,geometry=gpd.points_from_xy(df[lon], df[lat])).set_crs('WGS 84')
+        cent = cent.to_crs("EPSG:29902")
+        return cent
 
     def get_tabs(self):
 
@@ -436,30 +536,79 @@ class App(QMainWindow):
     def sample_details(self, row):
         return
 
+    def get_counties(self):
+        self.counties.groupby('sample').bounds()
+        return
+
     def replot(self):
+        """Update plot"""
 
+        self.plotview.clear()
+        ax = self.plotview.ax
+        fig = self.plotview.fig
 
-        #data = self.cent[self.cent['sample']]
-        fig,ax = plt.subplots(1,1)
-        self.map.plot(edgecolor='black',color='#F6F4F3',ax=ax)
-        #self.cent.plot(ax=ax)
-        col='snp12'
-        g = get_cluster_samples(self.cent,col=col)
-        plot_clusters(g,col,ax=ax,legend=True)
-        #ax.set_xlim((290000,351822))
-        #ax.set_ylim((170000,240000))
+        self.map.plot(edgecolor='black',color='None',ax=ax)
+
+        s = self.markersizew.value()
+        #g = get_cluster_samples(self.cent,col=col,n=5)
+        #plot_clusters(g,col,ax=ax,legend=True)
+        #cent = self.cent
+        colorcol = self.colorbyw.currentText()
+        kind = self.plotkindw.currentText()
+        if kind == 'points':
+            plot_single_cluster(self.sub,s=s,col=colorcol,ax=ax)
+        elif kind == 'hexbin':
+            plot_grid(self.sub,ax=ax)
+
+        cxsource = self.contextw.currentText()
+        self.add_context_map(providers[cxsource])
+        labelcol = self.labelsw.currentText()
+        self.show_labels(labelcol)
+
         ax.add_artist(ScaleBar(dx=1,location=3))
         ax.axis('off')
         fig.tight_layout()
-        self.plotview.set_figure(fig)
+        self.plotview.redraw()
         return
 
     def plot_selected(self):
+        """Plot points from cluster menu selection"""
+
+        cent = self.cent
+        level = self.cladelevelw.currentText()
+        clade = self.cladew.currentText()
+        self.sub = cent[cent[level]==clade]
+        self.replot()
+        return
+
+    def plot_table_selection(self):
+        """Plot points from table selection"""
 
         df = self.meta_table.model.df
-        self.rows = self.meta_table.getSelectedRows()
-        self.sub = df.index[rows]
+        rows = self.meta_table.getSelectedRows()
+        idx = df.index[rows]
+        self.sub = self.cent.loc[idx]
         self.replot()
+        return
+
+    def show_labels(self, col):
+
+        if col == '': return
+        df = self.sub
+        ax = self.plotview.ax
+        for x, y, label in zip(df.geometry.x, df.geometry.y, df[col]):
+            ax.annotate(label, xy=(x, y), xytext=(0, 0), textcoords="offset points")
+        return
+
+    def add_context_map(self, source=None):
+        """Contextily background map"""
+
+        if source == None:
+            return
+        ax = self.plotview.ax
+        fig = self.plotview.fig
+        cx.add_basemap(ax, crs=self.cent.crs, #zoom=18,
+                attribution=False, source=source)
         return
 
     def plot_snp_matrix(self):
@@ -480,6 +629,36 @@ class App(QMainWindow):
 
         idx = self.tabs.addTab(bv, 'snp dist')
         self.tabs.setCurrentIndex(idx)
+        return
+
+    def show_scratchpad(self):
+
+        if not hasattr(self, 'scratchpad'):
+            self.scratchpad = widgets.ScratchPad()
+            try:
+                self.scratchpad.resize(self.settings.value('scratchpad_size'))
+            except:
+                pass
+        self.scratchpad.update(self.scratch_items)
+        self.scratchpad.show()
+        self.scratchpad.activateWindow()
+        return
+
+    def save_to_scratchpad(self, label=None):
+
+        name = 'test'
+        if label == None or label is False:
+            t = time.strftime("%H:%M:%S")
+            label = name+'-'+t
+        #get the current figure and make a copy of it by using pickle
+
+        fig = self.plotview.fig
+        p = pickle.dumps(fig)
+        fig = pickle.loads(p)
+
+        self.scratch_items[label] = fig
+        if hasattr(self, 'scratchpad'):
+            self.scratchpad.update(self.scratch_items)
         return
 
     def show_browser_tab(self, link, name):
@@ -676,11 +855,11 @@ def get_cluster_samples(cent,col,n=3):
     print (list(g[col].unique()))
     return g
 
-def get_clusts_info(cent,col):
+def get_clusts_info(cent,col, n=3):
     from shapely.geometry import Polygon
     new=[]
     for i,df in cent.groupby(col):
-        if len(df)<3:
+        if len(df)<n:
             continue
         d=df.dissolve(by=col)
         d['geometry'] = d.geometry.centroid
@@ -688,6 +867,27 @@ def get_clusts_info(cent,col):
         d['animals'] = len(df)
         new.append(d[['geometry','area','animals']])
     return pd.concat(new).reset_index().sort_values('animals',ascending=False)
+
+def plot_single_cluster(df, outliers=None, other=None, col=None, legend=True,
+                        margin=1e4, title='', s=80, cmap='Set1', ax=None):
+
+    minx, miny, maxx, maxy = df.total_bounds
+    #border.plot(ax=ax, edgecolor='black',color='#F6F4F3')
+    colors = df.species.map({'Cow':'blue','Badger':'orange','Deer':'green'})
+    if outliers is not None:
+        outliers.plot(ax=ax,c="red",linewidth=1,edgecolor='red',markersize=300,alpha=.7,label='outliers')
+    if other is not None:
+        other.plot(ax=ax,c='green',marker='o',markersize=300,alpha=.7,lw=2,label='source')
+    if col == '':
+        col=None
+    df.plot(column=col,ax=ax,alpha=0.6,markersize=s,edgecolor='0.1',cmap=cmap,legend=legend)
+    ax.set_title(title)
+    ax.axis('off')
+    ax.set_xlim(minx-margin,maxx+margin)
+    ax.set_ylim(miny-margin,maxy+margin)
+    ax.add_artist(ScaleBar(dx=1,location=3))
+    #ax.legend(fontsize=12)
+    return
 
 def plot_clusters(df,col=None,xlim=None,ylim=None,legend=True,title='',colors=None,
                   ms=None,cmap='Paired',ax=None):
@@ -701,21 +901,50 @@ def plot_clusters(df,col=None,xlim=None,ylim=None,legend=True,title='',colors=No
     #print (col,len(df))
     if colors is not None:
         df.plot(c=colors,ax=ax,alpha=0.8, markersize=df['ms'],edgecolor='0.1',marker='o',lw=0,
-                  legend=legend)#,legend_kwds={'fontsize':9})
+                  legend=legend,legend_kwds={'fontsize':9, 'bbox_to_anchor': (1.2, .8)})
     else:
         df.plot(column=col,ax=ax,alpha=0.8, markersize=df['ms'],edgecolor='0.1',marker='o',lw=0,
-              cmap=cmap,legend=legend)#,legend_kwds={'fontsize':9})
+              cmap=cmap,legend=legend,legend_kwds={'fontsize':9, 'bbox_to_anchor': (1.2, .8)})
     if col != None:
         cent_cl = get_clusts_info(df,col)
         for x, y, label in zip(cent_cl.geometry.x, cent_cl.geometry.y, cent_cl[col]):
             ax.annotate(label, xy=(x, y), xytext=(0, 0), textcoords="offset points")
 
-    '''minx, miny, maxx, maxy = counties.total_bounds
-    if xlim!=None:
-        ax.set_xlim(xlim[0], xlim[1])
-    if ylim!=None:
-       xlim
-    ax.set_title(title,fontsize=20)'''
+    ax.axis('off')
+    return
+
+def plot_grid(gdf, col='snp50', n_cells=10, grid_type='hex', cmap='Paired', ax=None):
+    """Grid map showing most common features in a column (e.g snp level)"""
+
+    if grid_type == 'hex':
+        grid = plotting.create_hex_grid(gdf, n_cells=n_cells)
+    else:
+        grid = plotting.create_grid(gdf, n_cells=n_cells)
+    #merge grid and original using sjoin
+    #print (grid)
+    merged = gpd.sjoin(gdf, grid, how='left', predicate='within')
+
+    # Compute stats per grid cell
+    def aggtop(x):
+        #most common value in each group
+        c = x.value_counts()
+        if len(c)>0:
+            return c.index[0]
+
+    clrs,snpmap = plotting.get_color_mapping(gdf, col, cmap=cmap)
+    gdf['snp_color'] = clrs
+
+    dissolve = merged.dissolve(by="index_right", aggfunc=aggtop)
+    grid.loc[dissolve.index, 'value'] = dissolve[col].values
+    grid['color'] = grid.value.map(snpmap)
+    grid = grid[~grid.color.isnull()]
+
+    grid.plot(color=grid.color, ec='gray', alpha=0.4, lw=2, ax=ax)
+    #border.plot(color='none',ec='black',ax=ax)
+    gdf.plot(c=gdf.snp_color,ax=ax)
+    #ax.set_xlim((225000,310000))
+    #ax.set_ylim((292000,370000))
+    plotting.make_legend(ax.figure,snpmap,loc=(1,.9))
     ax.axis('off')
     return
 
