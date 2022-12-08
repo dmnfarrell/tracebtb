@@ -42,16 +42,15 @@ logoimg = os.path.join(module_path, 'logo.svg')
 stylepath = os.path.join(module_path, 'styles')
 iconpath = os.path.join(module_path, 'icons')
 
-counties = ['Wicklow','Monaghan']
-cladelevels = ['snp3','snp5','snp12','snp20','snp50']
+counties = ['Wicklow','Monaghan','Clare','Cork','Louth']
+cladelevels = ['snp3','snp5','snp7','snp12','snp20','snp50','snp100']
 providers = {'None':None,
             'default': cx.providers.Stamen.Terrain,
             'Tonerlite': cx.providers.Stamen.TonerLite,
             'OSM':cx.providers.OpenStreetMap.Mapnik,
             'CartoDB':cx.providers.CartoDB.Positron,
             'Watercolor': cx.providers.Stamen.Watercolor}
-
-#cx.providers.CartoDB.Positron
+colormaps = sorted(m for m in plt.cm.datad if not m.endswith("_r"))
 
 style = '''
     QWidget {
@@ -62,6 +61,13 @@ style = '''
     QPlainTextEdit {
         max-height: 80px;
     }
+    QScrollBar:vertical {
+         width: 15px;
+         margin: 1px 0 1px 0;
+     }
+    QScrollBar::handle:vertical {
+         min-height: 20px;
+     }
     '''
 
 dockstyle = '''
@@ -164,7 +170,7 @@ class App(QMainWindow):
         """controls for mapping"""
 
         m = QWidget()
-        m.setStyleSheet(style)
+        #m.setStyleSheet(style)
         m.setMaximumWidth(140)
         m.setMinimumWidth(100)
         l = QVBoxLayout()
@@ -176,16 +182,19 @@ class App(QMainWindow):
         l.addWidget(QLabel('Clade level:'))
         l.addWidget(w)
         w.currentIndexChanged.connect(self.update_clades)
-        #select clust level
-        self.cladew = w = QComboBox(m)
+        #select clades
         l.addWidget(QLabel('Clade:'))
+        self.cladew = w = QListWidget(m)
         l.addWidget(w)
-        w.currentIndexChanged.connect(self.plot_selected)
+        w.setMaximumHeight(100)
+        w.setSelectionMode(QAbstractItemView.MultiSelection)
+        w.itemSelectionChanged.connect(self.plot_selected)
         #zoom to county
-        w = QComboBox(m)
+        self.countyw =w = QComboBox(m)
         w.addItems(counties)
-        l.addWidget(QLabel('Zoom to:'))
+        l.addWidget(QLabel('County:'))
         l.addWidget(w)
+        w.currentIndexChanged.connect(self.plot_county)
         #labels
         self.labelsw = w = QComboBox(m)
         l.addWidget(QLabel('Labels:'))
@@ -194,6 +203,13 @@ class App(QMainWindow):
         self.colorbyw = w = QComboBox(m)
         l.addWidget(QLabel('Color by:'))
         l.addWidget(w)
+        w.setMaxVisibleItems(12)
+        #colormaps
+        self.cmapw = w = QComboBox(m)
+        l.addWidget(QLabel('Colormap:'))
+        l.addWidget(w)
+        w.addItems(colormaps)
+        w.setCurrentText('Paired')
         #toggle cx
         self.contextw = w = QComboBox(m)
         l.addWidget(QLabel('Context map:'))
@@ -211,8 +227,8 @@ class App(QMainWindow):
         w.addItems(['points','hexbin'])
         b = widgets.createButton(m, None, self.replot, 'refresh', 30)
         l.addWidget(b)
-        #b = widgets.createButton(m, None, self.plot_selected, 'plot-scatter', 30)
-        #l.addWidget(b)
+        b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', 30)
+        l.addWidget(b)
         return m
 
     def update_clades(self):
@@ -256,7 +272,7 @@ class App(QMainWindow):
         self.tabs.setCurrentIndex(idx)
 
         self.browser = QWebEngineView()
-        idx = self.tabs.addTab(self.browser, 'interactive')
+        #idx = self.tabs.addTab(self.browser, 'interactive')
 
         #self.treeviewer = phylo.TreeViewer(self)
         #self.add_dock(self.treeviewer, 'phylogeny', 'right')
@@ -462,25 +478,29 @@ class App(QMainWindow):
 
         #metadata
         #df = pd.read_csv('testing/samples.csv')
-        df = pd.read_csv('testing/ireland_test_data.csv')
-        df.set_index('sample',inplace=True)
+        df = pd.read_csv('testing/ireland_real_data.csv')
+        index_col = 'SeqID'
+        df.set_index(index_col,inplace=True)
         t = self.meta_table
         t.setDataFrame(df)
         t.resizeColumns()
         #reference map
         self.map = gpd.read_file('testing/counties.shp').to_crs("EPSG:29902")
         #centroids
-        self.cent = gpd.read_file('testing/centroids.shp')
+        #self.cent = gpd.read_file('testing/centroids.shp')
         self.cent = self.gdf_from_table(df)
         for col in cladelevels:
             self.cent[col] = self.cent[col].astype(str)
         self.update_clades()
         #print (self.cent)
-        self.cladew.setCurrentIndex(1)
         cols = ['']+list(self.cent.columns)
         self.labelsw.addItems(cols)
         self.colorbyw.addItems(cols)
+        self.colorbyw.setCurrentText('Species')
         self.plot_selected()
+
+        #fragments
+        self.get_parcels(self.cent)
 
         #tree
         '''tv = self.treeviewer
@@ -493,11 +513,19 @@ class App(QMainWindow):
 
         return
 
-    def gdf_from_table(self, df, lon='LONG',lat='LAT'):
+    def gdf_from_table(self, df, lon='lon',lat='lat'):
 
         cent = gpd.GeoDataFrame(df,geometry=gpd.points_from_xy(df[lon], df[lat])).set_crs('WGS 84')
         cent = cent.to_crs("EPSG:29902")
         return cent
+
+    def get_parcels(self, gdf):
+        """Combine land parcels with metadata"""
+
+        lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_monaghan_10km_buff.shp')
+        print (lpis[:5])
+        self.parcels = gdf.merge(lpis,left_on='HERD_NO',right_on='SPH_HERD_N',how='inner')
+        return
 
     def get_tabs(self):
 
@@ -540,7 +568,7 @@ class App(QMainWindow):
         self.counties.groupby('sample').bounds()
         return
 
-    def replot(self):
+    def replot(self, title=None):
         """Update plot"""
 
         self.plotview.clear()
@@ -555,10 +583,11 @@ class App(QMainWindow):
         #cent = self.cent
         colorcol = self.colorbyw.currentText()
         kind = self.plotkindw.currentText()
+        cmap = self.cmapw.currentText()
         if kind == 'points':
-            plot_single_cluster(self.sub,s=s,col=colorcol,ax=ax)
+            plot_single_cluster(self.sub,s=s,col=colorcol,cmap=cmap,ax=ax)
         elif kind == 'hexbin':
-            plot_grid(self.sub,ax=ax)
+            plot_hexbin(self.sub,cmap=cmap,ax=ax)
 
         cxsource = self.contextw.currentText()
         self.add_context_map(providers[cxsource])
@@ -567,6 +596,10 @@ class App(QMainWindow):
 
         ax.add_artist(ScaleBar(dx=1,location=3))
         ax.axis('off')
+        #leg = ax.get_legend()
+        #leg.set_bbox_to_anchor((0., 0., 1.2, 0.9))
+        if title != None:
+            fig.suptitle(title)
         fig.tight_layout()
         self.plotview.redraw()
         return
@@ -576,8 +609,18 @@ class App(QMainWindow):
 
         cent = self.cent
         level = self.cladelevelw.currentText()
-        clade = self.cladew.currentText()
-        self.sub = cent[cent[level]==clade]
+        clades = [item.text() for item in self.cladew.selectedItems()]
+        if len(clades) == 0:
+            return
+        self.sub = cent[cent[level].isin(clades)]
+        title = level+':'+','.join(clades)
+        self.replot(title)
+        return
+
+    def plot_county(self):
+        cent = self.cent
+        county = self.countyw.currentText()
+        self.sub = cent[cent.County==county]
         self.replot()
         return
 
@@ -591,13 +634,25 @@ class App(QMainWindow):
         self.replot()
         return
 
+    def plot_in_region(self):
+        """show all points in visible region of plot"""
+
+        ax = self.plotview.ax
+        xmin,xmax = ax.get_xlim()
+        ymin,ymax = ax.get_ylim()
+        df = self.cent
+        self.sub = df.cx[xmin:xmax, ymin:ymax]
+        self.replot()
+        return
+
     def show_labels(self, col):
 
         if col == '': return
         df = self.sub
         ax = self.plotview.ax
         for x, y, label in zip(df.geometry.x, df.geometry.y, df[col]):
-            ax.annotate(label, xy=(x, y), xytext=(0, 0), textcoords="offset points")
+            ax.annotate(label, xy=(x, y), xytext=(2, 0), textcoords="offset points",
+                        fontsize=8)
         return
 
     def add_context_map(self, source=None):
@@ -873,7 +928,7 @@ def plot_single_cluster(df, outliers=None, other=None, col=None, legend=True,
 
     minx, miny, maxx, maxy = df.total_bounds
     #border.plot(ax=ax, edgecolor='black',color='#F6F4F3')
-    colors = df.species.map({'Cow':'blue','Badger':'orange','Deer':'green'})
+    colors = df.Species.map({'Cow':'blue','Badger':'orange','Deer':'green'})
     if outliers is not None:
         outliers.plot(ax=ax,c="red",linewidth=1,edgecolor='red',markersize=300,alpha=.7,label='outliers')
     if other is not None:
@@ -913,9 +968,13 @@ def plot_clusters(df,col=None,xlim=None,ylim=None,legend=True,title='',colors=No
     ax.axis('off')
     return
 
-def plot_grid(gdf, col='snp50', n_cells=10, grid_type='hex', cmap='Paired', ax=None):
+def plot_hexbin(gdf, col='snp100', n_cells=12, grid_type='hex', cmap='Paired', ax=None):
     """Grid map showing most common features in a column (e.g snp level)"""
 
+    gdf = gdf[gdf[col]!='-1']
+    #keep most common clades only
+    common = list(gdf[col].value_counts().index[:10])
+    gdf = gdf[gdf[col].isin(common)]
     if grid_type == 'hex':
         grid = plotting.create_hex_grid(gdf, n_cells=n_cells)
     else:

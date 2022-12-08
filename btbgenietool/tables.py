@@ -46,7 +46,7 @@ class DataFrameWidget(QWidget):
         self.setLayout(self.layout)
         #self.plotview = widgets.PlotViewer()
         if table == None:
-            self.table = DataFrameTable(self, dataframe=pd.DataFrame())#, **kwargs)
+            self.table = DataFrameTable(self, dataframe=pd.DataFrame())
         else:
             self.table = table
         l.addWidget(self.table, 1, 1)
@@ -770,7 +770,6 @@ class SampleTableModel(DataFrameModel):
         DataFrameModel.__init__(self, dataframe)
         self.df = dataframe
 
-
 class SampleTable(DataFrameTable):
     """
     QTableView with pandas DataFrame as model.
@@ -783,6 +782,17 @@ class SampleTable(DataFrameTable):
         self.setWordWrap(False)
         tm = SampleTableModel(dataframe)
         self.setModel(tm)
+        return
+
+    def setDataFrame(self, df):
+        """Override to use right model"""
+
+        if 'sample' in df.columns:
+            df = df.set_index('sample', drop=False)
+            df.index.name = 'index'
+        tm = SampleTableModel(df)
+        self.setModel(tm)
+        self.model = tm
         return
 
     def addActions(self, event, row):
