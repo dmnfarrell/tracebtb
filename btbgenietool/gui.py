@@ -123,6 +123,14 @@ class App(QMainWindow):
         #if project != None:
         #    self.load_project(project)
         self.threadpool = QtCore.QThreadPool()
+        self.redirect_stdout()
+        return
+
+    def redirect_stdout(self):
+        """redirect stdout"""
+        self._stdout = StdoutRedirect()
+        self._stdout.start()
+        self._stdout.printOccur.connect(lambda x : self.info.insert(x))
         return
 
     def create_tool_bar(self):
@@ -229,6 +237,8 @@ class App(QMainWindow):
         l.addWidget(b)
         b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', 30)
         l.addWidget(b)
+        #b = widgets.createButton(m, None, self.plot_parcels, 'plot-parcels', 30)
+        #l.addWidget(b)
         return m
 
     def update_clades(self):
@@ -264,10 +274,11 @@ class App(QMainWindow):
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
 
-        self.info = widgets.Editor(main, readOnly=True, fontsize=11)
-        self.tabs.addTab(self.info, 'log')
+        self.info = widgets.Editor(main, readOnly=True, fontsize=10)
+        #self.tabs.addTab(self.info, 'log')
+        self.add_dock(self.info, 'log', 'right')
 
-        self.plotview = widgets.PlotViewer(self, controls=False)
+        self.plotview = widgets.CustomPlotViewer(self, controls=False, app=self)
         idx = self.tabs.addTab(self.plotview, 'map')
         self.tabs.setCurrentIndex(idx)
 
@@ -294,6 +305,13 @@ class App(QMainWindow):
         #self._stdout = StdoutRedirect()
         #self._stdout.start()
         #self._stdout.printOccur.connect(lambda x : self.info.insert(x))
+        dock = self.add_dock(QWidget(),'sample details','right')
+        self.docks['details'] = dock
+        #add dock menu items
+        for name in ['log','details']:
+            action = self.docks[name].toggleViewAction()
+            self.dock_menu.addAction(action)
+            action.setCheckable(True)
         return
 
     @QtCore.Slot(int)
@@ -350,6 +368,9 @@ class App(QMainWindow):
         self.scratch_menu.addAction(icon,'Show Scratchpad', lambda: self.show_scratchpad())
         icon = QIcon(os.path.join(iconpath,'scratchpad-plot.png'))
         self.scratch_menu.addAction(icon,'Plot to Scratchpad', lambda: self.save_to_scratchpad())
+
+        self.dock_menu = QMenu('Docks', self)
+        self.menuBar().addMenu(self.dock_menu)
 
         self.help_menu = QMenu('&Help', self)
         self.menuBar().addMenu(self.help_menu)
@@ -486,6 +507,8 @@ class App(QMainWindow):
         t.resizeColumns()
         #reference map
         self.map = gpd.read_file('testing/counties.shp').to_crs("EPSG:29902")
+        #lpis
+        self.lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/comb_2022_all_com.shp')
         #centroids
         #self.cent = gpd.read_file('testing/centroids.shp')
         self.cent = self.gdf_from_table(df)
@@ -498,9 +521,6 @@ class App(QMainWindow):
         self.colorbyw.addItems(cols)
         self.colorbyw.setCurrentText('Species')
         self.plot_selected()
-
-        #fragments
-        self.get_parcels(self.cent)
 
         #tree
         '''tv = self.treeviewer
@@ -522,9 +542,10 @@ class App(QMainWindow):
     def get_parcels(self, gdf):
         """Combine land parcels with metadata"""
 
-        lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_monaghan_10km_buff.shp')
-        print (lpis[:5])
-        self.parcels = gdf.merge(lpis,left_on='HERD_NO',right_on='SPH_HERD_N',how='inner')
+        if self.lpis is None:
+            return
+        p = self.lpis[self.lpis.SPH_HERD_N.isin(gdf.HERD_NO)]
+        self.parcels = p
         return
 
     def get_tabs(self):
@@ -561,9 +582,6 @@ class App(QMainWindow):
         self.info.verticalScrollBar().setValue(1)
         return
 
-    def sample_details(self, row):
-        return
-
     def get_counties(self):
         self.counties.groupby('sample').bounds()
         return
@@ -576,14 +594,13 @@ class App(QMainWindow):
         fig = self.plotview.fig
 
         self.map.plot(edgecolor='black',color='None',ax=ax)
-
         s = self.markersizew.value()
-        #g = get_cluster_samples(self.cent,col=col,n=5)
-        #plot_clusters(g,col,ax=ax,legend=True)
-        #cent = self.cent
         colorcol = self.colorbyw.currentText()
         kind = self.plotkindw.currentText()
         cmap = self.cmapw.currentText()
+        #fragments
+        self.get_parcels(self.sub)
+        self.plot_parcels(col=colorcol,cmap=cmap)
         if kind == 'points':
             plot_single_cluster(self.sub,s=s,col=colorcol,cmap=cmap,ax=ax)
         elif kind == 'hexbin':
@@ -601,6 +618,12 @@ class App(QMainWindow):
         if title != None:
             fig.suptitle(title)
         fig.tight_layout()
+        self.plotview.redraw()
+        return
+
+    def refresh(self):
+        """Replot with current zoom"""
+
         self.plotview.redraw()
         return
 
@@ -634,6 +657,12 @@ class App(QMainWindow):
         self.replot()
         return
 
+    def get_plot_limits(self):
+        ax = self.plotview.ax
+        xmin,xmax = ax.get_xlim()
+        ymin,ymax = ax.get_ylim()
+        return xmin,xmax,ymin,ymax
+
     def plot_in_region(self):
         """show all points in visible region of plot"""
 
@@ -643,6 +672,16 @@ class App(QMainWindow):
         df = self.cent
         self.sub = df.cx[xmin:xmax, ymin:ymax]
         self.replot()
+        ax.set_xlim(xmin,xmax)
+        ax.set_ylim(ymin,ymax)
+        return
+
+    def plot_parcels(self, col, cmap='Set1'):
+        """Show land parcels"""
+
+        idx = self.sub.index
+        ax = self.plotview.ax
+        self.parcels.plot(column=col,cmap=cmap,alpha=0.7,lw=1,ax=ax)
         return
 
     def show_labels(self, col):
@@ -735,6 +774,24 @@ class App(QMainWindow):
             return
         data = df.iloc[rows]
         return data
+
+    def show_selected_details(self):
+        df = self.meta_table.model.df
+        row = self.meta_table.getSelectedRows()[0]
+        data = df.iloc[row]
+        self.sample_details(data)
+        return
+
+    def sample_details(self, data):
+        """Show sample details"""
+
+        w = tables.TableViewer(self, pd.DataFrame(data))
+        if not 'details' in self.docks:
+            dock = self.add_dock(w,'sample details','right')
+            self.docks['details'] = dock
+        else:
+            self.docks['details'].setWidget(w)
+        return
 
     def zoom_in(self):
 

@@ -846,3 +846,19 @@ class SampleTable(DataFrameTable):
         self.model.df = self.model.df.drop(idx)
         self.refresh()
         return
+
+class TableViewer(QDialog):
+    """View row of data in table"""
+    def __init__(self, parent=None, dataframe=None, **kwargs):
+        super(TableViewer, self).__init__(parent)
+        self.setGeometry(QtCore.QRect(200, 200, 600, 600))
+        self.grid = QGridLayout()
+        self.setLayout(self.grid)
+        self.table = DataFrameTable(self, dataframe, **kwargs)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.grid.addWidget(self.table)
+        return
+
+    def setDataFrame(self, dataframe):
+        self.table.model.df = dataframe
+        return

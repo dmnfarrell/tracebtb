@@ -712,6 +712,22 @@ class FileViewer(QDialog):
         recnames = list(recs.keys())
         return
 
+class TableViewer(QDialog):
+    """View row of data in table"""
+    def __init__(self, parent=None, dataframe=None, **kwargs):
+        super(TableViewer, self).__init__(parent)
+        self.setGeometry(QtCore.QRect(200, 200, 600, 600))
+        self.grid = QGridLayout()
+        self.setLayout(self.grid)
+        self.table = tables.DataFrameTable(self, dataframe, **kwargs)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.grid.addWidget(self.table)
+        return
+
+    def setDataFrame(self, dataframe):
+        self.table.model.df = dataframe
+        return
+
 class PlotWidget(FigureCanvas):
     """Basic mpl plot view"""
 
@@ -1005,6 +1021,46 @@ class PlotViewer(QWidget):
         self.opts.increment('fontsize',val)
         self.replot()
         return
+
+class CustomPlotViewer(PlotViewer):
+    """Custom plot view with interactions"""
+    def __init__(self, parent=None, controls=True, app=None):
+        super(CustomPlotViewer, self).__init__(parent, controls)
+        self.fig.canvas.mpl_connect('button_press_event', self.onclick)
+        #self.fig.canvas.mpl_connect('pick_event', self.onpick)
+        self.app = app
+        return
+
+    def onpress(self, event):
+
+        return
+
+    def onclick(self, event):
+
+        x,y = event.xdata, event.ydata
+        print('click: %s,%s' %(x,y))
+        #c = plt.Circle([x,y], 600, color='g', alpha=.5)
+        #self.ax.add_patch(c)
+        self.canvas.draw()
+        df = self.app.cent
+        pad=500
+        found = df.cx[x-pad:x+pad, y-pad:y+pad]
+        if len(found)>0:
+            self.app.sample_details(found.iloc[0])
+        return
+
+    def onpick(event):
+        """Pick event"""
+
+        ind = event.ind
+        print (ind)
+        if isinstance(event.artist, Line2D):
+            thisline = event.artist
+            xdata = thisline.get_xdata()
+            ydata = thisline.get_ydata()
+            ind = event.ind
+            print('onpick1 line:', np.column_stack([xdata[ind], ydata[ind]]))
+
 
 class BrowserViewer(QDialog):
     """matplotlib plots widget"""
