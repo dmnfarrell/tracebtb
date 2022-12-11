@@ -55,7 +55,6 @@ colormaps = sorted(m for m in plt.cm.datad if not m.endswith("_r"))
 style = '''
     QWidget {
         max-width: 130px;
-        min-width: 30px;
         font-size: 12px;
     }
     QPlainTextEdit {
@@ -107,6 +106,7 @@ class App(QMainWindow):
 
         self.recent_files = ['']
         self.scratch_items = {}
+        self.lpis = None
         self.main.setFocus()
         self.setCentralWidget(self.main)
         self.create_tool_bar()
@@ -178,7 +178,7 @@ class App(QMainWindow):
         """controls for mapping"""
 
         m = QWidget()
-        #m.setStyleSheet(style)
+        m.setStyleSheet(style)
         m.setMaximumWidth(140)
         m.setMinimumWidth(100)
         l = QVBoxLayout()
@@ -193,8 +193,12 @@ class App(QMainWindow):
         #select clades
         l.addWidget(QLabel('Clade:'))
         self.cladew = w = QListWidget(m)
+        #hw = QWidget()
         l.addWidget(w)
-        w.setMaximumHeight(100)
+        #l1=QVBoxLayout()
+        #hw.setLayout(QVBoxLayout())
+        #hw.layout().addWidget(w)
+        w.setFixedHeight(100)
         w.setSelectionMode(QAbstractItemView.MultiSelection)
         w.itemSelectionChanged.connect(self.plot_selected)
         #zoom to county
@@ -229,16 +233,23 @@ class App(QMainWindow):
         l.addWidget(QLabel('Marker size:'))
         l.addWidget(w)
 
-        self.plotkindw = w = QComboBox(m)
-        l.addWidget(QLabel('Plot type:'))
-        l.addWidget(w)
-        w.addItems(['points','hexbin'])
+        #self.plotkindw = w = QComboBox(m)
+        #l.addWidget(QLabel('Plot type:'))
+        #l.addWidget(w)
+        #w.addItems(['points','hexbin'])
         b = widgets.createButton(m, None, self.replot, 'refresh', 30)
         l.addWidget(b)
         b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', 30)
         l.addWidget(b)
-        #b = widgets.createButton(m, None, self.plot_parcels, 'plot-parcels', 30)
-        #l.addWidget(b)
+        self.parcelsb = b = widgets.createButton(m, None, self.replot, 'plot-parcels', 30)
+        b.setCheckable(True)
+        l.addWidget(b)
+        self.movesb = b = widgets.createButton(m, None, self.replot, 'plot-moves', 30)
+        b.setCheckable(True)
+        l.addWidget(b)
+        b = widgets.createButton(m, None, lambda: self.replot(kind='hexbin'), 'plot-hexbin', 30)
+        l.addWidget(b)
+        l.addStretch()
         return m
 
     def update_clades(self):
@@ -509,8 +520,6 @@ class App(QMainWindow):
         self.map = gpd.read_file('testing/counties.shp').to_crs("EPSG:29902")
         #lpis
         self.lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/comb_2022_all_com.shp')
-        #centroids
-        #self.cent = gpd.read_file('testing/centroids.shp')
         self.cent = self.gdf_from_table(df)
         for col in cladelevels:
             self.cent[col] = self.cent[col].astype(str)
@@ -533,6 +542,11 @@ class App(QMainWindow):
 
         return
 
+    def make_test_data(self):
+        """artificial data"""
+
+        return
+
     def gdf_from_table(self, df, lon='lon',lat='lat'):
 
         cent = gpd.GeoDataFrame(df,geometry=gpd.points_from_xy(df[lon], df[lat])).set_crs('WGS 84')
@@ -544,9 +558,11 @@ class App(QMainWindow):
 
         if self.lpis is None:
             return
-        p = self.lpis[self.lpis.SPH_HERD_N.isin(gdf.HERD_NO)]
-        self.parcels = p
-        return
+        print (gdf.HERD_NO)
+        #p = self.lpis[:100]#[self.lpis.SPH_HERD_N.isin(gdf.HERD_NO)]
+        p = self.lpis.merge(gdf,left_on='SPH_HERD_N',right_on='HERD_NO',how='inner')
+        print (p)
+        return p
 
     def get_tabs(self):
 
@@ -586,7 +602,7 @@ class App(QMainWindow):
         self.counties.groupby('sample').bounds()
         return
 
-    def replot(self, title=None):
+    def replot(self, title=None, kind='points'):
         """Update plot"""
 
         self.plotview.clear()
@@ -596,11 +612,13 @@ class App(QMainWindow):
         self.map.plot(edgecolor='black',color='None',ax=ax)
         s = self.markersizew.value()
         colorcol = self.colorbyw.currentText()
-        kind = self.plotkindw.currentText()
+        #kind = self.plotkindw.currentText()
         cmap = self.cmapw.currentText()
-        #fragments
-        self.get_parcels(self.sub)
-        self.plot_parcels(col=colorcol,cmap=cmap)
+
+        #land parcels
+        if self.parcelsb.isChecked():
+            self.parcels = self.get_parcels(self.sub)
+            self.plot_parcels(col=colorcol,cmap=cmap)
         if kind == 'points':
             plot_single_cluster(self.sub,s=s,col=colorcol,cmap=cmap,ax=ax)
         elif kind == 'hexbin':
@@ -641,6 +659,8 @@ class App(QMainWindow):
         return
 
     def plot_county(self):
+        """Plot all points in county"""
+
         cent = self.cent
         county = self.countyw.currentText()
         self.sub = cent[cent.County==county]
@@ -664,11 +684,9 @@ class App(QMainWindow):
         return xmin,xmax,ymin,ymax
 
     def plot_in_region(self):
-        """show all points in visible region of plot"""
+        """Show all points in visible region of plot"""
 
-        ax = self.plotview.ax
-        xmin,xmax = ax.get_xlim()
-        ymin,ymax = ax.get_ylim()
+        xmin,xmax,ymin,ymax = self.get_plot_limits()
         df = self.cent
         self.sub = df.cx[xmin:xmax, ymin:ymax]
         self.replot()
@@ -679,9 +697,30 @@ class App(QMainWindow):
     def plot_parcels(self, col, cmap='Set1'):
         """Show land parcels"""
 
+        if self.parcels is None:
+            return
         idx = self.sub.index
         ax = self.plotview.ax
         self.parcels.plot(column=col,cmap=cmap,alpha=0.7,lw=1,ax=ax)
+        return
+
+    def plot_moves(self):
+        """Plot movements"""
+
+        cent = self.cent
+        tracked = cent.merge(allmov,left_on='ANIMAL_ID',right_on='tag',how='left')
+
+        movelines=[]
+        for n,g in tracked.groupby('ANIMAL_ID'):
+            movedfrom = lpis_cent[lpis_cent.SPH_HERD_N.isin(g.move_from)]
+            if len(movedfrom)==0:
+                continue
+            t = get_moves(n)
+            if t is not None:
+                coords = get_coords_data(t)
+                mlines = gpd.GeoDataFrame(geometry=coords)
+                mlines.plot(ax=ax)
+                movelines.extend(mlines.geometry)
         return
 
     def show_labels(self, col):
