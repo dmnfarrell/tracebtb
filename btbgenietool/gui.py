@@ -38,6 +38,7 @@ import contextily as cx
 
 home = os.path.expanduser("~")
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
+data_path = os.path.join(module_path,'data')
 logoimg = os.path.join(module_path, 'logo.svg')
 stylepath = os.path.join(module_path, 'styles')
 iconpath = os.path.join(module_path, 'icons')
@@ -114,6 +115,7 @@ class App(QMainWindow):
         #self.load_settings()
         #self.show_recent_files()
 
+        self.load_base_data()
         self.new_project()
         self.running = False
         self.load_test()
@@ -131,6 +133,11 @@ class App(QMainWindow):
         self._stdout = StdoutRedirect()
         self._stdout.start()
         self._stdout.printOccur.connect(lambda x : self.info.insert(x))
+        return
+
+    def load_base_data(self):
+        #reference map of counties
+        self.counties = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:29902")
         return
 
     def create_tool_bar(self):
@@ -285,19 +292,19 @@ class App(QMainWindow):
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
 
-        self.info = widgets.Editor(main, readOnly=True, fontsize=10)
-        #self.tabs.addTab(self.info, 'log')
-        self.add_dock(self.info, 'log', 'right')
-
         self.plotview = widgets.CustomPlotViewer(self, controls=False, app=self)
         idx = self.tabs.addTab(self.plotview, 'map')
         self.tabs.setCurrentIndex(idx)
 
-        self.browser = QWebEngineView()
+        #self.browser = QWebEngineView()
         #idx = self.tabs.addTab(self.browser, 'interactive')
-
         #self.treeviewer = phylo.TreeViewer(self)
         #self.add_dock(self.treeviewer, 'phylogeny', 'right')
+        self.info = widgets.Editor(main, readOnly=True, fontsize=10)
+        self.add_dock(self.info, 'log', 'right')
+        self.foliumview = widgets.FoliumViewer(main)
+        self.add_dock(self.foliumview, 'folium', 'right')
+        #idx = self.tabs.addTab(self.foliumview, 'folium')
 
         self.info.append("Welcome\n")
         self.statusBar = QStatusBar()
@@ -418,15 +425,12 @@ class App(QMainWindow):
 
         filename = self.proj_file
         data={}
-        data['inputs'] = self.meta_table.getDataFrame()
-        keys = ['outputdir']
+        #data['inputs'] = self.meta_table.getDataFrame()
+        keys = ['']
         for k in keys:
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
 
-        if hasattr(self, 'treeviewer'):
-            d=self.treeviewer.saveData()
-            data['treeviewer'] = d
         self.opts.applyOptions()
         data['options'] = self.opts.kwds
         self.projectlabel.setText(filename)
@@ -516,10 +520,12 @@ class App(QMainWindow):
         t = self.meta_table
         t.setDataFrame(df)
         t.resizeColumns()
-        #reference map
-        self.map = gpd.read_file('testing/counties.shp').to_crs("EPSG:29902")
+
         #lpis
         self.lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/comb_2022_all_com.shp')
+        #movement
+        self.allmov = pd.read_csv('testing/all_moves_from_not_sl.csv')
+        #GeoDataFrame from input df
         self.cent = self.gdf_from_table(df)
         for col in cladelevels:
             self.cent[col] = self.cent[col].astype(str)
@@ -609,7 +615,7 @@ class App(QMainWindow):
         ax = self.plotview.ax
         fig = self.plotview.fig
 
-        self.map.plot(edgecolor='black',color='None',ax=ax)
+        self.counties.plot(edgecolor='black',color='None',ax=ax)
         s = self.markersizew.value()
         colorcol = self.colorbyw.currentText()
         #kind = self.plotkindw.currentText()
@@ -624,6 +630,9 @@ class App(QMainWindow):
         elif kind == 'hexbin':
             plot_hexbin(self.sub,cmap=cmap,ax=ax)
 
+        #moves
+        #self.plot_moves(ax=ax)
+
         cxsource = self.contextw.currentText()
         self.add_context_map(providers[cxsource])
         labelcol = self.labelsw.currentText()
@@ -637,6 +646,9 @@ class App(QMainWindow):
             fig.suptitle(title)
         fig.tight_layout()
         self.plotview.redraw()
+        loc = self.sub.to_crs('WGS84').dissolve().centroid.geometry[0]
+        print (loc)
+        self.foliumview.refresh((loc.y,loc.x))
         return
 
     def refresh(self):
@@ -690,6 +702,7 @@ class App(QMainWindow):
         df = self.cent
         self.sub = df.cx[xmin:xmax, ymin:ymax]
         self.replot()
+        ax = self.plotview.ax
         ax.set_xlim(xmin,xmax)
         ax.set_ylim(ymin,ymax)
         return
@@ -704,15 +717,16 @@ class App(QMainWindow):
         self.parcels.plot(column=col,cmap=cmap,alpha=0.7,lw=1,ax=ax)
         return
 
-    def plot_moves(self):
+    def plot_moves(self, ax):
         """Plot movements"""
 
         cent = self.cent
-        tracked = cent.merge(allmov,left_on='ANIMAL_ID',right_on='tag',how='left')
+        lpis = self.lpis
+        tracked = cent.merge(self.allmov,left_on='Animal Id',right_on='tag',how='left')
 
         movelines=[]
-        for n,g in tracked.groupby('ANIMAL_ID'):
-            movedfrom = lpis_cent[lpis_cent.SPH_HERD_N.isin(g.move_from)]
+        for n,g in tracked.groupby('Animal Id'):
+            movedfrom = lpis[lpis.SPH_HERD_N.isin(g.move_from)]
             if len(movedfrom)==0:
                 continue
             t = get_moves(n)
@@ -1102,6 +1116,30 @@ def plot_hexbin(gdf, col='snp100', n_cells=12, grid_type='hex', cmap='Paired', a
     plotting.make_legend(ax.figure,snpmap,loc=(1,.9))
     ax.axis('off')
     return
+
+def get_moves(tag):
+    """Get moves and coords for a sample.
+    Uses allmov and lpis_cent.
+    """
+
+    df = meta[meta.ANIMAL_ID==tag]
+    cols=['ANIMAL_ID','HERD_NO','move_from','move_date','time_from_last_bd']
+    t = df.merge(allmov,left_on='ANIMAL_ID',right_on='tag',how='inner')[cols]
+
+    m = t.merge(lpis_cent,left_on='move_from',right_on='SPH_HERD_N')
+    #print (len(t),len(m))
+    m = m.sort_values('move_date')
+    if len(m)==0:
+        return
+    x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
+    m = pd.concat([m,x])
+    return m
+
+def get_coords_data(df):
+
+    df['P2'] = df.geometry.shift(-1)
+    coords = df[:-1].apply(lambda x: LineString([x.geometry,x.P2]),1)
+    return coords
 
 def main():
     "Run the application"

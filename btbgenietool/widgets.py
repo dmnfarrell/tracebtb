@@ -1105,6 +1105,37 @@ class BrowserViewer(QDialog):
         zoom = self.zoomslider.value()/10
         self.browser.setZoomFactor(zoom)
 
+class FoliumViewer(QWidget):
+    """folium plot widget"""
+    def __init__(self, parent=None):
+        super(FoliumViewer, self).__init__(parent)
+        self.main = QWebEngineView()
+        l = QVBoxLayout()
+        self.setLayout(l)
+        l.addWidget(self.main)
+        #l.addWidget(QLabel('test'))
+        #self.test()
+        return
+
+    def test(self):
+        code = '<html> HELLO </html>'
+        self.main.setHtml(code)
+        return
+
+    def refresh(self, location=[54.1, -7.0]):
+        """Update map"""
+
+        import folium
+        #print (location)
+        m = folium.Map(location=location, tiles='Stamen Terrain', #crs='EPSG29902',
+                         width=300, height=300)
+        style1 = {'fillColor': 'blue', 'color': 'black','weight':2}
+        data = io.BytesIO()
+        m.save(data, close_file=False)
+        #print (data.getvalue().decode())
+        self.main.setHtml(data.getvalue().decode())
+        return
+
 class ScratchPad(QWidget):
     """Temporary storage widget for plots and other items.
     Currently supports storing text, mpl figures and dataframes"""
