@@ -1,31 +1,31 @@
 from setuptools import setup
 import sys,os
 
-with open('btbgenietool/description.txt') as f:
+with open('btbwgstool/description.txt') as f:
     long_description = f.read()
 
 setup(
-    name = 'btbgenietool',
+    name = 'btbwgstool',
     version = '0.1.0',
     description = 'BTBGenIE tool',
     long_description = long_description,
-    url='https://github.com/dmnfarrell/btbgenietool',
+    url='https://github.com/dmnfarrell/btbwgstools',
     license='GPL v3',
     author = 'Damien Farrell',
     author_email = 'farrell.damien@gmail.com',
-    packages = ['btbgenietool'],
-    package_data={'btbgenietool': ['data/*.*','logo.png',
+    packages = ['btbwgstool'],
+    package_data={'btbwgstool': ['data/*.*','logo.png',
                   'description.txt']
                  },
-    install_requires=['numpy>=1.2',
-                      'pandas>=0.24',
+    install_requires=['numpy',
+                      'pandas',
                       'matplotlib>=3.0',
-                      'pyside2>=5.1',
-                      #'toytree',
+                      'pyqt5,
+                      'toytree',
                       ],
     entry_points = {
         'console_scripts': [
-            'btbgenietool=btbgenietool.gui:main']
+            'btbwgstool=btbwgstool.gui:main']
             },
     classifiers = ['Operating System :: OS Independent',
             'Programming Language :: Python :: 2.7',

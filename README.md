@@ -1,31 +1,29 @@
-# BTBGenIE tools
+# BTBwgstool
 
-## Web application
+<img align="right" src=btbwgstool/logo.svg width=180px>
 
-### Requirements for running locally
+This is a desktop application designed to allow analysis of M.bovis strain types and associated meta data. It integrates genetic,  location and cattle movement data in a single tool.
 
-Python install with the following packages:
+This software is written in Python. It was developed on Ubuntu linux and should run on any linux desktop. The GUI is made using the Qt toolkit using PySide2/PyQt.
 
-* bokeh
-* panel
-* toytree
+## Usage
+
+Run the command `btbwgstool` from the command line.
+
+## Installation
+
+`pip install -e git+https://github.com/dmnfarrell/btbwgstool.git#egg=btbwgstool`
+
+Notes: You may need to use pip3 on Ubuntu to ensure you use Python 3. Running this also requires you have **git** installed. The same command can be used to update to the latest version.
+
+## Requirements 
+
+* matplotlib
 * pandas
-
-### Running the dashboard
-
-```bash
-panel serve --show panel_app.py
-```
-
-or
-
-```
-./panel_app.py
-```
+* biopython
+* toytree
+* pyside2 or pyqt5
 
 ## Links
 
-* https://twitter.com/btbgenie
-* https://panel.holoviz.org/
 * https://toytree.readthedocs.io/
-* https://docs.bokeh.org/en/latest/docs/user_guide/server.html

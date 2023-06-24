@@ -590,7 +590,7 @@ def map_dash(df):
     reset_btn.on_click(draw_map)
     moves_btn.on_click(show_moves)
     related_btn.on_click(find_related_callback)
-    help_btn.js_on_click(args={'target':'https://github.com/dmnfarrell/btbgenietools' }, code='window.open(target)')
+    help_btn.js_on_click(args={'target':'https://github.com/dmnfarrell/btbwgstools' }, code='window.open(target)')
 
     #label_box = pnw.Checkbox(name='Show labels')
     tile_select.param.watch(update_tile,'value')
