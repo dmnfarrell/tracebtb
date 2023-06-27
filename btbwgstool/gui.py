@@ -120,8 +120,6 @@ class App(QMainWindow):
         self.running = False
         self.load_test()
 
-        if platform.system() == 'Windows':
-            app.fetch_binaries()
         #if project != None:
         #    self.load_project(project)
         self.threadpool = QtCore.QThreadPool()
@@ -206,7 +204,7 @@ class App(QMainWindow):
         #hw.setLayout(QVBoxLayout())
         #hw.layout().addWidget(w)
         w.setFixedHeight(100)
-        w.setSelectionMode(QAbstractItemView.MultiSelection)
+        #w.setSelectionMode(QAbstractItemView.MultiSelection)
         w.itemSelectionChanged.connect(self.plot_selected)
         #zoom to county
         self.countyw =w = QComboBox(m)
@@ -244,21 +242,21 @@ class App(QMainWindow):
         #l.addWidget(QLabel('Plot type:'))
         #l.addWidget(w)
         #w.addItems(['points','hexbin'])
-        b = widgets.createButton(m, None, self.replot, 'refresh', 30)
+        b = widgets.createButton(m, None, self.update, 'refresh', 30)
         l.addWidget(b)
         b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', 30)
         l.addWidget(b)
-        self.centroidb = b = widgets.createButton(m, None, self.replot, 'plot-centroid', 30)
+        self.centroidb = b = widgets.createButton(m, None, self.update, 'plot-centroid', 30)
         b.setCheckable(True)
         l.addWidget(b)
-        self.parcelsb = b = widgets.createButton(m, None, self.replot, 'plot-parcels', 30)
+        self.parcelsb = b = widgets.createButton(m, None, self.update, 'plot-parcels', 30)
         b.setCheckable(True)
         l.addWidget(b)
-        self.movesb = b = widgets.createButton(m, None, self.replot, 'plot-moves', 30)
+        self.movesb = b = widgets.createButton(m, None, self.update, 'plot-moves', 30)
         b.setCheckable(True)
         l.addWidget(b)
-        b = widgets.createButton(m, None, lambda: self.replot(kind='hexbin'), 'plot-hexbin', 30)
-        l.addWidget(b)
+        #b = widgets.createButton(m, None, lambda: self.update(kind='hexbin'), 'plot-hexbin', 30)
+        #l.addWidget(b)
         l.addStretch()
         return m
 
@@ -304,7 +302,7 @@ class App(QMainWindow):
         self.m.addWidget(self.treeview)
 
         self.info = widgets.Editor(main, readOnly=True, fontsize=10)
-        self.add_dock(self.info, 'log', 'right')
+        self.add_dock(self.info, 'log', 'left')
         self.foliumview = widgets.FoliumViewer(main)
         #self.add_dock(self.foliumview, 'folium', 'right')
         #idx = self.tabs.addTab(self.foliumview, 'folium')
@@ -347,24 +345,23 @@ class App(QMainWindow):
     def create_menu(self):
         """Create the menu bar for the application. """
 
-        self.file_menu = QMenu('&File', self)
+        self.file_menu = QMenu('File', self)
 
+        self.file_menu.addAction('Load Files', lambda: self.load_data_dialog())
         icon = QIcon(os.path.join(iconpath,'document-new.png'))
-        self.file_menu.addAction(icon, '&New Project', lambda: self.new_project(ask=True),
-                QtCore.Qt.CTRL + QtCore.Qt.Key_N)
+        self.file_menu.addAction('Load Folder', lambda: self.load_folder())
+        icon = QIcon(os.path.join(iconpath,'document-new.png'))
+        '''self.file_menu.addAction(icon, 'New Project', lambda: self.new_project(ask=True))
         icon = QIcon(os.path.join(iconpath,'document-open.png'))
-        self.file_menu.addAction(icon, '&Open Project', self.load_project_dialog,
-                QtCore.Qt.CTRL + QtCore.Qt.Key_O)
-        self.recent_files_menu = QMenu("Recent Projects",
-            self.file_menu)
+        self.file_menu.addAction(icon, 'Open Project', self.load_project_dialog)
+        self.recent_files_menu = QMenu("Recent Projects", self.file_menu)
         self.file_menu.addAction(self.recent_files_menu.menuAction())
         icon = QIcon(os.path.join(iconpath,'save.png'))
         self.file_menu.addAction(icon, '&Save Project', self.save_project,
                 QtCore.Qt.CTRL + QtCore.Qt.Key_S)
-        self.file_menu.addAction('&Save Project As', self.save_project_dialog)
+        self.file_menu.addAction('Save Project As', self.save_project_dialog)'''
         icon = QIcon(os.path.join(iconpath,'application-exit.png'))
-        self.file_menu.addAction(icon, '&Quit', self.quit,
-                QtCore.Qt.CTRL + QtCore.Qt.Key_Q)
+        self.file_menu.addAction(icon, 'Quit', self.quit)
         self.menuBar().addMenu(self.file_menu)
 
         self.view_menu = QMenu('View', self)
@@ -378,9 +375,10 @@ class App(QMainWindow):
 
         self.tools_menu = QMenu('Tools', self)
         self.menuBar().addMenu(self.tools_menu)
+        self.tools_menu.addAction('Make test data', self.make_test_data)
 
-        self.settings_menu = QMenu('Settings', self)
-        self.menuBar().addMenu(self.settings_menu)
+        #self.settings_menu = QMenu('Settings', self)
+        #self.menuBar().addMenu(self.settings_menu)
         #self.settings_menu.addAction('Set Output Folder', self.set_output_folder)
 
         self.scratch_menu = QMenu('Scratchpad', self)
@@ -393,10 +391,10 @@ class App(QMainWindow):
         self.dock_menu = QMenu('Docks', self)
         self.menuBar().addMenu(self.dock_menu)
 
-        self.help_menu = QMenu('&Help', self)
+        self.help_menu = QMenu('Help', self)
         self.menuBar().addMenu(self.help_menu)
         self.help_menu.addAction('&Help', self.online_documentation)
-        self.help_menu.addAction('&About', self.about)
+        self.help_menu.addAction('About', self.about)
 
     def show_recent_files(self):
         """Populate recent files menu"""
@@ -446,11 +444,11 @@ class App(QMainWindow):
 
         options = QFileDialog.Options()
         filename, _ = QFileDialog.getSaveFileName(self,"Save Project",
-                                                  "","Project files (*.snipgenie);;All files (*.*)",
+                                                  "","Project files (*.wgstool);;All files (*.*)",
                                                   options=options)
         if filename:
-            if not os.path.splitext(filename)[1] == '.snipgenie':
-                filename += '.snipgenie'
+            if not os.path.splitext(filename)[1] == '.wgstool':
+                filename += '.wgstool'
             self.proj_file = filename
             self.save_project()
         return
@@ -480,7 +478,7 @@ class App(QMainWindow):
 
         self.new_project()
         data = pickle.load(open(filename,'rb'))
-        keys = ['sheets','outputdir','results','ref_genome','ref_gb','mask_file']
+        keys = ['outputdir']
         for k in keys:
             if k in data:
                 self.__dict__[k] = data[k]
@@ -503,7 +501,7 @@ class App(QMainWindow):
         """Load project"""
 
         filename, _ = QFileDialog.getOpenFileName(self, 'Open Project', './',
-                                        filter="Project Files(*.snipgenie);;All Files(*.*)")
+                                        filter="Project Files(*.wgstool);;All Files(*.*)")
         if not filename:
             return
         if not os.path.exists(filename):
@@ -523,10 +521,6 @@ class App(QMainWindow):
         t.setDataFrame(df)
         t.resizeColumns()
 
-        #lpis
-        self.lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/comb_2022_all_com.shp')
-        #movement
-        self.allmov = pd.read_csv('testing/all_moves_from_not_sl.csv')
         #GeoDataFrame from input df
         self.cent = self.gdf_from_table(df)
         for col in cladelevels:
@@ -538,13 +532,80 @@ class App(QMainWindow):
         self.colorbyw.addItems(cols)
         self.colorbyw.setCurrentText('Species')
         self.plot_selected()
-        #snps 
+        #snps
         self.coresnps = pd.read_csv('testing/core_snps_mbovis.txt', sep=' ')
         return
 
-    def make_test_data(self):
-        """artificial data"""
+    def load_data_dialog(self):
+        """Allow user to load files"""
 
+        w = widgets.MultipleFilesDialog(self)
+
+        return
+
+    def load_folder(self, path=None):
+        """Load files from a folder"""
+
+        if path == None:
+            options = QFileDialog.Options()
+            path = QFileDialog.getExistingDirectory(self,"Select folder",
+                                                os.getcwd(),
+                                                QFileDialog.ShowDirsOnly)
+        if not path:
+            return
+        meta_file = os.path.join(path, 'meta.csv')
+        snp_file = os.path.join(path, 'snpdist.csv')
+        gdf_file = os.path.join(path, 'gdf.shp')
+        self.load_data(meta_file, snp_file, gdf_file)
+        return
+
+    def load_data(self, meta_file, snp_file, gdf_file=None, moves_file=None):
+        """Load datasets"""
+
+        df = pd.read_csv(meta_file)
+        index_col = 'id'
+        df.set_index(index_col,inplace=True)
+        t = self.meta_table
+        t.setDataFrame(df)
+        t.resizeColumns()
+
+        #try to make GeoDataFrame from input metadata
+        if gdf_file == None:
+            self.cent = self.gdf_from_table(df)
+        else:
+            gdf = gpd.read_file(gdf_file)            
+            diffcols = df.columns.difference(gdf.columns)            
+            self.cent = gdf.merge(df[diffcols], left_on='id', right_index=True)
+            self.cent = self.cent.set_index('id')
+            print(self.cent)
+
+        for col in cladelevels:
+            self.cent[col] = self.cent[col].astype(str)
+        self.update_clades()
+        #snps
+        #self.coresnps = pd.read_csv(snp_file, sep=' ')
+        self.snpdist = pd.read_csv(snp_file,index_col=0)
+        #movement
+        #self.mov = pd.read_csv(moves_file)
+        self.update()
+        return
+
+    def make_test_data(self):
+        """Artificial datasets using btbabm"""
+
+        import btbabm
+        options = QFileDialog.Options()
+        path = QFileDialog.getExistingDirectory(self,"Select folder",
+                                            #os.path.expanduser("~"),
+                                            os.getcwd(),
+                                            QFileDialog.ShowDirsOnly)
+        if not path:
+            return
+        def func(progress_callback):
+            btbabm.simulate_test_data(path)
+
+        self.run_threaded_process(func, self.processing_completed)
+        self.load_folder(path)
         return
 
     def gdf_from_table(self, df, lon='lon',lat='lat'):
@@ -602,7 +663,21 @@ class App(QMainWindow):
         self.counties.groupby('sample').bounds()
         return
 
-    def replot(self, title=None, kind='points'):
+    def make_phylogeny(self, infile, treefile='tree.newick'):
+        """Phylogeny from sequence alignment file"""
+
+        try:
+            utils.run_fasttree(infile, treefile, bootstraps=50)
+        except Exception as e:
+            print ('fasttree error')
+            print(e)
+            return
+        aln = AlignIO.read(infile,'fasta')
+        ls = len(aln[0])
+        utils.convert_branch_lengths(treefile, treefile, ls)
+        return
+
+    def update(self, title=None, kind='points'):
         """Update plot"""
 
         self.plotview.clear()
@@ -621,8 +696,8 @@ class App(QMainWindow):
             self.plot_parcels(col=colorcol,cmap=cmap)
         if kind == 'points':
             plot_single_cluster(self.sub,s=s,col=colorcol,cmap=cmap,ax=ax)
-        elif kind == 'hexbin':
-            plot_hexbin(self.sub,cmap=cmap,ax=ax)
+        #elif kind == 'hexbin':
+        #    plot_hexbin(self.sub,cmap=cmap,ax=ax)
 
         cxsource = self.contextw.currentText()
         self.add_context_map(providers[cxsource])
@@ -657,7 +732,7 @@ class App(QMainWindow):
         return
 
     def refresh(self):
-        """Replot with current zoom"""
+        """update with current zoom"""
 
         self.plotview.redraw()
         return
@@ -672,7 +747,7 @@ class App(QMainWindow):
             return
         self.sub = cent[cent[level].isin(clades)]
         title = level+':'+','.join(clades)
-        self.replot(title)
+        self.update(title)
         return
 
     def plot_county(self):
@@ -681,7 +756,7 @@ class App(QMainWindow):
         cent = self.cent
         county = self.countyw.currentText()
         self.sub = cent[cent.County==county]
-        self.replot()
+        self.update()
         return
 
     def plot_table_selection(self):
@@ -691,7 +766,7 @@ class App(QMainWindow):
         rows = self.meta_table.getSelectedRows()
         idx = df.index[rows]
         self.sub = self.cent.loc[idx]
-        self.replot()
+        self.update()
         return
 
     def get_plot_limits(self):
@@ -706,7 +781,7 @@ class App(QMainWindow):
         xmin,xmax,ymin,ymax = self.get_plot_limits()
         df = self.cent
         self.sub = df.cx[xmin:xmax, ymin:ymax]
-        self.replot()
+        self.update()
         ax = self.plotview.ax
         ax.set_xlim(xmin,xmax)
         ax.set_ylim(ymin,ymax)
@@ -727,7 +802,7 @@ class App(QMainWindow):
 
         cent = self.cent
         lpis = self.lpis
-        tracked = cent.merge(self.allmov,left_on='Animal Id',right_on='tag',how='left')
+        tracked = cent.merge(self.mov,left_on='Animal Id',right_on='tag',how='left')
 
         movelines=[]
         for n,g in tracked.groupby('Animal Id'):
@@ -1043,7 +1118,7 @@ def plot_single_cluster(df, outliers=None, other=None, col=None, legend=True,
 
     minx, miny, maxx, maxy = df.total_bounds
     #border.plot(ax=ax, edgecolor='black',color='#F6F4F3')
-    colors = df.Species.map({'Cow':'blue','Badger':'orange','Deer':'green'})
+    #colors = df.Species.map({'Cow':'blue','Badger':'orange','Deer':'green'})
     if outliers is not None:
         outliers.plot(ax=ax,c="red",linewidth=1,edgecolor='red',markersize=300,alpha=.7,label='outliers')
     if other is not None:
@@ -1083,7 +1158,7 @@ def plot_clusters(df,col=None,xlim=None,ylim=None,legend=True,title='',colors=No
     ax.axis('off')
     return
 
-def plot_hexbin(gdf, col='snp100', n_cells=12, grid_type='hex', cmap='Paired', ax=None):
+'''def plot_hexbin(gdf, col='snp100', n_cells=12, grid_type='hex', cmap='Paired', ax=None):
     """Grid map showing most common features in a column (e.g snp level)"""
 
     gdf = gdf[gdf[col]!='-1']
@@ -1120,7 +1195,7 @@ def plot_hexbin(gdf, col='snp100', n_cells=12, grid_type='hex', cmap='Paired', a
     #ax.set_ylim((292000,370000))
     plotting.make_legend(ax.figure,snpmap,loc=(1,.9))
     ax.axis('off')
-    return
+    return'''
 
 def get_moves(tag):
     """Get moves and coords for a sample.
@@ -1129,7 +1204,7 @@ def get_moves(tag):
 
     df = meta[meta.ANIMAL_ID==tag]
     cols=['ANIMAL_ID','HERD_NO','move_from','move_date','time_from_last_bd']
-    t = df.merge(allmov,left_on='ANIMAL_ID',right_on='tag',how='inner')[cols]
+    t = df.merge(self.mov,left_on='ANIMAL_ID',right_on='tag',how='inner')[cols]
 
     m = t.merge(lpis_cent,left_on='move_from',right_on='SPH_HERD_N')
     #print (len(t),len(m))

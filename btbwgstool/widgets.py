@@ -1061,7 +1061,6 @@ class CustomPlotViewer(PlotViewer):
             ind = event.ind
             print('onpick1 line:', np.column_stack([xdata[ind], ydata[ind]]))
 
-
 class BrowserViewer(QDialog):
     """matplotlib plots widget"""
     def __init__(self, parent=None):
@@ -1264,4 +1263,57 @@ class ScratchPad(QWidget):
             #print (w)
             if type(w) == dialogs.PlainTextEditor:
                 self.items[name] = w.toPlainText()
+        return
+
+class MultipleFilesDialog(QDialog):
+    """Qdialog for getting multiple files at once"""
+
+    def __init__(self, parent, title='Open files'):
+        super(MultipleFilesDialog, self).__init__(parent)
+        self.parent = parent
+        self.files = {}
+        self.setWindowTitle(title)
+        self.createWidgets(self)
+        self.setGeometry(QtCore.QRect(400, 300, 400, 200))
+        self.setFixedSize(self.width(),self.height())        
+        self.show()
+        return
+
+    def pick_new(self, name):
+        """Get a file and update the relevant key in files"""
+
+        dialog = QFileDialog()
+        path = dialog.getOpenFileName(self, 'Open File', './',
+                                       filter="Text(*.csv);;All Files(*.*)")
+        self.files[name] = path
+        print (self.files)
+        return
+
+    def createWidgets(self, parent):
+        """Create file loading buttons"""
+
+        layout = QFormLayout(self)
+        for f in ['metadata','snp data','movement']:
+            self.files[f] = ''
+            row = QWidget()            
+            layout.addRow(row)
+            hbox = QHBoxLayout(row)
+            lbl = QLabel(f)
+            lbl.setMinimumWidth(100)
+            hbox.addWidget(lbl)
+            btn = QPushButton('..')
+            btn.clicked.connect(lambda: self.pick_new(f))
+            hbox.addWidget(btn)
+            le = QLineEdit()
+            le.setReadOnly(True)
+            hbox.addWidget(le)
+
+        button = QPushButton("Ok")
+        button.clicked.connect(self.apply)
+        layout.addRow(button)        
+        return
+
+    def apply(self):
+        """Override this"""
+
         return
