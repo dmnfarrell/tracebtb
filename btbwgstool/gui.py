@@ -100,7 +100,7 @@ class App(QMainWindow):
         screen_resolution = QGuiApplication.primaryScreen().availableGeometry()
         width, height = screen_resolution.width()*0.9, screen_resolution.height()*.8
         if screen_resolution.width()>1920:
-            self.setGeometry(QtCore.QRect(100, 100, width, height))
+            self.setGeometry(QtCore.QRect(100, 100, int(width), int(height)))
         else:
             self.showMaximized()
         self.setMinimumSize(400,300)
@@ -281,7 +281,7 @@ class App(QMainWindow):
         l = QVBoxLayout(main)
         l.addWidget(self.m)
 
-        self.meta_table = tables.SampleTable(self, dataframe=pd.DataFrame, app=self)
+        self.meta_table = tables.SampleTable(self, dataframe=pd.DataFrame(), app=self)
         t = self.table_widget = tables.DataFrameWidget(parent=self, table=self.meta_table,
                             toolbar=True)
         self.add_dock(self.table_widget, 'meta data', scrollarea=False)
