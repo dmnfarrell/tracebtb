@@ -1,4 +1,4 @@
-# BTBwgstool
+# bTBWGStool
 
 <img align="right" src=btbwgstool/logo.svg width=180px>
 
@@ -33,13 +33,7 @@ D1,54.411216388944,-7.00761048343717,Ireland
 these should be provided as a sequence alignment of snp positions derived from a variant calling tool like SNiPgenie.
 
 ```
-pos ref A1 A2 B1 B2 D1 D2
-4039 C C C T C C T
-4480 T C T C C T C
-5244 C G C C C C C
-8741 T C T C C T C
-10727 G A G G G G G
-17856 C T C C C C C
+
 ...
 ```
 

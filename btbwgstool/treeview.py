@@ -339,7 +339,7 @@ class TreeViewer(QWidget):
         return
 
     def show_tree_menu(self, pos):
-        """Show right cick tree menu"""
+        """Show right click tree menu"""
 
         item = self.tipitems.itemAt( pos )
         menu = QMenu(self.tipitems)

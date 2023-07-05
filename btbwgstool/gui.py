@@ -44,7 +44,7 @@ stylepath = os.path.join(module_path, 'styles')
 iconpath = os.path.join(module_path, 'icons')
 
 counties = ['Wicklow','Monaghan','Clare','Cork','Louth']
-cladelevels = ['snp3','snp5','snp7','snp12','snp20','snp50','snp100']
+cladelevels = ['snp3','snp12','snp50','snp200','snp500']
 providers = {'None':None,
             'default': cx.providers.Stamen.Terrain,
             'Tonerlite': cx.providers.Stamen.TonerLite,
@@ -92,7 +92,7 @@ class App(QMainWindow):
 
         QMainWindow.__init__(self)
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
-        self.setWindowTitle("BTBGenIE tool")
+        self.setWindowTitle("bTBWGStool")
 
         self.setWindowIcon(QIcon(logoimg))
         self.create_menu()
@@ -180,7 +180,7 @@ class App(QMainWindow):
         return dock
 
     def create_controls(self):
-        """controls for mapping"""
+        """Set up widget controls"""
 
         m = QWidget()
         m.setStyleSheet(style)
@@ -189,23 +189,33 @@ class App(QMainWindow):
         l = QVBoxLayout()
         l.setAlignment(QtCore.Qt.AlignTop)
         m.setLayout(l)
-        #select cluster
+
+        #select cluster level
         self.cladelevelw = w = QComboBox(m)
         w.addItems(cladelevels)
         l.addWidget(QLabel('Clade level:'))
         l.addWidget(w)
         w.currentIndexChanged.connect(self.update_clades)
-        #select clades
+
+        #select cluster
         l.addWidget(QLabel('Clade:'))
-        self.cladew = w = QListWidget(m)
-        #hw = QWidget()
-        l.addWidget(w)
-        #l1=QVBoxLayout()
-        #hw.setLayout(QVBoxLayout())
-        #hw.layout().addWidget(w)
-        w.setFixedHeight(100)
+        #self.cladew = w = QListWidget(m)
+        #l.addWidget(w)
+        #w.setFixedHeight(100)
         #w.setSelectionMode(QAbstractItemView.MultiSelection)
-        w.itemSelectionChanged.connect(self.plot_selected)
+        #w.itemSelectionChanged.connect(self.plot_selected)
+
+        t = self.cladew = QTreeWidget()
+        t.setHeaderItem(QTreeWidgetItem(["name","size"]))
+        t.setColumnWidth(0, 50)
+        t.setColumnWidth(1, 30)
+        t.setSortingEnabled(True)
+        #t.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        #t.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        #t.customContextMenuRequested.connect(self.update_clades)
+        t.itemSelectionChanged.connect(self.plot_selected)
+        l.addWidget(t)
+
         #zoom to county
         self.countyw =w = QComboBox(m)
         w.addItems(counties)
@@ -264,9 +274,16 @@ class App(QMainWindow):
         """Update clade widget"""
 
         level = self.cladelevelw.currentText()
-        clades = sorted(list(self.cent[level].unique()))
-        self.cladew.clear()
-        self.cladew.addItems(clades)
+        #clades = sorted(list(self.cent[level].unique()))
+        clades = self.cent[level].value_counts()
+        t = self.cladew
+        t.clear()
+        #self.cladew.addItems(clades)
+
+        for cl,size in clades.items():
+            item = QTreeWidgetItem(t)
+            item.setText(0, cl)
+            item.setText(1, str(size))
         return
 
     def setup_gui(self):
@@ -299,10 +316,10 @@ class App(QMainWindow):
         self.tabs.setCurrentIndex(idx)
 
         self.treeview = treeview.TreeViewer()
-        self.m.addWidget(self.treeview)
+        #self.m.addWidget(self.treeview)
 
         self.info = widgets.Editor(main, readOnly=True, fontsize=10)
-        self.add_dock(self.info, 'log', 'left')
+        self.add_dock(self.info, 'log', 'right')
         self.foliumview = widgets.FoliumViewer(main)
         #self.add_dock(self.foliumview, 'folium', 'right')
         #idx = self.tabs.addTab(self.foliumview, 'folium')
@@ -324,10 +341,9 @@ class App(QMainWindow):
         #self._stdout = StdoutRedirect()
         #self._stdout.start()
         #self._stdout.printOccur.connect(lambda x : self.info.insert(x))
-        dock = self.add_dock(QWidget(),'sample details','left')
-        self.docks['details'] = dock
+
         #add dock menu items
-        for name in ['log','details']:
+        for name in ['log']:
             action = self.docks[name].toggleViewAction()
             self.dock_menu.addAction(action)
             action.setCheckable(True)
@@ -514,7 +530,7 @@ class App(QMainWindow):
 
         #metadata
         #df = pd.read_csv('testing/samples.csv')
-        df = pd.read_csv('testing/ireland_real_data.csv')
+        df = pd.read_csv('testing/metadata.csv')
         index_col = 'SeqID'
         df.set_index(index_col,inplace=True)
         t = self.meta_table
@@ -527,13 +543,21 @@ class App(QMainWindow):
             self.cent[col] = self.cent[col].astype(str)
         self.update_clades()
         #print (self.cent)
+
         cols = ['']+list(self.cent.columns)
         self.labelsw.addItems(cols)
         self.colorbyw.addItems(cols)
         self.colorbyw.setCurrentText('Species')
         self.plot_selected()
+
         #snps
         self.coresnps = pd.read_csv('testing/core_snps_mbovis.txt', sep=' ')
+        #moves
+        self.mov = pd.read_csv('testing/moves.csv')
+
+        #lpis
+        self.lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_cent.shp')#.set_crs('EPSG:29902')
+        self.lpis = self.lpis.to_crs(self.cent.crs)
         return
 
     def load_data_dialog(self):
@@ -573,11 +597,11 @@ class App(QMainWindow):
         if gdf_file == None:
             self.cent = self.gdf_from_table(df)
         else:
-            gdf = gpd.read_file(gdf_file)            
-            diffcols = df.columns.difference(gdf.columns)            
+            gdf = gpd.read_file(gdf_file)
+            diffcols = df.columns.difference(gdf.columns)
             self.cent = gdf.merge(df[diffcols], left_on='id', right_index=True)
             self.cent = self.cent.set_index('id')
-            print(self.cent)
+            #print(self.cent)
 
         for col in cladelevels:
             self.cent[col] = self.cent[col].astype(str)
@@ -619,10 +643,12 @@ class App(QMainWindow):
 
         if self.lpis is None:
             return
-        print (gdf.HERD_NO)
+        #print (gdf.HERD_NO)
         #p = self.lpis[:100]#[self.lpis.SPH_HERD_N.isin(gdf.HERD_NO)]
-        p = self.lpis.merge(gdf,left_on='SPH_HERD_N',right_on='HERD_NO',how='inner')
-        print (p)
+        #p = self.lpis.merge(gdf,left_on='SPH_HERD_N',right_on='HERD_NO',how='inner')
+        herds = list(self.sub.HERD_NO)
+        p = self.lpis[self.lpis.SPH_HERD_N.isin(herds)]
+
         return p
 
     def get_tabs(self):
@@ -690,14 +716,12 @@ class App(QMainWindow):
         #kind = self.plotkindw.currentText()
         cmap = self.cmapw.currentText()
 
+        plot_single_cluster(self.sub,ax=ax)
+
         #land parcels
         if self.parcelsb.isChecked():
             self.parcels = self.get_parcels(self.sub)
             self.plot_parcels(col=colorcol,cmap=cmap)
-        if kind == 'points':
-            plot_single_cluster(self.sub,s=s,col=colorcol,cmap=cmap,ax=ax)
-        #elif kind == 'hexbin':
-        #    plot_hexbin(self.sub,cmap=cmap,ax=ax)
 
         cxsource = self.contextw.currentText()
         self.add_context_map(providers[cxsource])
@@ -708,27 +732,31 @@ class App(QMainWindow):
         ax.axis('off')
         #leg = ax.get_legend()
         #leg.set_bbox_to_anchor((0., 0., 1.2, 0.9))
-        if title != None:
-            fig.suptitle(title)
-        fig.tight_layout()
-        self.plotview.redraw()
-        loc = self.sub.to_crs('WGS84').dissolve().centroid.geometry[0]
-        print (loc)
+
+        #loc = self.sub.to_crs('WGS84').dissolve().centroid.geometry[0]
+        #print (loc)
         #self.foliumview.refresh((loc.y,loc.x))
 
         idx = list(self.sub.index)
         #phylogeny
-        snpmat = self.coresnps[['pos']+idx]
-        print (snpmat)
-        treefile = trees.tree_from_snps(snpmat)
+        #snpmat = self.coresnps[['pos']+idx]
+        #print (snpmat)
+        #treefile = trees.tree_from_snps(snpmat)
 
-        tv = self.treeview
-        tv.load_tree(treefile)
-        tv.update()
+        #tv = self.treeview
+        #tv.load_tree(treefile)
+        #tv.update()
 
         #moves
-        #self.plot_moves(ax=ax)
-        print (self.sub)
+        self.plot_moves(self.sub, ax=ax)
+
+        if title != None:
+            fig.suptitle(title)
+        fig.tight_layout()
+        self.plotview.redraw()
+
+        #update subset table
+        self.show_selected_table()
         return
 
     def refresh(self):
@@ -742,11 +770,13 @@ class App(QMainWindow):
 
         cent = self.cent
         level = self.cladelevelw.currentText()
-        clades = [item.text() for item in self.cladew.selectedItems()]
+        clades = [item.text(0) for item in self.cladew.selectedItems()]
+
         if len(clades) == 0:
             return
         self.sub = cent[cent[level].isin(clades)]
-        title = level+':'+','.join(clades)
+        cl= ','.join(clades)
+        title = '%s=%s n=%s' %(level,cl,len(self.sub))
         self.update(title)
         return
 
@@ -792,30 +822,52 @@ class App(QMainWindow):
 
         if self.parcels is None:
             return
-        idx = self.sub.index
+        print (self.parcels.crs)
         ax = self.plotview.ax
-        self.parcels.plot(column=col,cmap=cmap,alpha=0.7,lw=1,ax=ax)
+        self.parcels.plot(alpha=0.7,lw=1,ax=ax)
         return
 
-    def plot_moves(self, ax):
+    def plot_moves(self, df, ax):
         """Plot movements"""
 
-        cent = self.cent
-        lpis = self.lpis
-        tracked = cent.merge(self.mov,left_on='Animal Id',right_on='tag',how='left')
+        lpis_cent = self.lpis
+        df = df.merge(self.mov,left_on='Animal_ID',right_on='tag',how='left')
 
-        movelines=[]
-        for n,g in tracked.groupby('Animal Id'):
-            movedfrom = lpis[lpis.SPH_HERD_N.isin(g.move_from)]
-            if len(movedfrom)==0:
-                continue
-            t = get_moves(n)
+        #show moves
+        colors = plotting.random_colors(30)
+        i=0
+        for tag in df.Animal_ID.unique():
+            t = self.get_moves(tag)
+
             if t is not None:
+                movedfrom = lpis_cent[lpis_cent.SPH_HERD_N.isin(t.move_from)]
                 coords = get_coords_data(t)
-                mlines = gpd.GeoDataFrame(geometry=coords)
-                mlines.plot(ax=ax)
-                movelines.extend(mlines.geometry)
+                if len(coords)>0:
+                    mlines = gpd.GeoDataFrame(geometry=coords)
+                    #print (mlines)
+                    mlines.plot(color=colors[i],linewidth=1,ax=ax)
+                    movedfrom.plot(color=colors[i],marker='s',markersize=50,linewidth=.5,alpha=0.3,ax=ax)
+                    i+=1
         return
+
+    def get_moves(self, tag):
+        """Get moves and coords for a sample.
+        Uses allmov and lpis_cent.
+        """
+
+        lpis_cent = self.lpis
+        df = self.cent[self.cent.Animal_ID==tag]
+        cols=['Animal_ID','HERD_NO','move_from','move_date']
+        t = df.merge(self.mov,left_on='Animal_ID',right_on='tag',how='inner')[cols]
+
+        m = t.merge(lpis_cent,left_on='move_from',right_on='SPH_HERD_N')
+        #print (len(t),len(m))
+        m = m.sort_values('move_date')
+        if len(m)==0:
+            return
+        x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
+        m = pd.concat([m,x])
+        return m
 
     def show_labels(self, col):
 
@@ -889,6 +941,7 @@ class App(QMainWindow):
         return
 
     def show_browser_tab(self, link, name):
+        """Show browser"""
 
         from PySide2.QtWebEngineWidgets import QWebEngineView
         browser = QWebEngineView()
@@ -908,11 +961,15 @@ class App(QMainWindow):
         data = df.iloc[rows]
         return data
 
-    def show_selected_details(self):
-        df = self.meta_table.model.df
-        row = self.meta_table.getSelectedRows()[0]
-        data = df.iloc[row]
-        self.sample_details(data)
+    def show_selected_table(self):
+        """Show selected samples in separate table"""
+
+        w = tables.SampleTable(self, dataframe=self.sub, app=self)
+        if not 'selected' in self.docks:
+            dock = self.add_dock(w,'selected','left')
+            self.docks['selected'] = dock
+        else:
+            self.docks['selected'].setWidget(w)
         return
 
     def sample_details(self, data):
@@ -995,7 +1052,7 @@ class App(QMainWindow):
         mplver = matplotlib.__version__
         qtver = PySide2.QtCore.__version__
 
-        text='BTBGenIE tool\n'\
+        text='bTBWGStool\n'\
             +'version '+__version__+'\n'\
             +'Copyright (C) Damien Farrell 2022-\n'\
             +'This program is free software; you can redistribute it and/or '\
@@ -1097,7 +1154,7 @@ def get_cluster_samples(cent,col,n=3):
     g = g[g[col].isin(clusts)]
     g = g.sort_values(col)
     #print (col, len(g))
-    print (list(g[col].unique()))
+    #print (list(g[col].unique()))
     return g
 
 def get_clusts_info(cent,col, n=3):
@@ -1113,19 +1170,19 @@ def get_clusts_info(cent,col, n=3):
         new.append(d[['geometry','area','animals']])
     return pd.concat(new).reset_index().sort_values('animals',ascending=False)
 
-def plot_single_cluster(df, outliers=None, other=None, col=None, legend=True,
-                        margin=1e4, title='', s=80, cmap='Set1', ax=None):
+def plot_single_cluster(df,outliers=None,other=None,margin=1e4,title='',ax=None):
+    """plot cluster"""
 
     minx, miny, maxx, maxy = df.total_bounds
-    #border.plot(ax=ax, edgecolor='black',color='#F6F4F3')
-    #colors = df.Species.map({'Cow':'blue','Badger':'orange','Deer':'green'})
+    #counties.plot(ax=ax, linewidth=.5, edgecolor='black',color='#F6F4F3')
+    df = df[df.Species.isin(['Bovine','Badger'])]
+    df['color'] = df.Species.map({'Bovine':'blue','Badger':'orange'})
     if outliers is not None:
-        outliers.plot(ax=ax,c="red",linewidth=1,edgecolor='red',markersize=300,alpha=.7,label='outliers')
+        outliers.plot(ax=ax,c="red",linewidth=1,edgecolor='red',markersize=100,alpha=.7,label='outliers')
     if other is not None:
-        other.plot(ax=ax,c='green',marker='o',markersize=300,alpha=.7,lw=2,label='source')
-    if col == '':
-        col=None
-    df.plot(column=col,ax=ax,alpha=0.6,markersize=s,edgecolor='0.1',cmap=cmap,legend=legend)
+        other.plot(ax=ax,c='green',marker='o',markersize=100,alpha=.7,lw=2,label='source')
+
+    df.plot(color=df.color,ax=ax,alpha=0.6,markersize=40,linewidth=.5,label='farm/badger')
     ax.set_title(title)
     ax.axis('off')
     ax.set_xlim(minx-margin,maxx+margin)
@@ -1133,87 +1190,6 @@ def plot_single_cluster(df, outliers=None, other=None, col=None, legend=True,
     ax.add_artist(ScaleBar(dx=1,location=3))
     #ax.legend(fontsize=12)
     return
-
-def plot_clusters(df,col=None,xlim=None,ylim=None,legend=True,title='',colors=None,
-                  ms=None,cmap='Paired',ax=None):
-
-    #mon.plot(linewidth=0.8, ax=ax, edgecolor='black',legend=legend,color='white', lw=1,alpha=0.5)
-    if ms==None:
-        df['ms'] = (df.species.astype('category').cat.codes+1)*60
-    else:
-        df['ms'] = ms
-    #df['shape'] = df.Species.apply(lambda x: 'o' if x=='Bovine' else 's')
-    #print (col,len(df))
-    if colors is not None:
-        df.plot(c=colors,ax=ax,alpha=0.8, markersize=df['ms'],edgecolor='0.1',marker='o',lw=0,
-                  legend=legend,legend_kwds={'fontsize':9, 'bbox_to_anchor': (1.2, .8)})
-    else:
-        df.plot(column=col,ax=ax,alpha=0.8, markersize=df['ms'],edgecolor='0.1',marker='o',lw=0,
-              cmap=cmap,legend=legend,legend_kwds={'fontsize':9, 'bbox_to_anchor': (1.2, .8)})
-    if col != None:
-        cent_cl = get_clusts_info(df,col)
-        for x, y, label in zip(cent_cl.geometry.x, cent_cl.geometry.y, cent_cl[col]):
-            ax.annotate(label, xy=(x, y), xytext=(0, 0), textcoords="offset points")
-
-    ax.axis('off')
-    return
-
-'''def plot_hexbin(gdf, col='snp100', n_cells=12, grid_type='hex', cmap='Paired', ax=None):
-    """Grid map showing most common features in a column (e.g snp level)"""
-
-    gdf = gdf[gdf[col]!='-1']
-    #keep most common clades only
-    common = list(gdf[col].value_counts().index[:10])
-    gdf = gdf[gdf[col].isin(common)]
-    if grid_type == 'hex':
-        grid = plotting.create_hex_grid(gdf, n_cells=n_cells)
-    else:
-        grid = plotting.create_grid(gdf, n_cells=n_cells)
-    #merge grid and original using sjoin
-    #print (grid)
-    merged = gpd.sjoin(gdf, grid, how='left', predicate='within')
-
-    # Compute stats per grid cell
-    def aggtop(x):
-        #most common value in each group
-        c = x.value_counts()
-        if len(c)>0:
-            return c.index[0]
-
-    clrs,snpmap = plotting.get_color_mapping(gdf, col, cmap=cmap)
-    gdf['snp_color'] = clrs
-
-    dissolve = merged.dissolve(by="index_right", aggfunc=aggtop)
-    grid.loc[dissolve.index, 'value'] = dissolve[col].values
-    grid['color'] = grid.value.map(snpmap)
-    grid = grid[~grid.color.isnull()]
-
-    grid.plot(color=grid.color, ec='gray', alpha=0.4, lw=2, ax=ax)
-    #border.plot(color='none',ec='black',ax=ax)
-    gdf.plot(c=gdf.snp_color,ax=ax)
-    #ax.set_xlim((225000,310000))
-    #ax.set_ylim((292000,370000))
-    plotting.make_legend(ax.figure,snpmap,loc=(1,.9))
-    ax.axis('off')
-    return'''
-
-def get_moves(tag):
-    """Get moves and coords for a sample.
-    Uses allmov and lpis_cent.
-    """
-
-    df = meta[meta.ANIMAL_ID==tag]
-    cols=['ANIMAL_ID','HERD_NO','move_from','move_date','time_from_last_bd']
-    t = df.merge(self.mov,left_on='ANIMAL_ID',right_on='tag',how='inner')[cols]
-
-    m = t.merge(lpis_cent,left_on='move_from',right_on='SPH_HERD_N')
-    #print (len(t),len(m))
-    m = m.sort_values('move_date')
-    if len(m)==0:
-        return
-    x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
-    m = pd.concat([m,x])
-    return m
 
 def get_coords_data(df):
 
