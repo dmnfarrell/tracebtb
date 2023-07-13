@@ -52,10 +52,11 @@ Notes: You may need to use pip3 on Ubuntu to ensure you use Python 3. Running th
 
 * matplotlib
 * pandas
+* geopandas
 * biopython
 * toytree
 * pyside2 or pyqt5
 
-## Links
+## Funding
 
-* https://toytree.readthedocs.io/
+This tool was developed as part of projects funded by the Irish Department of Agriculture and the Marine (DAFM).

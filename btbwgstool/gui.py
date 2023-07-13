@@ -107,7 +107,7 @@ class App(QMainWindow):
 
         self.recent_files = ['']
         self.scratch_items = {}
-        self.lpis = None
+        self.lpis_cent = None
         self.main.setFocus()
         self.setCentralWidget(self.main)
         self.create_tool_bar()
@@ -265,8 +265,8 @@ class App(QMainWindow):
         self.movesb = b = widgets.createButton(m, None, self.update, 'plot-moves', 30)
         b.setCheckable(True)
         l.addWidget(b)
-        #b = widgets.createButton(m, None, lambda: self.update(kind='hexbin'), 'plot-hexbin', 30)
-        #l.addWidget(b)
+        b = widgets.createButton(m, None, self.show_tree, 'tree', 30)
+        l.addWidget(b)
         l.addStretch()
         return m
 
@@ -276,6 +276,7 @@ class App(QMainWindow):
         level = self.cladelevelw.currentText()
         #clades = sorted(list(self.cent[level].unique()))
         clades = self.cent[level].value_counts()
+        clades = clades[clades>1]
         t = self.cladew
         t.clear()
         #self.cladew.addItems(clades)
@@ -302,6 +303,7 @@ class App(QMainWindow):
         t = self.table_widget = tables.DataFrameWidget(parent=self, table=self.meta_table,
                             toolbar=True)
         self.add_dock(self.table_widget, 'meta data', scrollarea=False)
+        self.add_dock_item('meta data')
         #self.m.addWidget(self.table_widget)
 
         w = self.create_controls()
@@ -349,6 +351,13 @@ class App(QMainWindow):
             action.setCheckable(True)
         return
 
+    def add_dock_item(self, name):
+
+        action = self.docks[name].toggleViewAction()
+        self.dock_menu.addAction(action)
+        action.setCheckable(True)
+        return
+
     @QtCore.Slot(int)
     def close_tab(self, index):
         """Close current tab"""
@@ -367,15 +376,15 @@ class App(QMainWindow):
         icon = QIcon(os.path.join(iconpath,'document-new.png'))
         self.file_menu.addAction('Load Folder', lambda: self.load_folder())
         icon = QIcon(os.path.join(iconpath,'document-new.png'))
-        '''self.file_menu.addAction(icon, 'New Project', lambda: self.new_project(ask=True))
-        icon = QIcon(os.path.join(iconpath,'document-open.png'))
+        #self.file_menu.addAction(icon, 'New Project', lambda: self.new_project(ask=True))
+        #icon = QIcon(os.path.join(iconpath,'document-open.png'))
         self.file_menu.addAction(icon, 'Open Project', self.load_project_dialog)
         self.recent_files_menu = QMenu("Recent Projects", self.file_menu)
         self.file_menu.addAction(self.recent_files_menu.menuAction())
         icon = QIcon(os.path.join(iconpath,'save.png'))
         self.file_menu.addAction(icon, '&Save Project', self.save_project,
                 QtCore.Qt.CTRL + QtCore.Qt.Key_S)
-        self.file_menu.addAction('Save Project As', self.save_project_dialog)'''
+        self.file_menu.addAction('Save Project As', self.save_project_dialog)
         icon = QIcon(os.path.join(iconpath,'application-exit.png'))
         self.file_menu.addAction(icon, 'Quit', self.quit)
         self.menuBar().addMenu(self.file_menu)
@@ -442,15 +451,12 @@ class App(QMainWindow):
 
         filename = self.proj_file
         data={}
-        #data['inputs'] = self.meta_table.getDataFrame()
-        keys = ['']
+        keys = ['cent','moves','lpis','lpis_cent','core_snps']
         for k in keys:
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
 
-        self.opts.applyOptions()
-        data['options'] = self.opts.kwds
-        self.projectlabel.setText(filename)
+        #self.projectlabel.setText(filename)
         pickle.dump(data, open(filename,'wb'))
         self.add_recent_file(filename)
         return
@@ -481,9 +487,8 @@ class App(QMainWindow):
             return False
 
         self.outputdir = None
-        self.sheets = {}
         self.proj_file = None
-        #self.meta_table.setDataFrame(pd.DataFrame({'name':[]}))
+        self.meta_table.setDataFrame(pd.DataFrame({'sample':[]}))
         #self.left_tabs.clear()
         if hasattr(self, 'treeview'):
             self.treeview.clear()
@@ -494,22 +499,25 @@ class App(QMainWindow):
 
         self.new_project()
         data = pickle.load(open(filename,'rb'))
-        keys = ['outputdir']
+        keys = ['cent','moves','lpis','lpis_cent','core_snps']
         for k in keys:
             if k in data:
                 self.__dict__[k] = data[k]
 
-        if 'options' in data:
-            self.opts.updateWidgets(data['options'])
-        ft = self.meta_table
-        ft.setDataFrame(data['inputs'])
-        ft.resizeColumns()
+        #if 'options' in data:
+        #    self.opts.updateWidgets(data['options'])
+        t = self.meta_table
+        t.setDataFrame(self.cent)
+        self.update_clades()
+        cols = ['']+list(self.cent.columns)
+        self.labelsw.addItems(cols)
+        self.colorbyw.addItems(cols)
+        self.colorbyw.setCurrentText('')
 
         self.proj_file = filename
         self.projectlabel.setText(self.proj_file)
-        self.outdirLabel.setText(self.outputdir)
+        #self.outdirLabel.setText(self.outputdir)
 
-        self.tabs.setCurrentIndex(0)
         self.add_recent_file(filename)
         return
 
@@ -529,7 +537,6 @@ class App(QMainWindow):
         """Load test dataset"""
 
         #metadata
-        #df = pd.read_csv('testing/samples.csv')
         df = pd.read_csv('testing/metadata.csv')
         index_col = 'SeqID'
         df.set_index(index_col,inplace=True)
@@ -547,17 +554,18 @@ class App(QMainWindow):
         cols = ['']+list(self.cent.columns)
         self.labelsw.addItems(cols)
         self.colorbyw.addItems(cols)
-        self.colorbyw.setCurrentText('Species')
+        self.colorbyw.setCurrentText('')
         self.plot_selected()
 
         #snps
         self.coresnps = pd.read_csv('testing/core_snps_mbovis.txt', sep=' ')
         #moves
-        self.mov = pd.read_csv('testing/moves.csv')
+        self.moves= pd.read_csv('testing/moves.csv')
 
-        #lpis
-        self.lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_cent.shp')#.set_crs('EPSG:29902')
-        self.lpis = self.lpis.to_crs(self.cent.crs)
+        #lpis centroids
+        self.lpis_cent = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_cent.shp').set_crs('EPSG:29902')
+        #land parcels
+        self.lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_merged.shp').set_crs('EPSG:29902')
         return
 
     def load_data_dialog(self):
@@ -610,7 +618,7 @@ class App(QMainWindow):
         #self.coresnps = pd.read_csv(snp_file, sep=' ')
         self.snpdist = pd.read_csv(snp_file,index_col=0)
         #movement
-        #self.mov = pd.read_csv(moves_file)
+        #self.moves= pd.read_csv(moves_file)
         self.update()
         return
 
@@ -632,10 +640,9 @@ class App(QMainWindow):
         self.load_folder(path)
         return
 
-    def gdf_from_table(self, df, lon='lon',lat='lat'):
+    def gdf_from_table(self, df, x='X_COORD',y='Y_COORD'):
 
-        cent = gpd.GeoDataFrame(df,geometry=gpd.points_from_xy(df[lon], df[lat])).set_crs('WGS 84')
-        cent = cent.to_crs("EPSG:29902")
+        cent = gpd.GeoDataFrame(df,geometry=gpd.points_from_xy(df[x], df[y])).set_crs('EPSG:29902')
         return cent
 
     def get_parcels(self, gdf):
@@ -644,11 +651,8 @@ class App(QMainWindow):
         if self.lpis is None:
             return
         #print (gdf.HERD_NO)
-        #p = self.lpis[:100]#[self.lpis.SPH_HERD_N.isin(gdf.HERD_NO)]
-        #p = self.lpis.merge(gdf,left_on='SPH_HERD_N',right_on='HERD_NO',how='inner')
         herds = list(self.sub.HERD_NO)
         p = self.lpis[self.lpis.SPH_HERD_N.isin(herds)]
-
         return p
 
     def get_tabs(self):
@@ -711,17 +715,17 @@ class App(QMainWindow):
         fig = self.plotview.fig
 
         self.counties.plot(edgecolor='black',color='None',ax=ax)
-        s = self.markersizew.value()
+        ms = self.markersizew.value()
         colorcol = self.colorbyw.currentText()
         #kind = self.plotkindw.currentText()
         cmap = self.cmapw.currentText()
-
-        plot_single_cluster(self.sub,ax=ax)
 
         #land parcels
         if self.parcelsb.isChecked():
             self.parcels = self.get_parcels(self.sub)
             self.plot_parcels(col=colorcol,cmap=cmap)
+
+        plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,ax=ax)
 
         cxsource = self.contextw.currentText()
         self.add_context_map(providers[cxsource])
@@ -737,18 +741,12 @@ class App(QMainWindow):
         #print (loc)
         #self.foliumview.refresh((loc.y,loc.x))
 
-        idx = list(self.sub.index)
-        #phylogeny
-        #snpmat = self.coresnps[['pos']+idx]
-        #print (snpmat)
-        #treefile = trees.tree_from_snps(snpmat)
-
-        #tv = self.treeview
-        #tv.load_tree(treefile)
-        #tv.update()
-
         #moves
-        self.plot_moves(self.sub, ax=ax)
+        if self.movesb.isChecked():
+            mov = self.get_moves_bytag(self.sub, self.moves)
+            self.plot_moves(mov, ax=ax)
+            mov=mov.sort_values(by=['Animal_ID','move_date'])
+            self.show_moves_table(mov)
 
         if title != None:
             fig.suptitle(title)
@@ -757,6 +755,21 @@ class App(QMainWindow):
 
         #update subset table
         self.show_selected_table()
+        return
+
+    def show_tree(self):
+        """Show phylogeny for selected subset"""
+
+        idx = list(self.sub.index)
+        #phylogeny - change to use seqs
+        snpmat = self.coresnps[['pos']+idx]
+
+        treefile = trees.tree_from_snps(snpmat)
+        tv = self.treeview
+        tv.load_tree(treefile)
+        tv.update()
+        tv.show()
+        tv.activateWindow()
         return
 
     def refresh(self):
@@ -796,7 +809,8 @@ class App(QMainWindow):
         rows = self.meta_table.getSelectedRows()
         idx = df.index[rows]
         self.sub = self.cent.loc[idx]
-        self.update()
+        title = '(table selection) n=%s' %len(self.sub)
+        self.update(title)
         return
 
     def get_plot_limits(self):
@@ -822,54 +836,52 @@ class App(QMainWindow):
 
         if self.parcels is None:
             return
-        print (self.parcels.crs)
+        #print (self.parcels)
         ax = self.plotview.ax
-        self.parcels.plot(alpha=0.7,lw=1,ax=ax)
+        self.parcels.plot(column='SPH_HERD_N',alpha=0.6,lw=1,cmap=cmap,ax=ax)
         return
 
-    def plot_moves(self, df, ax):
-        """Plot movements"""
-
-        lpis_cent = self.lpis
-        df = df.merge(self.mov,left_on='Animal_ID',right_on='tag',how='left')
-
-        #show moves
-        colors = plotting.random_colors(30)
-        i=0
-        for tag in df.Animal_ID.unique():
-            t = self.get_moves(tag)
-
-            if t is not None:
-                movedfrom = lpis_cent[lpis_cent.SPH_HERD_N.isin(t.move_from)]
-                coords = get_coords_data(t)
-                if len(coords)>0:
-                    mlines = gpd.GeoDataFrame(geometry=coords)
-                    #print (mlines)
-                    mlines.plot(color=colors[i],linewidth=1,ax=ax)
-                    movedfrom.plot(color=colors[i],marker='s',markersize=50,linewidth=.5,alpha=0.3,ax=ax)
-                    i+=1
-        return
-
-    def get_moves(self, tag):
-        """Get moves and coords for a sample.
-        Uses allmov and lpis_cent.
+    def get_moves_bytag(self, df, move_df):
+        """Get moves and coords for one or more samples.
+        Uses lpis_cent.
         """
 
-        lpis_cent = self.lpis
-        df = self.cent[self.cent.Animal_ID==tag]
-        cols=['Animal_ID','HERD_NO','move_from','move_date']
-        t = df.merge(self.mov,left_on='Animal_ID',right_on='tag',how='inner')[cols]
-
-        m = t.merge(lpis_cent,left_on='move_from',right_on='SPH_HERD_N')
+        lpis_cent = self.lpis_cent
+        cols=['Animal_ID','HERD_NO','move_to','move_date','data_type','breed','dob']
+        t = df.merge(move_df,left_on='Animal_ID',right_on='tag',how='inner')[cols]
+        m = t.merge(lpis_cent,left_on='move_to',right_on='SPH_HERD_N', how='left')
         #print (len(t),len(m))
         m = m.sort_values('move_date')
         if len(m)==0:
             return
         x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
-        m = pd.concat([m,x])
+        m = pd.concat([m,x]).dropna(subset='Animal_ID')
         return m
 
+    def plot_moves(self, moves, ax):
+        """Show moves as lines on plot"""
+
+        lpis_cent = self.lpis_cent
+        colors = plotting.random_colors(30, seed=12)
+        i=0
+        if moves is None:
+            return
+        moves = moves[moves.geometry.notnull()]
+        for tag,t in moves.groupby('Animal_ID'):
+            if t is not None:
+                #print (t[cols])
+                moved = lpis_cent[lpis_cent.SPH_HERD_N.isin(t.move_to)]
+                coords = get_coords_data(t)
+                if len(coords)>0:
+                    mlines = gpd.GeoDataFrame(geometry=coords)
+                    mlines.plot(color=colors[i],linewidth=1,ax=ax)
+                    moved.plot(color='none',ec=colors[i],marker='s',
+                               markersize=80,linewidth=1,alpha=0.8,ax=ax)
+                    i+=1
+        return
+
     def show_labels(self, col):
+        """Add labels to plot"""
 
         if col == '': return
         df = self.sub
@@ -968,8 +980,21 @@ class App(QMainWindow):
         if not 'selected' in self.docks:
             dock = self.add_dock(w,'selected','left')
             self.docks['selected'] = dock
+            self.add_dock_item('selected')
         else:
             self.docks['selected'].setWidget(w)
+        return
+
+    def show_moves_table(self, df):
+        """Show moves for samples in separate table"""
+
+        w = tables.SampleTable(self, dataframe=df, app=self)
+        if not 'moves' in self.docks:
+            dock = self.add_dock(w,'moves','left')
+            self.docks['moves'] = dock
+            self.add_dock_item('moves')
+        else:
+            self.docks['moves'].setWidget(w)
         return
 
     def sample_details(self, data):
@@ -979,6 +1004,7 @@ class App(QMainWindow):
         if not 'details' in self.docks:
             dock = self.add_dock(w,'sample details','right')
             self.docks['details'] = dock
+            self.add_dock_item('details')
         else:
             self.docks['details'].setWidget(w)
         return
@@ -1170,19 +1196,26 @@ def get_clusts_info(cent,col, n=3):
         new.append(d[['geometry','area','animals']])
     return pd.concat(new).reset_index().sort_values('animals',ascending=False)
 
-def plot_single_cluster(df,outliers=None,other=None,margin=1e4,title='',ax=None):
+def plot_single_cluster(df,col=None,cmap=None,margin=1e4,ms=40,title='',ax=None):
     """plot cluster"""
 
+    df = df[~df.is_empty]
+    if len(df) == 0:
+        ax.clear()
+        ax.set_title('no locations available')
+        return
     minx, miny, maxx, maxy = df.total_bounds
     #counties.plot(ax=ax, linewidth=.5, edgecolor='black',color='#F6F4F3')
     df = df[df.Species.isin(['Bovine','Badger'])]
     df['color'] = df.Species.map({'Bovine':'blue','Badger':'orange'})
-    if outliers is not None:
-        outliers.plot(ax=ax,c="red",linewidth=1,edgecolor='red',markersize=100,alpha=.7,label='outliers')
-    if other is not None:
-        other.plot(ax=ax,c='green',marker='o',markersize=100,alpha=.7,lw=2,label='source')
 
-    df.plot(color=df.color,ax=ax,alpha=0.6,markersize=40,linewidth=.5,label='farm/badger')
+    if col == None or col == '':
+        df.plot(color=df.color,ax=ax,alpha=0.6,markersize=ms,linewidth=.5,label='farm/badger')
+    else:
+        cow = df[df.Species=='Bovine']
+        badger = df[df.Species=='Badger']
+        cow.plot(column=col,ax=ax,alpha=0.6,markersize=ms,linewidth=1,ec='black',cmap=cmap,legend=True)
+        badger.plot(color='orange',ax=ax,alpha=0.6,marker='s',markersize=ms,linewidth=1,ec='black')
     ax.set_title(title)
     ax.axis('off')
     ax.set_xlim(minx-margin,maxx+margin)

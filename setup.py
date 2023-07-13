@@ -20,6 +20,7 @@ setup(
     install_requires=['numpy',
                       'pandas',
                       'matplotlib>=3.0',
+                      'geopandas',
                       'pyqt5,
                       'toytree',
                       ],

@@ -1036,9 +1036,10 @@ class CustomPlotViewer(PlotViewer):
         return
 
     def onclick(self, event):
+        """Click event"""
 
         x,y = event.xdata, event.ydata
-        print('click: %s,%s' %(x,y))
+        #print('click: %s,%s' %(x,y))
         #c = plt.Circle([x,y], 600, color='g', alpha=.5)
         #self.ax.add_patch(c)
         self.canvas.draw()
@@ -1275,7 +1276,7 @@ class MultipleFilesDialog(QDialog):
         self.setWindowTitle(title)
         self.createWidgets(self)
         self.setGeometry(QtCore.QRect(400, 300, 400, 200))
-        self.setFixedSize(self.width(),self.height())        
+        self.setFixedSize(self.width(),self.height())
         self.show()
         return
 
@@ -1295,7 +1296,7 @@ class MultipleFilesDialog(QDialog):
         layout = QFormLayout(self)
         for f in ['metadata','snp data','movement']:
             self.files[f] = ''
-            row = QWidget()            
+            row = QWidget()
             layout.addRow(row)
             hbox = QHBoxLayout(row)
             lbl = QLabel(f)
@@ -1310,7 +1311,7 @@ class MultipleFilesDialog(QDialog):
 
         button = QPushButton("Ok")
         button.clicked.connect(self.apply)
-        layout.addRow(button)        
+        layout.addRow(button)
         return
 
     def apply(self):
