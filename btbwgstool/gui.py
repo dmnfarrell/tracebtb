@@ -118,7 +118,7 @@ class App(QMainWindow):
         self.load_base_data()
         self.new_project()
         self.running = False
-        self.load_test()
+        #self.load_test()
 
         #if project != None:
         #    self.load_project(project)
@@ -725,6 +725,7 @@ class App(QMainWindow):
             self.parcels = self.get_parcels(self.sub)
             self.plot_parcels(col=colorcol,cmap=cmap)
 
+        self.sub['geometry'] = self.sub.apply(lambda x: jitter_points(x,40),1)
         plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,ax=ax)
 
         cxsource = self.contextw.currentText()
@@ -1229,6 +1230,15 @@ def get_coords_data(df):
     df['P2'] = df.geometry.shift(-1)
     coords = df[:-1].apply(lambda x: LineString([x.geometry,x.P2]),1)
     return coords
+
+def jitter_points(r, scale=1):
+    """Jitter GeoDataFrame points"""
+
+    a=np.random.normal(0,scale)
+    b=np.random.normal(0,scale)
+    if (r.geometry.is_empty): return Point()
+    x,y = r.geometry.x+a,r.geometry.y+b
+    return Point(x,y)
 
 def main():
     "Run the application"
