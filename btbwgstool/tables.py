@@ -689,7 +689,7 @@ class DataFrameModel(QtCore.QAbstractTableModel):
             elif type(value) != str:
                 if type(value) in [float,np.float64] and np.isnan(value):
                     return ''
-                elif type(value) == np.float:
+                elif type(value) == float:
                     return value
                 else:
                     return (str(value))
