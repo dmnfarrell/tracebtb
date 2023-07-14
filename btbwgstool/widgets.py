@@ -41,21 +41,21 @@ except AttributeError:
 module_path = os.path.dirname(os.path.abspath(__file__))
 iconpath = os.path.join(module_path, 'icons')
 
-def createButton(parent, name, function, iconname=None, iconsize=20):
+def createButton(parent, name, function, iconname=None, iconsize=20, size=40):
     """Create a button for a function and optional icon.
         Returns:
             the button widget
     """
 
     button = QPushButton(parent)
-    button.setGeometry(QtCore.QRect(30,40,30,40))
+    #button.setGeometry(QtCore.QRect(40,40,40,40))
     button.setText(name)
     iconfile = os.path.join(iconpath,iconname)
     icon = QIcon(iconfile)
     button.setIcon(QIcon(icon))
     button.setIconSize(QtCore.QSize(iconsize,iconsize))
     button.clicked.connect(function)
-    button.setMinimumWidth(30)
+    #button.setMinimumWidth(20)
     return button
 
 def dialogFromOptions(parent, opts, sections=None,

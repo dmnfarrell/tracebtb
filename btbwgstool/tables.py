@@ -862,3 +862,4 @@ class TableViewer(QDialog):
     def setDataFrame(self, dataframe):
         self.table.model.df = dataframe
         return
+

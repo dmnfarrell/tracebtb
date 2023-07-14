@@ -30,7 +30,7 @@ import numpy as np
 import pylab as plt
 from Bio import SeqIO
 import matplotlib as mpl
-from . import widgets, tables, plotting, treeview, trees
+from . import core, widgets, tables, plotting, treeview, trees
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
 from matplotlib_scalebar.scalebar import ScaleBar
@@ -42,8 +42,9 @@ data_path = os.path.join(module_path,'data')
 logoimg = os.path.join(module_path, 'logo.svg')
 stylepath = os.path.join(module_path, 'styles')
 iconpath = os.path.join(module_path, 'icons')
+#settingspath = os.path.join(homepath, '.config','btbwgstool')
 
-counties = ['Wicklow','Monaghan','Clare','Cork','Louth']
+counties = ['Clare','Cork','Cavan','Monaghan','Louth','Kerry','Meath','Wicklow']
 cladelevels = ['snp3','snp12','snp50','snp200','snp500']
 providers = {'None':None,
             'default': cx.providers.Stamen.Terrain,
@@ -107,13 +108,14 @@ class App(QMainWindow):
 
         self.recent_files = ['']
         self.scratch_items = {}
+        self.opentables = {}
         self.lpis_cent = None
         self.main.setFocus()
         self.setCentralWidget(self.main)
         self.create_tool_bar()
         self.setup_gui()
-        #self.load_settings()
-        #self.show_recent_files()
+        self.load_settings()
+        self.show_recent_files()
 
         self.load_base_data()
         self.new_project()
@@ -131,6 +133,57 @@ class App(QMainWindow):
         self._stdout = StdoutRedirect()
         self._stdout.start()
         self._stdout.printOccur.connect(lambda x : self.info.insert(x))
+        return
+
+    def load_settings(self):
+        """Load GUI settings"""
+
+        s = self.settings = QtCore.QSettings('btbwgstool','default')
+        try:
+            winsize = s.value('window_size')
+            if winsize != None:
+                self.resize(s.value('window_size'))
+                self.move(s.value('window_position'))
+                core.FONT = s.value("font")
+                core.FONTSIZE = int(s.value("fontsize"))
+                core.DPI = int(s.value("dpi"))
+                import matplotlib as mpl
+                mpl.rcParams['savefig.dpi'] = int(core.DPI)
+                core.ICONSIZE = int(s.value("iconsize"))
+                self.setIconSize(QtCore.QSize(core.ICONSIZE, core.ICONSIZE))
+                r = s.value("recent_files")
+                if r != '':
+                    rct = r.split(',')
+                    self.recent_files = [f for f in rct if os.path.exists(f)]
+
+        except Exception as e:
+            print (e)
+        return
+
+    def apply_settings(self):
+        """Apply settings to GUI when changed"""
+
+        self.setIconSize(QtCore.QSize(core.ICONSIZE, core.ICONSIZE))
+        for i in self.opentables:
+            table = self.opentables[i]
+            table.fontname = core.FONT
+            table.updateFont()
+        import matplotlib as mpl
+        mpl.rcParams['savefig.dpi'] = core.DPI
+        return
+
+    def save_settings(self):
+        """Save GUI settings"""
+
+        self.settings.setValue('window_size', self.size())
+        self.settings.setValue('window_position', self.pos())
+        self.settings.setValue('iconsize', core.ICONSIZE)
+        self.settings.setValue('font', core.FONT)
+        self.settings.setValue('fontsize', core.FONTSIZE)
+        self.settings.setValue('dpi', core.DPI)
+        self.settings.setValue('recent_files',','.join(self.recent_files))
+        print (self.settings)
+        self.settings.sync()
         return
 
     def load_base_data(self):
@@ -179,8 +232,8 @@ class App(QMainWindow):
         dock.setSizePolicy( QSizePolicy.Expanding, QSizePolicy.Minimum )
         return dock
 
-    def create_controls(self):
-        """Set up widget controls"""
+    def create_option_widgets(self):
+        """Set up map view options"""
 
         m = QWidget()
         m.setStyleSheet(style)
@@ -197,19 +250,14 @@ class App(QMainWindow):
         l.addWidget(w)
         w.currentIndexChanged.connect(self.update_clades)
 
-        #select cluster
+        #select clade/cluster
         l.addWidget(QLabel('Clade:'))
-        #self.cladew = w = QListWidget(m)
-        #l.addWidget(w)
-        #w.setFixedHeight(100)
-        #w.setSelectionMode(QAbstractItemView.MultiSelection)
-        #w.itemSelectionChanged.connect(self.plot_selected)
-
         t = self.cladew = QTreeWidget()
         t.setHeaderItem(QTreeWidgetItem(["name","size"]))
         t.setColumnWidth(0, 50)
         t.setColumnWidth(1, 30)
         t.setSortingEnabled(True)
+        t.setMinimumHeight(30)
         #t.setSelectionMode(QAbstractItemView.ExtendedSelection)
         #t.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         #t.customContextMenuRequested.connect(self.update_clades)
@@ -247,39 +295,43 @@ class App(QMainWindow):
         w.setValue(50)
         l.addWidget(QLabel('Marker size:'))
         l.addWidget(w)
-
-        #self.plotkindw = w = QComboBox(m)
-        #l.addWidget(QLabel('Plot type:'))
-        #l.addWidget(w)
-        #w.addItems(['points','hexbin'])
-        b = widgets.createButton(m, None, self.update, 'refresh', 30)
-        l.addWidget(b)
-        b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', 30)
-        l.addWidget(b)
-        self.centroidb = b = widgets.createButton(m, None, self.update, 'plot-centroid', 30)
-        b.setCheckable(True)
-        l.addWidget(b)
-        self.parcelsb = b = widgets.createButton(m, None, self.update, 'plot-parcels', 30)
-        b.setCheckable(True)
-        l.addWidget(b)
-        self.movesb = b = widgets.createButton(m, None, self.update, 'plot-moves', 30)
-        b.setCheckable(True)
-        l.addWidget(b)
-        b = widgets.createButton(m, None, self.show_tree, 'tree', 30)
-        l.addWidget(b)
         l.addStretch()
         return m
 
+    def map_buttons(self):
+        """Create map buttons"""
+
+        m = QWidget()
+        m.setMaximumWidth(60)
+        m.setMinimumWidth(50)
+        l = QVBoxLayout()
+        l.setAlignment(QtCore.Qt.AlignTop)
+        m.setLayout(l)
+        b = widgets.createButton(m, None, self.update, 'refresh', core.ICONSIZE)
+        l.addWidget(b)
+        b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', core.ICONSIZE)
+        l.addWidget(b)
+        self.centroidb = b = widgets.createButton(m, None, self.update, 'plot-centroid', core.ICONSIZE)
+        b.setCheckable(True)
+        l.addWidget(b)
+        self.parcelsb = b = widgets.createButton(m, None, self.update, 'plot-parcels', core.ICONSIZE)
+        b.setCheckable(True)
+        l.addWidget(b)
+        self.movesb = b = widgets.createButton(m, None, self.update, 'plot-moves', core.ICONSIZE)
+        b.setCheckable(True)
+        l.addWidget(b)
+        b = widgets.createButton(m, None, self.show_tree, 'tree', core.ICONSIZE)
+        l.addWidget(b)
+        return m
+
     def update_clades(self):
-        """Update clade widget"""
+        """Update the clade tree widget"""
 
         level = self.cladelevelw.currentText()
-        #clades = sorted(list(self.cent[level].unique()))
         clades = self.cent[level].value_counts()
         clades = clades[clades>1]
         t = self.cladew
         t.clear()
-        #self.cladew.addItems(clades)
 
         for cl,size in clades.items():
             item = QTreeWidgetItem(t)
@@ -305,16 +357,21 @@ class App(QMainWindow):
         self.add_dock(self.table_widget, 'meta data', scrollarea=False)
         self.add_dock_item('meta data')
         #self.m.addWidget(self.table_widget)
+        self.opentables['main'] = self.meta_table
 
-        w = self.create_controls()
+        w = self.create_option_widgets()
         self.m.addWidget(w)
+        w = self.map_buttons()
+        self.m.addWidget(w)
+
         self.tabs = QTabWidget(main)
         self.m.addWidget(self.tabs)
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
 
         self.plotview = widgets.CustomPlotViewer(self, controls=False, app=self)
-        idx = self.tabs.addTab(self.plotview, 'map')
+        #self.m.addWidget(self.plotview)
+        idx = self.tabs.addTab(self.plotview, 'Map')
         self.tabs.setCurrentIndex(idx)
 
         self.treeview = treeview.TreeViewer()
@@ -362,9 +419,10 @@ class App(QMainWindow):
     def close_tab(self, index):
         """Close current tab"""
 
-        #index = self.tabs.currentIndex()
-        #name = self.tabs.tabText(index)
-        #self.tabs.removeTab(index)
+        index = self.tabs.currentIndex()
+        name = self.tabs.tabText(index)
+        if name != 'Map':
+            self.tabs.removeTab(index)
         return
 
     def create_menu(self):
@@ -451,7 +509,7 @@ class App(QMainWindow):
 
         filename = self.proj_file
         data={}
-        keys = ['cent','moves','lpis','lpis_cent','core_snps']
+        keys = ['cent','moves','lpis','lpis_cent','coresnps']
         for k in keys:
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
@@ -499,7 +557,7 @@ class App(QMainWindow):
 
         self.new_project()
         data = pickle.load(open(filename,'rb'))
-        keys = ['cent','moves','lpis','lpis_cent','core_snps']
+        keys = ['cent','moves','lpis','lpis_cent','coresnps']
         for k in keys:
             if k in data:
                 self.__dict__[k] = data[k]
@@ -585,7 +643,7 @@ class App(QMainWindow):
                                                 QFileDialog.ShowDirsOnly)
         if not path:
             return
-        meta_file = os.path.join(path, 'meta.csv')
+        meta_file = os.path.join(path, 'metadata.csv')
         snp_file = os.path.join(path, 'snpdist.csv')
         gdf_file = os.path.join(path, 'gdf.shp')
         self.load_data(meta_file, snp_file, gdf_file)
@@ -752,10 +810,31 @@ class App(QMainWindow):
         if title != None:
             fig.suptitle(title)
         fig.tight_layout()
+
+        '''print (ax.get_extent())
+        if self.lims == None:
+            self.lims = self.get_plot_lims()
+        else:
+            ax.set_xlim(self.lims[0],self.lims[1]) '''
+
         self.plotview.redraw()
 
         #update subset table
         self.show_selected_table()
+        return
+
+    def get_plot_lims(self):
+        """Current axis lims"""
+
+        ax = self.plotview.ax
+        xmin,xmax = ax.get_xlim()
+        ymin,ymax = ax.get_ylim()
+        return xmin,xmax,ymin,ymax
+
+    def refresh(self):
+        """Update with current zoom"""
+
+        self.plotview.redraw()
         return
 
     def show_tree(self):
@@ -773,12 +852,6 @@ class App(QMainWindow):
         tv.activateWindow()
         return
 
-    def refresh(self):
-        """update with current zoom"""
-
-        self.plotview.redraw()
-        return
-
     def plot_selected(self):
         """Plot points from cluster menu selection"""
 
@@ -788,9 +861,10 @@ class App(QMainWindow):
 
         if len(clades) == 0:
             return
-        self.sub = cent[cent[level].isin(clades)]
+        self.sub = cent[cent[level].isin(clades)].copy()
         cl= ','.join(clades)
         title = '%s=%s n=%s' %(level,cl,len(self.sub))
+        self.lims = None
         self.update(title)
         return
 
@@ -813,12 +887,6 @@ class App(QMainWindow):
         title = '(table selection) n=%s' %len(self.sub)
         self.update(title)
         return
-
-    def get_plot_limits(self):
-        ax = self.plotview.ax
-        xmin,xmax = ax.get_xlim()
-        ymin,ymax = ax.get_ylim()
-        return xmin,xmax,ymin,ymax
 
     def plot_in_region(self):
         """Show all points in visible region of plot"""
@@ -924,6 +992,7 @@ class App(QMainWindow):
         return
 
     def show_scratchpad(self):
+        """Show the scratchpad"""
 
         if not hasattr(self, 'scratchpad'):
             self.scratchpad = widgets.ScratchPad()
@@ -937,6 +1006,7 @@ class App(QMainWindow):
         return
 
     def save_to_scratchpad(self, label=None):
+        """Save plot to scratchpad"""
 
         name = 'test'
         if label == None or label is False:
@@ -982,6 +1052,7 @@ class App(QMainWindow):
             dock = self.add_dock(w,'selected','left')
             self.docks['selected'] = dock
             self.add_dock_item('selected')
+            self.opentables['selected'] = w
         else:
             self.docks['selected'].setWidget(w)
         return
@@ -994,6 +1065,7 @@ class App(QMainWindow):
             dock = self.add_dock(w,'moves','left')
             self.docks['moves'] = dock
             self.add_dock_item('moves')
+            self.opentables['moves'] = w
         else:
             self.docks['moves'].setWidget(w)
         return
@@ -1001,26 +1073,30 @@ class App(QMainWindow):
     def sample_details(self, data):
         """Show sample details"""
 
-        w = tables.TableViewer(self, pd.DataFrame(data))
+        w = tables.DataFrameTable(self, pd.DataFrame(data))
+        w.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         if not 'details' in self.docks:
             dock = self.add_dock(w,'sample details','right')
             self.docks['details'] = dock
             self.add_dock_item('details')
+            self.opentables['details'] = w
         else:
             self.docks['details'].setWidget(w)
         return
 
     def zoom_in(self):
 
-        w = self.meta_table
-        w.zoomIn()
+        for i in self.opentables:
+            w=self.opentables[i]
+            w.zoomIn()
         self.info.zoomIn()
         return
 
     def zoom_out(self):
 
-        w = self.meta_table
-        w.zoomOut()
+        for i in self.opentables:
+            w=self.opentables[i]
+            w.zoomOut()
         self.info.zoomOut()
         return
 
@@ -1052,32 +1128,30 @@ class App(QMainWindow):
                 return
             elif reply == QMessageBox.Yes:
                 self.save_project()
-        #self.save_settings()
+        self.save_settings()
         event.accept()
         return
 
     def online_documentation(self,event=None):
         """Open the online documentation"""
 
-        #import webbrowser
-        link='https://github.com/dmnfarrell/btbwgstools'
-        #webbrowser.open(link,autoraise=1)
-        from PySide2.QtWebEngineWidgets import QWebEngineView
-        browser = QWebEngineView()
-        browser.setUrl(link)
-        idx = self.tabs.addTab(browser, 'help')
-        self.tabs.setCurrentIndex(idx)
+        link='https://github.com/dmnfarrell/btbwgstool'
+        self.show_browser_tab(link, 'Help')
         return
 
     def about(self):
 
         from . import __version__
         import matplotlib
-        import PySide2
+        try:
+            import PySide2
+            qtver = PySide2.QtCore.__version__
+        except:
+            import PyQt5
+            qtver = PyQt5.QtCore.__version__
         pandasver = pd.__version__
         pythonver = platform.python_version()
         mplver = matplotlib.__version__
-        qtver = PySide2.QtCore.__version__
 
         text='bTBWGStool\n'\
             +'version '+__version__+'\n'\
