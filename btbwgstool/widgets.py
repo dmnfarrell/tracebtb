@@ -41,7 +41,8 @@ except AttributeError:
 module_path = os.path.dirname(os.path.abspath(__file__))
 iconpath = os.path.join(module_path, 'icons')
 
-def createButton(parent, name, function, iconname=None, iconsize=20, size=40):
+def createButton(parent, name, function, iconname=None, iconsize=20,
+                 tooltip=None):
     """Create a button for a function and optional icon.
         Returns:
             the button widget
@@ -56,6 +57,8 @@ def createButton(parent, name, function, iconname=None, iconsize=20, size=40):
     button.setIconSize(QtCore.QSize(iconsize,iconsize))
     button.clicked.connect(function)
     #button.setMinimumWidth(20)
+    if tooltip != None:
+        button.setToolTip(tooltip)
     return button
 
 def dialogFromOptions(parent, opts, sections=None,
@@ -1027,12 +1030,19 @@ class CustomPlotViewer(PlotViewer):
     def __init__(self, parent=None, controls=True, app=None):
         super(CustomPlotViewer, self).__init__(parent, controls)
         self.fig.canvas.mpl_connect('button_press_event', self.onclick)
+        self.fig.canvas.mpl_connect('button_release_event', self.onrelease)
         #self.fig.canvas.mpl_connect('pick_event', self.onpick)
         self.app = app
+        self.lims = None
         return
 
     def onpress(self, event):
 
+        return
+
+    def onrelease(self, event):
+        #print("updated xlims: ", self.ax.get_xlim())
+        self.lims = self.get_plot_lims()
         return
 
     def onclick(self, event):
@@ -1054,13 +1064,20 @@ class CustomPlotViewer(PlotViewer):
         """Pick event"""
 
         ind = event.ind
-        print (ind)
         if isinstance(event.artist, Line2D):
             thisline = event.artist
             xdata = thisline.get_xdata()
             ydata = thisline.get_ydata()
             ind = event.ind
             print('onpick1 line:', np.column_stack([xdata[ind], ydata[ind]]))
+
+    def get_plot_lims(self):
+        """Current axis lims"""
+
+        ax = self.ax
+        xmin,xmax = ax.get_xlim()
+        ymin,ymax = ax.get_ylim()
+        return xmin,xmax,ymin,ymax
 
 class BrowserViewer(QDialog):
     """matplotlib plots widget"""
@@ -1249,7 +1266,7 @@ class ScratchPad(QWidget):
         name, ok = QInputDialog.getText(self, 'Name', 'Name:',
                     QLineEdit.Normal, '')
         if ok:
-            tw = dialogs.PlainTextEditor()
+            tw = PlainTextEditor()
             self.main.addTab(tw, name)
             self.items[name] = tw.toPlainText()
         return
@@ -1262,7 +1279,7 @@ class ScratchPad(QWidget):
             #print (name)
             w = self.main.widget(idx)
             #print (w)
-            if type(w) == dialogs.PlainTextEditor:
+            if type(w) == PlainTextEditor:
                 self.items[name] = w.toPlainText()
         return
 

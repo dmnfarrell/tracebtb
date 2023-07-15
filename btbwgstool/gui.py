@@ -52,8 +52,12 @@ providers = {'None':None,
             'OSM':cx.providers.OpenStreetMap.Mapnik,
             'CartoDB':cx.providers.CartoDB.Positron,
             'Watercolor': cx.providers.Stamen.Watercolor}
-colormaps = sorted(m for m in plt.cm.datad if not m.endswith("_r"))
-
+#colormaps = sorted(m for m in plt.cm.datad if not m.endswith("_r"))
+colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
+            'tab10', 'tab20', 'tab20b', 'tab20c',
+            'twilight', 'twilight_shifted', 'hsv',
+            'gnuplot', 'gnuplot2', 'CMRmap', 'cubehelix', 'brg',
+            'gist_rainbow', 'rainbow', 'jet', 'turbo', 'nipy_spectral']
 style = '''
     QWidget {
         max-width: 130px;
@@ -69,6 +73,11 @@ style = '''
     QScrollBar::handle:vertical {
          min-height: 20px;
      }
+    QComboBox {
+        combobox-popup: 0;
+        max-height: 30px;
+        max-width: 100px;
+    }
     '''
 
 dockstyle = '''
@@ -200,7 +209,6 @@ class App(QMainWindow):
                  'Zoom out': {'action':self.zoom_out,'file':'zoom-out'},
                  'Zoom in': {'action':self.zoom_in,'file':'zoom-in'},
                  'Scratchpad': {'action':self.show_scratchpad,'file':'scratchpad'},
-                 'Send to scratchpad': {'action':self.save_to_scratchpad,'file':'to-scratchpad'},
                  'Quit': {'action':self.quit,'file':'application-exit'}
                 }
 
@@ -238,7 +246,7 @@ class App(QMainWindow):
         m = QWidget()
         m.setStyleSheet(style)
         m.setMaximumWidth(140)
-        m.setMinimumWidth(100)
+        m.setMinimumWidth(140)
         l = QVBoxLayout()
         l.setAlignment(QtCore.Qt.AlignTop)
         m.setLayout(l)
@@ -309,18 +317,23 @@ class App(QMainWindow):
         m.setLayout(l)
         b = widgets.createButton(m, None, self.update, 'refresh', core.ICONSIZE)
         l.addWidget(b)
-        b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', core.ICONSIZE)
+        b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', core.ICONSIZE, 'show in region')
         l.addWidget(b)
-        self.centroidb = b = widgets.createButton(m, None, self.update, 'plot-centroid', core.ICONSIZE)
+        self.parcelsb = b = widgets.createButton(m, None, self.update, 'plot-parcels', core.ICONSIZE, 'show parcels')
         b.setCheckable(True)
         l.addWidget(b)
-        self.parcelsb = b = widgets.createButton(m, None, self.update, 'plot-parcels', core.ICONSIZE)
+        self.movesb = b = widgets.createButton(m, None, self.update, 'plot-moves', core.ICONSIZE, 'show moves')
         b.setCheckable(True)
         l.addWidget(b)
-        self.movesb = b = widgets.createButton(m, None, self.update, 'plot-moves', core.ICONSIZE)
+        b = widgets.createButton(m, None, self.show_tree, 'tree', core.ICONSIZE, 'show tree')
+        l.addWidget(b)
+        self.legendb = b = widgets.createButton(m, None, self.update, 'legend', core.ICONSIZE, 'show legend')
         b.setCheckable(True)
         l.addWidget(b)
-        b = widgets.createButton(m, None, self.show_tree, 'tree', core.ICONSIZE)
+        self.colorcountiesb = b = widgets.createButton(m, None, self.update, 'counties', core.ICONSIZE, 'color counties')
+        b.setCheckable(True)
+        l.addWidget(b)
+        b = widgets.createButton(m, None, self.save_to_scratchpad, 'snapshot', core.ICONSIZE, 'take snapshot')
         l.addWidget(b)
         return m
 
@@ -353,7 +366,7 @@ class App(QMainWindow):
 
         self.meta_table = tables.SampleTable(self, dataframe=pd.DataFrame(), app=self)
         t = self.table_widget = tables.DataFrameWidget(parent=self, table=self.meta_table,
-                            toolbar=True)
+                                        toolbar=False)
         self.add_dock(self.table_widget, 'meta data', scrollarea=False)
         self.add_dock_item('meta data')
         #self.m.addWidget(self.table_widget)
@@ -513,7 +526,7 @@ class App(QMainWindow):
         for k in keys:
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
-
+        data['scratch_items'] = self.scratch_items
         #self.projectlabel.setText(filename)
         pickle.dump(data, open(filename,'wb'))
         self.add_recent_file(filename)
@@ -575,7 +588,8 @@ class App(QMainWindow):
         self.proj_file = filename
         self.projectlabel.setText(self.proj_file)
         #self.outdirLabel.setText(self.outputdir)
-
+        if 'scratch_items' in data:
+            self.scratch_items = data['scratch_items']
         self.add_recent_file(filename)
         return
 
@@ -772,11 +786,18 @@ class App(QMainWindow):
         ax = self.plotview.ax
         fig = self.plotview.fig
 
-        self.counties.plot(edgecolor='black',color='None',ax=ax)
         ms = self.markersizew.value()
         colorcol = self.colorbyw.currentText()
         #kind = self.plotkindw.currentText()
         cmap = self.cmapw.currentText()
+        legend = self.legendb.isChecked()
+        if self.colorcountiesb.isChecked():
+            cty = 'NAME_TAG'
+            clr=None
+        else:
+            cty = None
+            clr='none'
+        self.counties.plot(edgecolor='gray',column=cty,color=clr,cmap='tab20',alpha=0.4,ax=ax)
 
         #land parcels
         if self.parcelsb.isChecked():
@@ -784,10 +805,8 @@ class App(QMainWindow):
             self.plot_parcels(col=colorcol,cmap=cmap)
 
         self.sub['geometry'] = self.sub.apply(lambda x: jitter_points(x,40),1)
-        plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,ax=ax)
+        plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
 
-        cxsource = self.contextw.currentText()
-        self.add_context_map(providers[cxsource])
         labelcol = self.labelsw.currentText()
         self.show_labels(labelcol)
 
@@ -795,10 +814,6 @@ class App(QMainWindow):
         ax.axis('off')
         #leg = ax.get_legend()
         #leg.set_bbox_to_anchor((0., 0., 1.2, 0.9))
-
-        #loc = self.sub.to_crs('WGS84').dissolve().centroid.geometry[0]
-        #print (loc)
-        #self.foliumview.refresh((loc.y,loc.x))
 
         #moves
         if self.movesb.isChecked():
@@ -811,25 +826,20 @@ class App(QMainWindow):
             fig.suptitle(title)
         fig.tight_layout()
 
-        '''print (ax.get_extent())
-        if self.lims == None:
-            self.lims = self.get_plot_lims()
-        else:
-            ax.set_xlim(self.lims[0],self.lims[1]) '''
+        lims = self.plotview.lims
+        if self.plotview.lims != None:
+            ax.set_xlim(lims[0],lims[1])
+            ax.set_ylim(lims[2],lims[3])
+
+        #context map
+        cxsource = self.contextw.currentText()
+        self.add_context_map(providers[cxsource])
 
         self.plotview.redraw()
 
         #update subset table
         self.show_selected_table()
         return
-
-    def get_plot_lims(self):
-        """Current axis lims"""
-
-        ax = self.plotview.ax
-        xmin,xmax = ax.get_xlim()
-        ymin,ymax = ax.get_ylim()
-        return xmin,xmax,ymin,ymax
 
     def refresh(self):
         """Update with current zoom"""
@@ -864,7 +874,7 @@ class App(QMainWindow):
         self.sub = cent[cent[level].isin(clades)].copy()
         cl= ','.join(clades)
         title = '%s=%s n=%s' %(level,cl,len(self.sub))
-        self.lims = None
+        self.plotview.lims = None
         self.update(title)
         return
 
@@ -874,6 +884,7 @@ class App(QMainWindow):
         cent = self.cent
         county = self.countyw.currentText()
         self.sub = cent[cent.County==county]
+        self.plotview.lims = None
         self.update()
         return
 
@@ -885,13 +896,14 @@ class App(QMainWindow):
         idx = df.index[rows]
         self.sub = self.cent.loc[idx]
         title = '(table selection) n=%s' %len(self.sub)
+        self.plotview.lims = None
         self.update(title)
         return
 
     def plot_in_region(self):
         """Show all points in visible region of plot"""
 
-        xmin,xmax,ymin,ymax = self.get_plot_limits()
+        xmin,xmax,ymin,ymax = self.get_plot_lims()
         df = self.cent
         self.sub = df.cx[xmin:xmax, ymin:ymax]
         self.update()
@@ -1271,7 +1283,8 @@ def get_clusts_info(cent,col, n=3):
         new.append(d[['geometry','area','animals']])
     return pd.concat(new).reset_index().sort_values('animals',ascending=False)
 
-def plot_single_cluster(df,col=None,cmap=None,margin=1e4,ms=40,title='',ax=None):
+def plot_single_cluster(df, col=None, cmap=None, margin=1e4, ms=40,
+                        legend=False, title='', ax=None):
     """plot cluster"""
 
     df = df[~df.is_empty]
@@ -1285,11 +1298,11 @@ def plot_single_cluster(df,col=None,cmap=None,margin=1e4,ms=40,title='',ax=None)
     df['color'] = df.Species.map({'Bovine':'blue','Badger':'orange'})
 
     if col == None or col == '':
-        df.plot(color=df.color,ax=ax,alpha=0.6,markersize=ms,linewidth=.5,label='farm/badger')
+        df.plot(color=df.color,ax=ax,alpha=0.6,markersize=ms,linewidth=.5,label='farm/badger',legend=legend)
     else:
         cow = df[df.Species=='Bovine']
         badger = df[df.Species=='Badger']
-        cow.plot(column=col,ax=ax,alpha=0.6,markersize=ms,linewidth=1,ec='black',cmap=cmap,legend=True)
+        cow.plot(column=col,ax=ax,alpha=0.6,markersize=ms,linewidth=1,ec='black',cmap=cmap,legend=legend)
         badger.plot(color='orange',ax=ax,alpha=0.6,marker='s',markersize=ms,linewidth=1,ec='black')
     ax.set_title(title)
     ax.axis('off')

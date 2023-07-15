@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="512mm"
+   height="512mm"
+   viewBox="0 0 512 512"
+   version="1.1"
+   id="svg5"
+   inkscape:version="1.1.2 (0a00cf5339, 2022-02-04)"
+   sodipodi:docname="snapshot.svg"
+   inkscape:export-filename="/home/farrell/gitprojects/snipgenie/svg/bar.png"
+   inkscape:export-xdpi="25.4"
+   inkscape:export-ydpi="25.4"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview7"
+     pagecolor="#ffffff"
+     bordercolor="#999999"
+     borderopacity="1"
+     inkscape:pageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:document-units="mm"
+     showgrid="false"
+     width="209mm"
+     inkscape:zoom="0.2289789"
+     inkscape:cx="1244.6562"
+     inkscape:cy="1513.2399"
+     inkscape:window-width="2560"
+     inkscape:window-height="1300"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs2">
+    <inkscape:path-effect
+       effect="simplify"
+       id="path-effect997"
+       is_visible="true"
+       lpeversion="1"
+       steps="1"
+       threshold="0.000408163"
+       smooth_angles="360"
+       helper_size="0"
+       simplify_individual_paths="false"
+       simplify_just_coalesce="false" />
+    <inkscape:path-effect
+       effect="simplify"
+       id="path-effect2902"
+       is_visible="true"
+       lpeversion="1"
+       steps="1"
+       threshold="0.000408163"
+       smooth_angles="360"
+       helper_size="0"
+       simplify_individual_paths="false"
+       simplify_just_coalesce="false" />
+    <inkscape:path-effect
+       effect="simplify"
+       id="path-effect2865"
+       is_visible="true"
+       lpeversion="1"
+       steps="1"
+       threshold="0.000408163"
+       smooth_angles="360"
+       helper_size="0"
+       simplify_individual_paths="false"
+       simplify_just_coalesce="false" />
+  </defs>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <path
+       style="fill:#d1daaf;fill-opacity:1;stroke:#000000;stroke-width:27.521;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:165.126,27.521;stroke-dashoffset:52.29000147;stroke-opacity:1"
+       d="M 33.75894,32.706142 V 427.57471 l 412.06264,1.15795 -1.77125,-398.260158 z"
+       id="path1249"
+       sodipodi:nodetypes="ccccc" />
+    <rect
+       style="fill:#aa4726;fill-opacity:1;stroke:#0b0b0c;stroke-width:12.0674;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:91.8425;stroke-opacity:1;paint-order:fill markers stroke"
+       id="rect5847"
+       width="34.801239"
+       height="53.540981"
+       x="115.98359"
+       y="184.19742" />
+    <path
+       id="path1133"
+       style="fill:#728d8a;fill-opacity:1;stroke:#060b0c;stroke-width:18.4877;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:91.8425;stroke-opacity:1;paint-order:fill markers stroke"
+       inkscape:transform-center-x="27.352427"
+       inkscape:transform-center-y="72.662152"
+       d="M 479.89598,481.21424 94.991648,479.84624 94.214249,230.94068 C 211.18661,207.26045 194.1704,229.77605 216.8332,174.05673 l 71.43873,1.23341 74.88908,-0.25677 c 17.36394,56.9567 3.15463,35.84173 115.14319,57.11551 z"
+       sodipodi:nodetypes="cccccccc" />
+    <ellipse
+       style="fill:#0e1019;fill-opacity:1;stroke:#060b0c;stroke-width:13.799;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:91.8425;stroke-opacity:1;paint-order:fill markers stroke"
+       id="path5544"
+       cx="292.40521"
+       cy="341.84195"
+       rx="101.69543"
+       ry="102.09853" />
+    <ellipse
+       style="fill:#d7dadb;fill-opacity:1;stroke:#060b0c;stroke-width:17.1423;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:91.8425;stroke-opacity:1;paint-order:fill markers stroke"
+       id="path5544-5"
+       cx="293.03265"
+       cy="340.84848"
+       rx="76.102043"
+       ry="75.304024" />
+  </g>
+</svg>
