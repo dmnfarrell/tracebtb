@@ -129,6 +129,7 @@ class App(QMainWindow):
         self.load_base_data()
         self.new_project()
         self.running = False
+        self.title = None
         #self.load_test()
 
         #if project != None:
@@ -269,7 +270,7 @@ class App(QMainWindow):
         #t.setSelectionMode(QAbstractItemView.ExtendedSelection)
         #t.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         #t.customContextMenuRequested.connect(self.update_clades)
-        t.itemSelectionChanged.connect(self.plot_selected)
+        t.itemSelectionChanged.connect(self.plot_selected_clade)
         l.addWidget(t)
 
         #zoom to county
@@ -317,7 +318,7 @@ class App(QMainWindow):
         m.setLayout(l)
         b = widgets.createButton(m, None, self.update, 'refresh', core.ICONSIZE)
         l.addWidget(b)
-        b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', core.ICONSIZE, 'show in region')
+        b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', core.ICONSIZE, 'show all in region')
         l.addWidget(b)
         self.parcelsb = b = widgets.createButton(m, None, self.update, 'plot-parcels', core.ICONSIZE, 'show parcels')
         b.setCheckable(True)
@@ -331,6 +332,9 @@ class App(QMainWindow):
         b.setCheckable(True)
         l.addWidget(b)
         self.colorcountiesb = b = widgets.createButton(m, None, self.update, 'counties', core.ICONSIZE, 'color counties')
+        b.setCheckable(True)
+        l.addWidget(b)
+        self.jitterb = b = widgets.createButton(m, None, self.update, 'jitter', core.ICONSIZE, 'jitter points')
         b.setCheckable(True)
         l.addWidget(b)
         b = widgets.createButton(m, None, self.save_to_scratchpad, 'snapshot', core.ICONSIZE, 'take snapshot')
@@ -527,6 +531,7 @@ class App(QMainWindow):
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
         data['scratch_items'] = self.scratch_items
+        data['fig'] = self.plotview.fig
         #self.projectlabel.setText(filename)
         pickle.dump(data, open(filename,'wb'))
         self.add_recent_file(filename)
@@ -575,8 +580,8 @@ class App(QMainWindow):
             if k in data:
                 self.__dict__[k] = data[k]
 
-        #if 'options' in data:
-        #    self.opts.updateWidgets(data['options'])
+        #if 'fig' in data:
+        #    self.plotview.set_figure(data['fig'])
         t = self.meta_table
         t.setDataFrame(self.cent)
         self.update_clades()
@@ -627,7 +632,7 @@ class App(QMainWindow):
         self.labelsw.addItems(cols)
         self.colorbyw.addItems(cols)
         self.colorbyw.setCurrentText('')
-        self.plot_selected()
+        self.plot_selected_clade()
 
         #snps
         self.coresnps = pd.read_csv('testing/core_snps_mbovis.txt', sep=' ')
@@ -779,7 +784,7 @@ class App(QMainWindow):
         utils.convert_branch_lengths(treefile, treefile, ls)
         return
 
-    def update(self, title=None, kind='points'):
+    def update(self, kind='points'):
         """Update plot"""
 
         self.plotview.clear()
@@ -791,20 +796,17 @@ class App(QMainWindow):
         #kind = self.plotkindw.currentText()
         cmap = self.cmapw.currentText()
         legend = self.legendb.isChecked()
-        if self.colorcountiesb.isChecked():
-            cty = 'NAME_TAG'
-            clr=None
-        else:
-            cty = None
-            clr='none'
-        self.counties.plot(edgecolor='gray',column=cty,color=clr,cmap='tab20',alpha=0.4,ax=ax)
+        jitter = self.jitterb.isChecked()
 
+        self.plot_counties()
         #land parcels
         if self.parcelsb.isChecked():
             self.parcels = self.get_parcels(self.sub)
             self.plot_parcels(col=colorcol,cmap=cmap)
 
-        self.sub['geometry'] = self.sub.apply(lambda x: jitter_points(x,40),1)
+        if jitter == True:
+            self.sub['geometry'] = self.sub.apply(lambda x: jitter_points(x,40),1)
+
         plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
 
         labelcol = self.labelsw.currentText()
@@ -819,12 +821,14 @@ class App(QMainWindow):
         if self.movesb.isChecked():
             mov = self.get_moves_bytag(self.sub, self.moves)
             self.plot_moves(mov, ax=ax)
-            mov=mov.sort_values(by=['Animal_ID','move_date'])
             self.show_moves_table(mov)
 
-        if title != None:
-            fig.suptitle(title)
-        fig.tight_layout()
+        if self.title != None:
+            fig.suptitle(self.title)
+        try:
+            fig.tight_layout()
+        except:
+            pass
 
         lims = self.plotview.lims
         if self.plotview.lims != None:
@@ -847,22 +851,7 @@ class App(QMainWindow):
         self.plotview.redraw()
         return
 
-    def show_tree(self):
-        """Show phylogeny for selected subset"""
-
-        idx = list(self.sub.index)
-        #phylogeny - change to use seqs
-        snpmat = self.coresnps[['pos']+idx]
-
-        treefile = trees.tree_from_snps(snpmat)
-        tv = self.treeview
-        tv.load_tree(treefile)
-        tv.update()
-        tv.show()
-        tv.activateWindow()
-        return
-
-    def plot_selected(self):
+    def plot_selected_clade(self):
         """Plot points from cluster menu selection"""
 
         cent = self.cent
@@ -873,18 +862,38 @@ class App(QMainWindow):
             return
         self.sub = cent[cent[level].isin(clades)].copy()
         cl= ','.join(clades)
-        title = '%s=%s n=%s' %(level,cl,len(self.sub))
+        self.title = '%s=%s n=%s' %(level,cl,len(self.sub))
         self.plotview.lims = None
-        self.update(title)
+        self.update()
+        return
+
+    def plot_counties(self):
+        """plot county borders"""
+
+        ax = self.plotview.ax
+        if self.colorcountiesb.isChecked():
+            cty = 'NAME_TAG'
+            clr=None
+        else:
+            cty = None
+            clr='none'
+        self.counties.plot(edgecolor='gray',column=cty,color=clr,cmap='tab20',alpha=0.4,ax=ax)
+        #labels
+        if self.colorcountiesb.isChecked():
+            c = self.counties
+            c['cent'] = c.geometry.centroid
+            for x, y, label in zip(c.cent.x, c.cent.y, c["NAME_TAG"]):
+                ax.text(x, y, label, fontsize = 12)
         return
 
     def plot_county(self):
-        """Plot all points in county"""
+        """Plot all points in a county"""
 
         cent = self.cent
         county = self.countyw.currentText()
         self.sub = cent[cent.County==county]
         self.plotview.lims = None
+        self.title = county
         self.update()
         return
 
@@ -895,21 +904,21 @@ class App(QMainWindow):
         rows = self.meta_table.getSelectedRows()
         idx = df.index[rows]
         self.sub = self.cent.loc[idx]
-        title = '(table selection) n=%s' %len(self.sub)
+        self.title = '(table selection) n=%s' %len(self.sub)
         self.plotview.lims = None
-        self.update(title)
+        self.update()
         return
 
     def plot_in_region(self):
         """Show all points in visible region of plot"""
 
-        xmin,xmax,ymin,ymax = self.get_plot_lims()
+        xmin,xmax,ymin,ymax = self.plotview.get_plot_lims()
         df = self.cent
         self.sub = df.cx[xmin:xmax, ymin:ymax]
         self.update()
-        ax = self.plotview.ax
-        ax.set_xlim(xmin,xmax)
-        ax.set_ylim(ymin,ymax)
+        #ax = self.plotview.ax
+        #ax.set_xlim(xmin,xmax)
+        #ax.set_ylim(ymin,ymax)
         return
 
     def plot_parcels(self, col, cmap='Set1'):
@@ -931,12 +940,12 @@ class App(QMainWindow):
         cols=['Animal_ID','HERD_NO','move_to','move_date','data_type','breed','dob']
         t = df.merge(move_df,left_on='Animal_ID',right_on='tag',how='inner')[cols]
         m = t.merge(lpis_cent,left_on='move_to',right_on='SPH_HERD_N', how='left')
-        #print (len(t),len(m))
-        m = m.sort_values('move_date')
+        #print (len(t),len(m))        
         if len(m)==0:
             return
         x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
         m = pd.concat([m,x]).dropna(subset='Animal_ID')
+        m = m.sort_values(by=['Animal_ID','move_date'])
         return m
 
     def plot_moves(self, moves, ax):
@@ -981,6 +990,21 @@ class App(QMainWindow):
         fig = self.plotview.fig
         cx.add_basemap(ax, crs=self.cent.crs, #zoom=18,
                 attribution=False, source=source)
+        return
+
+    def show_tree(self):
+        """Show phylogeny for selected subset"""
+
+        idx = list(self.sub.index)
+        #phylogeny - change to use seqs
+        snpmat = self.coresnps[['pos']+idx]
+
+        treefile = trees.tree_from_snps(snpmat)
+        tv = self.treeview
+        tv.load_tree(treefile)
+        tv.update()
+        tv.show()
+        tv.activateWindow()
         return
 
     def plot_snp_matrix(self):
@@ -1072,6 +1096,8 @@ class App(QMainWindow):
     def show_moves_table(self, df):
         """Show moves for samples in separate table"""
 
+        if df is None:
+            return
         w = tables.SampleTable(self, dataframe=df, app=self)
         if not 'moves' in self.docks:
             dock = self.add_dock(w,'moves','left')
@@ -1283,7 +1309,7 @@ def get_clusts_info(cent,col, n=3):
         new.append(d[['geometry','area','animals']])
     return pd.concat(new).reset_index().sort_values('animals',ascending=False)
 
-def plot_single_cluster(df, col=None, cmap=None, margin=1e4, ms=40,
+def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
                         legend=False, title='', ax=None):
     """plot cluster"""
 
@@ -1306,6 +1332,8 @@ def plot_single_cluster(df, col=None, cmap=None, margin=1e4, ms=40,
         badger.plot(color='orange',ax=ax,alpha=0.6,marker='s',markersize=ms,linewidth=1,ec='black')
     ax.set_title(title)
     ax.axis('off')
+    if margin == None:
+        margin = (maxx-minx)*0.3
     ax.set_xlim(minx-margin,maxx+margin)
     ax.set_ylim(miny-margin,maxy+margin)
     ax.add_artist(ScaleBar(dx=1,location=3))

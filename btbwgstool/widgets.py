@@ -993,7 +993,7 @@ class PlotViewer(QWidget):
     def clear(self):
         """Clear plot"""
 
-        self.fig.clear()
+        self.fig.clear()        
         self.ax = self.fig.add_subplot(111)
         self.canvas.draw()
         return
@@ -1203,7 +1203,7 @@ class ScratchPad(QWidget):
             obj = items[name]
             #print (name,type(obj))
             if type(obj) is str:
-                te = dialogs.PlainTextEditor()
+                te = PlainTextEditor()
                 te.setPlainText(obj)
                 self.main.addTab(te, name)
             elif type(obj) is pd.DataFrame:
