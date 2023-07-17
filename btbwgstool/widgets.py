@@ -30,6 +30,7 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 import string
 from .qt import *
+from . import core
 
 try:
     _fromUtf8 = QtCore.QString.fromUtf8
@@ -62,21 +63,24 @@ def createButton(parent, name, function, iconname=None, iconsize=20,
     return button
 
 def dialogFromOptions(parent, opts, sections=None,
-                      sticky='news', wrap=2, section_wrap=2, style=None):
-    """Get Qt widgets dialog from a dictionary of options"""
+                      wrap=2, section_wrap=4,
+                      style=None):
+    """
+    Get Qt widgets dialog from a dictionary of options.
+    Args:
+        opts: options dictionary
+        sections:
+        section_wrap: how many sections in one row
+        style: stylesheet css if required
+    """
 
     sizepolicy = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-    sizepolicy.setHorizontalStretch(1)
+    sizepolicy.setHorizontalStretch(0)
     sizepolicy.setVerticalStretch(0)
 
     if style == None:
         style = '''
-        QWidget {
-            font-size: 12px;
-        }
-        QWidget {
-            max-width: 130px;
-            min-width: 30px;
+        QLabel {
             font-size: 14px;
         }
         QPlainTextEdit {
@@ -85,7 +89,7 @@ def dialogFromOptions(parent, opts, sections=None,
         QComboBox {
             combobox-popup: 0;
             max-height: 30px;
-            max-width: 100px;
+            max-width: 150px;
         }
         '''
 
@@ -97,23 +101,20 @@ def dialogFromOptions(parent, opts, sections=None,
     dialog.setSizePolicy(sizepolicy)
 
     l = QGridLayout(dialog)
-    l.setSpacing(2)
-    l.setAlignment(QtCore.Qt.AlignLeft)
+    l.setSpacing(1)
+    l.setAlignment(QtCore.Qt.AlignTop)
     scol=1
     srow=1
     for s in sections:
-        row=1
+        row=srow
         col=1
-        f = QGroupBox()
-        f.setSizePolicy(sizepolicy)
-        f.setTitle(s)
-        #f.resize(50,100)
-        #f.sizeHint()
-        l.addWidget(f,srow,scol)
+        f = QWidget()
+        f.resize(50,100)
+        f.sizeHint()
+        l.addWidget(f,row,scol)
         gl = QGridLayout(f)
         gl.setAlignment(QtCore.Qt.AlignTop)
-        srow+=1
-        #gl.setSpacing(10)
+        gl.setSpacing(5)
         for o in sections[s]:
             label = o
             val = None
@@ -123,23 +124,37 @@ def dialogFromOptions(parent, opts, sections=None,
             val = opt['default']
             t = opt['type']
             lbl = QLabel(label)
+            lbl.setMinimumWidth(150)
             gl.addWidget(lbl,row,col)
             lbl.setStyleSheet(style)
             if t == 'combobox':
                 w = QComboBox()
                 w.addItems(opt['items'])
+                index = w.findText(val)
+                if index != -1:
+                    w.setCurrentIndex(index)
                 if 'editable' in opt:
                      w.setEditable(True)
-                try:
-                    w.setCurrentIndex(opt['items'].index(str(opt['default'])))
-                except:
-                    w.setCurrentIndex(0)
+                if 'width' in opt:
+                    w.setMinimumWidth(opt['width'])
+                    w.resize(opt['width'], 20)
+                w.view().setMinimumWidth(120)
+                w.setMaxVisibleItems(12)
+            elif t == 'list':
+                w = QListWidget()
+                w.setSelectionMode(QAbstractItemView.MultiSelection)
+                w.addItems(opt['items'])
             elif t == 'entry':
                 w = QLineEdit()
                 w.setText(str(val))
+                if 'width' in opt:
+                    w.setMaximumWidth(opt['width'])
+                    w.resize(opt['width'], 20)
             elif t == 'textarea':
                 w = QPlainTextEdit()
+                #w.setSizePolicy(sizepolicy)
                 w.insertPlainText(str(val))
+                w.setMaximumHeight(100)
             elif t == 'slider':
                 w = QSlider(QtCore.Qt.Horizontal)
                 s,e = opt['range']
@@ -150,13 +165,22 @@ def dialogFromOptions(parent, opts, sections=None,
                 w.setTickPosition(QSlider.TicksBelow)
                 w.setValue(val)
             elif t == 'spinbox':
-                if type(val) is float:
-                    w = QDoubleSpinBox()
-                else:
-                    w = QSpinBox()
+                w = QSpinBox()
                 w.setValue(val)
                 if 'range' in opt:
-                    min,max=opt['range']
+                    min, max = opt['range']
+                    min = int(min)
+                    max = int(max)
+                    w.setRange(min,max)
+                    w.setMaximum(max)
+                    w.setMinimum(min)
+                if 'interval' in opt:
+                    w.setSingleStep(opt['interval'])
+            elif t == 'doublespinbox':
+                w = QDoubleSpinBox()
+                w.setValue(val)
+                if 'range' in opt:
+                    min, max = opt['range']
                     w.setRange(min,max)
                     w.setMinimum(min)
                 if 'interval' in opt:
@@ -166,19 +190,19 @@ def dialogFromOptions(parent, opts, sections=None,
                 w.setChecked(val)
             elif t == 'font':
                 w = QFontComboBox()
-                w.resize(w.sizeHint())
-                w.setCurrentIndex(1)
-            if 'width' in opt:
-                h=20
-                if 'height' in opt:
-                    h=opt['height']
-                w.setMinimumSize(opt['width'],h)
-                w.resize(QtCore.QSize(opt['width'], h))
-
-            #policy = dialog.sizePolicy()
-            #policy.setVerticalStretch(1)
-            #w.setSizePolicy(policy)
-
+                index = w.findText(val)
+                #w.resize(w.sizeHint())
+                w.setCurrentIndex(index)
+            elif t == 'dial':
+                w = QDial()
+                if 'range' in opt:
+                    min, max = opt['range']
+                    w.setMinimum(min)
+                    w.setMaximum(max)
+                w.setValue(val)
+            elif t == 'colorbutton':
+                w = ColorButton()
+                w.setColor(val)
             col+=1
             gl.addWidget(w,row,col)
             w.setStyleSheet(style)
@@ -189,8 +213,10 @@ def dialogFromOptions(parent, opts, sections=None,
                 row+=1
             else:
                 col+=2
+
         if scol >= section_wrap:
             scol=1
+            srow+=2
         else:
             scol+=1
     return dialog, widgets
@@ -993,7 +1019,7 @@ class PlotViewer(QWidget):
     def clear(self):
         """Clear plot"""
 
-        self.fig.clear()        
+        self.fig.clear()
         self.ax = self.fig.add_subplot(111)
         self.canvas.draw()
         return
@@ -1034,6 +1060,7 @@ class CustomPlotViewer(PlotViewer):
         #self.fig.canvas.mpl_connect('pick_event', self.onpick)
         self.app = app
         self.lims = None
+        self.opts = PlotOptions()
         return
 
     def onpress(self, event):
@@ -1185,7 +1212,7 @@ class ScratchPad(QWidget):
                     }
         for i in items:
             if 'file' in items[i]:
-                iconfile = os.path.join(iconpath,items[i]['file']+'.png')
+                iconfile = os.path.join(iconpath,items[i]['file']+'.svg')
                 icon = QIcon(iconfile)
             else:
                 icon = QIcon.fromTheme(items[i]['icon'])
@@ -1207,7 +1234,7 @@ class ScratchPad(QWidget):
                 te.setPlainText(obj)
                 self.main.addTab(te, name)
             elif type(obj) is pd.DataFrame:
-                tw = core.DataFrameTable(self.main, dataframe=obj)
+                tw = tables.DataFrameTable(self.main, dataframe=obj)
                 self.main.addTab(tw, name)
             else:
                 pw = PlotWidget(self.main)
@@ -1334,4 +1361,108 @@ class MultipleFilesDialog(QDialog):
     def apply(self):
         """Override this"""
 
+        return
+
+class PreferencesDialog(QDialog):
+    """Preferences dialog from config parser options"""
+
+    def __init__(self, parent, options={}):
+
+        super(PreferencesDialog, self).__init__(parent)
+        self.parent = parent
+        self.setWindowTitle('Preferences')
+        self.resize(300, 200)
+        self.setGeometry(QtCore.QRect(300,300,500, 200))
+        self.setMaximumWidth(500)
+        self.setMaximumHeight(300)
+        self.createWidgets(options)
+        self.show()
+        return
+
+    def createWidgets(self, options):
+        """create widgets"""
+
+        import pylab as plt
+
+        colormaps = sorted(m for m in plt.cm.datad if not m.endswith("_r"))
+        timeformats = ['%m/%d/%Y','%d/%m/%Y','%d/%m/%y',
+                '%Y/%m/%d','%y/%m/%d','%Y/%d/%m',
+                '%d-%b-%Y','%b-%d-%Y',
+                '%Y-%m-%d %H:%M:%S','%Y-%m-%d %H:%M',
+                '%d-%m-%Y %H:%M:%S','%d-%m-%Y %H:%M',
+                '%Y','%m','%d','%b']
+
+        self.opts = {
+                'FONT':{'type':'font','default':options['FONT'],'label':'Font'},
+                'FONTSIZE':{'type':'spinbox','default':options['FONTSIZE'],'range':(5,40),
+                            'interval':1,'label':'Font Size'},
+                'TIMEFORMAT':{'type':'combobox','default':options['TIMEFORMAT'],
+                            'items':timeformats,'label':'Date/Time format'},
+                'DPI':{'type':'entry','default':options['DPI'],
+                        'label':'Plot DPI'},
+                'ICONSIZE':{'type':'spinbox','default':options['ICONSIZE'],'range':(16,64), 'label':'Icon Size'},
+                }
+        sections = {'formats':['FONT','FONTSIZE','TIMEFORMAT','ICONSIZE','DPI']
+                    }
+
+        dialog, self.widgets = dialogFromOptions(self, self.opts, sections)
+        self.layout = QVBoxLayout(self)
+        self.layout.addWidget(dialog)
+        dialog.setFocus()
+        bw = self.createButtons(self)
+        self.layout.addWidget(bw)
+        return
+
+    def createButtons(self, parent):
+
+        bw = self.button_widget = QWidget(parent)
+        vbox = QHBoxLayout(bw)
+        button = QPushButton("Apply")
+        button.clicked.connect(self.apply)
+        vbox.addWidget(button)
+        button = QPushButton("Reset")
+        button.clicked.connect(self.reset)
+        vbox.addWidget(button)
+        button = QPushButton("Close")
+        button.clicked.connect(self.close)
+        vbox.addWidget(button)
+        return bw
+
+    def apply(self):
+        """Apply options to current table"""
+
+        kwds = getWidgetValues(self.widgets)
+        core.FONT = kwds['FONT']
+        core.FONTSIZE = kwds['FONTSIZE']
+        core.TIMEFORMAT = kwds['TIMEFORMAT']
+        core.DPI = kwds['DPI']
+        core.ICONSIZE = kwds['ICONSIZE']
+
+        self.parent.refresh()
+        self.parent.apply_settings()
+        return
+
+    def updateWidgets(self, kwds=None):
+        """Update widgets from stored or supplied kwds"""
+
+        if kwds == None:
+            kwds = self.kwds
+        for k in kwds:
+            setWidgetValues(self.widgets, {k: kwds[k]})
+        return
+
+    def setDefaults(self):
+        """Populate default kwds dict"""
+
+        self.kwds = {}
+        for o in self.opts:
+            self.kwds[o] = core.defaults[o]
+        return
+
+    def reset(self):
+        """Reset to defaults"""
+
+        self.setDefaults()
+        self.updateWidgets()
+        self.apply()
         return

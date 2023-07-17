@@ -76,7 +76,7 @@ style = '''
     QComboBox {
         combobox-popup: 0;
         max-height: 30px;
-        max-width: 100px;
+        max-width: 120px;
     }
     '''
 
@@ -122,8 +122,8 @@ class App(QMainWindow):
         self.main.setFocus()
         self.setCentralWidget(self.main)
         self.create_tool_bar()
-        self.setup_gui()
         self.load_settings()
+        self.setup_gui()
         self.show_recent_files()
 
         self.load_base_data()
@@ -177,7 +177,9 @@ class App(QMainWindow):
         for i in self.opentables:
             table = self.opentables[i]
             table.fontname = core.FONT
+            table.fontsize = core.FONTSIZE
             table.updateFont()
+            table.refresh()
         import matplotlib as mpl
         mpl.rcParams['savefig.dpi'] = core.DPI
         return
@@ -192,7 +194,7 @@ class App(QMainWindow):
         self.settings.setValue('fontsize', core.FONTSIZE)
         self.settings.setValue('dpi', core.DPI)
         self.settings.setValue('recent_files',','.join(self.recent_files))
-        print (self.settings)
+        #print (self.settings)
         self.settings.sync()
         return
 
@@ -210,6 +212,7 @@ class App(QMainWindow):
                  'Zoom out': {'action':self.zoom_out,'file':'zoom-out'},
                  'Zoom in': {'action':self.zoom_in,'file':'zoom-in'},
                  'Scratchpad': {'action':self.show_scratchpad,'file':'scratchpad'},
+                 'Settings': {'action':self.preferences,'file':'settings'},
                  'Quit': {'action':self.quit,'file':'application-exit'}
                 }
 
@@ -300,7 +303,7 @@ class App(QMainWindow):
         l.addWidget(w)
         w.addItems(providers.keys())
         self.markersizew = w = QSpinBox(m)
-        w.setRange(1,100)
+        w.setRange(1,300)
         w.setValue(50)
         l.addWidget(QLabel('Marker size:'))
         l.addWidget(w)
@@ -368,7 +371,8 @@ class App(QMainWindow):
         l = QVBoxLayout(main)
         l.addWidget(self.m)
 
-        self.meta_table = tables.SampleTable(self, dataframe=pd.DataFrame(), app=self)
+        self.meta_table = tables.SampleTable(self, dataframe=pd.DataFrame(),
+                                           font=core.FONT, fontsize=core.FONTSIZE, app=self)
         t = self.table_widget = tables.DataFrameWidget(parent=self, table=self.meta_table,
                                         toolbar=False)
         self.add_dock(self.table_widget, 'meta data', scrollarea=False)
@@ -463,6 +467,11 @@ class App(QMainWindow):
         icon = QIcon(os.path.join(iconpath,'application-exit.png'))
         self.file_menu.addAction(icon, 'Quit', self.quit)
         self.menuBar().addMenu(self.file_menu)
+
+        self.edit_menu = QMenu('Edit', self)
+        self.menuBar().addMenu(self.edit_menu)
+        icon = QIcon(os.path.join(iconpath,'settings.png'))
+        self.edit_menu.addAction(icon, 'Preferences', self.preferences)
 
         self.view_menu = QMenu('View', self)
         self.menuBar().addMenu(self.view_menu)
@@ -584,6 +593,7 @@ class App(QMainWindow):
         #    self.plotview.set_figure(data['fig'])
         t = self.meta_table
         t.setDataFrame(self.cent)
+        self.table_widget.updateStatusBar()
         self.update_clades()
         cols = ['']+list(self.cent.columns)
         self.labelsw.addItems(cols)
@@ -805,7 +815,7 @@ class App(QMainWindow):
             self.plot_parcels(col=colorcol,cmap=cmap)
 
         if jitter == True:
-            self.sub['geometry'] = self.sub.apply(lambda x: jitter_points(x,40),1)
+            self.sub['geometry'] = self.sub.apply(lambda x: jitter_points(x,50),1)
 
         plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
 
@@ -940,7 +950,7 @@ class App(QMainWindow):
         cols=['Animal_ID','HERD_NO','move_to','move_date','data_type','breed','dob']
         t = df.merge(move_df,left_on='Animal_ID',right_on='tag',how='inner')[cols]
         m = t.merge(lpis_cent,left_on='move_to',right_on='SPH_HERD_N', how='left')
-        #print (len(t),len(m))        
+        #print (len(t),len(m))
         if len(m)==0:
             return
         x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
@@ -1044,7 +1054,7 @@ class App(QMainWindow):
     def save_to_scratchpad(self, label=None):
         """Save plot to scratchpad"""
 
-        name = 'test'
+        name = self.title
         if label == None or label is False:
             t = time.strftime("%H:%M:%S")
             label = name+'-'+t
@@ -1083,14 +1093,15 @@ class App(QMainWindow):
     def show_selected_table(self):
         """Show selected samples in separate table"""
 
-        w = tables.SampleTable(self, dataframe=self.sub, app=self)
+        w = tables.SampleTable(self, dataframe=self.sub,
+        font=core.FONT, fontsize=core.FONTSIZE, app=self)
         if not 'selected' in self.docks:
             dock = self.add_dock(w,'selected','left')
             self.docks['selected'] = dock
             self.add_dock_item('selected')
-            self.opentables['selected'] = w
         else:
             self.docks['selected'].setWidget(w)
+        self.opentables['selected'] = w
         return
 
     def show_moves_table(self, df):
@@ -1098,43 +1109,47 @@ class App(QMainWindow):
 
         if df is None:
             return
-        w = tables.SampleTable(self, dataframe=df, app=self)
+        w = tables.SampleTable(self, dataframe=df,
+                            font=core.FONT, fontsize=core.FONTSIZE, app=self)
         if not 'moves' in self.docks:
-            dock = self.add_dock(w,'moves','left')
+            dock = self.add_dock(w,'moves','right')
             self.docks['moves'] = dock
             self.add_dock_item('moves')
-            self.opentables['moves'] = w
         else:
             self.docks['moves'].setWidget(w)
+        self.opentables['moves'] = w
         return
 
     def sample_details(self, data):
         """Show sample details"""
 
-        w = tables.DataFrameTable(self, pd.DataFrame(data))
+        w = tables.DataFrameTable(self, pd.DataFrame(data),
+                                font=core.FONT, fontsize=core.FONTSIZE)
         w.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         if not 'details' in self.docks:
             dock = self.add_dock(w,'sample details','right')
             self.docks['details'] = dock
             self.add_dock_item('details')
-            self.opentables['details'] = w
         else:
             self.docks['details'].setWidget(w)
+        self.opentables['details'] = w
         return
 
     def zoom_in(self):
 
+        core.FONTSIZE+=1
         for i in self.opentables:
             w=self.opentables[i]
-            w.zoomIn()
+            w.zoomIn(core.FONTSIZE)
         self.info.zoomIn()
         return
 
     def zoom_out(self):
 
+        core.FONTSIZE-=1
         for i in self.opentables:
             w=self.opentables[i]
-            w.zoomOut()
+            w.zoomOut(core.FONTSIZE)
         self.info.zoomOut()
         return
 
@@ -1151,6 +1166,16 @@ class App(QMainWindow):
 
     def get_tab_names(self):
         return {self.tabs.tabText(index):index for index in range(self.tabs.count())}
+
+    def preferences(self):
+        """Preferences dialog"""
+
+        opts = {}
+        for k in core.defaults.keys():
+            opts[k] = getattr(core,k)
+        dlg = widgets.PreferencesDialog(self, opts)
+        dlg.exec_()
+        return
 
     def quit(self):
         self.close()

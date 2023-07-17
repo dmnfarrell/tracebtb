@@ -108,7 +108,7 @@ class DataFrameWidget(QWidget):
         return
 
     def refresh(self):
-
+      
         self.table.refresh()
         return
 
@@ -206,7 +206,7 @@ class DataFrameTable(QTableView):
     """
     QTableView with pandas DataFrame as model.
     """
-    def __init__(self, parent=None, dataframe=None, plotter=None, fontsize=10):
+    def __init__(self, parent=None, dataframe=None, plotter=None, font='Arial', fontsize=10):
 
         QTableView.__init__(self)
         self.parent = parent
@@ -240,9 +240,11 @@ class DataFrameTable(QTableView):
         self.resizeColumnsToContents()
         self.setCornerButtonEnabled(True)
 
-        self.font = QFont("Arial", fontsize)
-        #print (fontsize)
-        self.setFont(self.font)
+        self.font = QFont(font, fontsize)
+        self.fontname = font
+        self.fontsize = fontsize
+        
+        self.updateFont()
         tm = DataFrameModel(dataframe)
         self.setModel(tm)
         self.model = tm
@@ -258,7 +260,7 @@ class DataFrameTable(QTableView):
     def updateFont(self):
         """Update the font"""
 
-        font = QFont(self.font)
+        font = QFont(self.fontname)
         font.setPointSize(int(self.fontsize))
         self.setFont(font)
         self.horizontalHeader().setFont(font)
@@ -269,7 +271,7 @@ class DataFrameTable(QTableView):
 
         tm = DataFrameModel(df)
         self.setModel(tm)
-        self.model = tm
+        self.model = tm        
         return
 
     def getDataFrame(self):
@@ -775,8 +777,8 @@ class SampleTable(DataFrameTable):
     QTableView with pandas DataFrame as model.
     """
 
-    def __init__(self, parent=None, app=None, dataframe=None, plotter=None):
-        DataFrameTable.__init__(self)
+    def __init__(self, parent=None, app=None, dataframe=None, plotter=None, **kwargs):
+        DataFrameTable.__init__(self, **kwargs)
         self.parent = parent
         self.app = app
         self.setWordWrap(False)

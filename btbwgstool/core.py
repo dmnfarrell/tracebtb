@@ -24,7 +24,7 @@ import sys,os,subprocess,glob,re
 import time, datetime
 import platform
 
-defaultfont = 'Monospace'
+defaultfont = 'Lato'
 defaults = {
             'FONT' :defaultfont,
             'FONTSIZE' : 10,
