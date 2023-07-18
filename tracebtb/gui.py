@@ -484,11 +484,8 @@ class App(QMainWindow):
 
         self.tools_menu = QMenu('Tools', self)
         self.menuBar().addMenu(self.tools_menu)
-        self.tools_menu.addAction('Make test data', self.make_test_data)
-
-        #self.settings_menu = QMenu('Settings', self)
-        #self.menuBar().addMenu(self.settings_menu)
-        #self.settings_menu.addAction('Set Output Folder', self.set_output_folder)
+        self.tools_menu.addAction('Make Test Data', self.make_test_data)
+        self.tools_menu.addAction('Show Herd Summary', self.herd_summary)
 
         self.scratch_menu = QMenu('Scratchpad', self)
         self.menuBar().addMenu(self.scratch_menu)
@@ -551,11 +548,11 @@ class App(QMainWindow):
 
         options = QFileDialog.Options()
         filename, _ = QFileDialog.getSaveFileName(self,"Save Project",
-                                                  "","Project files (*.wgstool);;All files (*.*)",
+                                                  "","Project files (*.tracebtb);;All files (*.*)",
                                                   options=options)
         if filename:
-            if not os.path.splitext(filename)[1] == '.wgstool':
-                filename += '.wgstool'
+            if not os.path.splitext(filename)[1] == '.tracebtb':
+                filename += '.tracebtb'
             self.proj_file = filename
             self.save_project()
         return
@@ -612,7 +609,7 @@ class App(QMainWindow):
         """Load project"""
 
         filename, _ = QFileDialog.getOpenFileName(self, 'Open Project', './',
-                                        filter="Project Files(*.wgstool);;All Files(*.*)")
+                                        filter="Project Files(*.tracebtb);;All Files(*.*)")
         if not filename:
             return
         if not os.path.exists(filename):
@@ -980,6 +977,15 @@ class App(QMainWindow):
                     i+=1
         return
 
+    def plot_herd_selection(self, herd_no):
+        """Plot farm(s)"""
+
+        self.sub = self.cent[self.cent.HERD_NO.isin(herd_no)]
+        self.title = '(herd selection)'
+        self.parcelsb.setChecked(True)
+        self.update()
+        return
+
     def show_labels(self, col):
         """Add labels to plot"""
 
@@ -1069,16 +1075,6 @@ class App(QMainWindow):
             self.scratchpad.update(self.scratch_items)
         return
 
-    def show_browser_tab(self, link, name):
-        """Show browser"""
-
-        from PySide2.QtWebEngineWidgets import QWebEngineView
-        browser = QWebEngineView()
-        browser.setUrl(link)
-        idx = self.tabs.addTab(browser, name)
-        self.tabs.setCurrentIndex(idx)
-        return
-
     def get_selected(self):
         """Get selected rows of fastq table"""
 
@@ -1089,6 +1085,33 @@ class App(QMainWindow):
             return
         data = df.iloc[rows]
         return data
+
+    def herd_summary(self):
+        """Summary by herd"""
+
+        res=[]
+        for herd, df in self.cent.groupby('HERD_NO'):
+            #print (herd)
+            clades = len(df.snp3.unique())
+            m = self.moves[self.moves.move_to == herd]
+            res.append([herd,len(df),clades,len(m)])
+        res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves'])
+        res = res.sort_values('strains',ascending=False)
+        w = tables.HerdTable(self, dataframe=res,
+                    font=core.FONT, fontsize=core.FONTSIZE, app=self)
+        self.show_table(w, 'herd summary')
+        return
+
+    def show_table(self, table, name, side='right'):
+
+        if not name in self.docks:
+            dock = self.add_dock(table,name,side)
+            self.docks[name] = dock
+            self.add_dock_item(name)
+        else:
+            self.docks[name].setWidget(w)
+        self.opentables[name] = table
+        return
 
     def show_selected_table(self):
         """Show selected samples in separate table"""
@@ -1153,6 +1176,15 @@ class App(QMainWindow):
         self.info.zoomOut()
         return
 
+    def show_browser_tab(self, link, name):
+        """Show browser"""
+
+        browser = QWebEngineView()
+        browser.setUrl(link)
+        idx = self.tabs.addTab(browser, name)
+        self.tabs.setCurrentIndex(idx)
+        return
+
     def show_info(self, msg, color=None):
 
         if color != None:
@@ -1210,8 +1242,8 @@ class App(QMainWindow):
             import PySide2
             qtver = PySide2.QtCore.__version__
         except:
-            import PyQt5
-            qtver = PyQt5.QtCore.__version__
+            from PyQt5.QtCore import PYQT_VERSION_STR
+            qtver = PYQT_VERSION_STR
         pandasver = pd.__version__
         pythonver = platform.python_version()
         mplver = matplotlib.__version__

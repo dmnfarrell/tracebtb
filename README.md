@@ -10,6 +10,8 @@ This software is written in Python. It was developed on Ubuntu linux and should 
 
 Run the command `tracebtb` from the command line to launch the application. YOu can provide a saved project file by using the -p option: `tracebtb -p file.tracebtb`
 
+See the [wiki](https://github.com/dmnfarrell/tracebtb/wiki) page for documentation.
+
 ## Installation
 
 ### Linux

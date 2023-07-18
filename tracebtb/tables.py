@@ -108,7 +108,7 @@ class DataFrameWidget(QWidget):
         return
 
     def refresh(self):
-      
+
         self.table.refresh()
         return
 
@@ -243,7 +243,7 @@ class DataFrameTable(QTableView):
         self.font = QFont(font, fontsize)
         self.fontname = font
         self.fontsize = fontsize
-        
+
         self.updateFont()
         tm = DataFrameModel(dataframe)
         self.setModel(tm)
@@ -271,7 +271,7 @@ class DataFrameTable(QTableView):
 
         tm = DataFrameModel(df)
         self.setModel(tm)
-        self.model = tm        
+        self.model = tm
         return
 
     def getDataFrame(self):
@@ -828,9 +828,6 @@ class SampleTable(DataFrameTable):
             QTableView.edit(self, index, trigger, event)
         return True
 
-    def refresh(self):
-        DataFrameTable.refresh(self)
-
     def resizeColumns(self):
 
         self.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -847,6 +844,36 @@ class SampleTable(DataFrameTable):
         idx = self.model.df.index[rows]
         self.model.df = self.model.df.drop(idx)
         self.refresh()
+        return
+
+class HerdTable(DataFrameTable):
+    """
+    QTableView with pandas DataFrame as model.
+    """
+    def __init__(self, parent=None, app=None, dataframe=None, **kwargs):
+        DataFrameTable.__init__(self, **kwargs)
+        self.parent = parent
+        self.app = app
+        self.setWordWrap(False)
+        tm = DataFrameModel(dataframe)
+        self.setModel(tm)
+        self.model = tm
+        return
+
+    def addActions(self, event, row):
+
+        menu = self.menu
+        plotherdsAction = menu.addAction("Show Herd")
+        exportAction = menu.addAction("Export Table")
+        action = menu.exec_(self.mapToGlobal(event.pos()))
+        if action == exportAction:
+            self.exportTable()
+        elif action == plotherdsAction:
+            df=self.model.df
+            rows = self.getSelectedRows()
+            idx = df.index[rows]
+            df = self.model.df.loc[idx]
+            self.app.plot_herd_selection(df.HERD_NO)
         return
 
 class TableViewer(QDialog):
