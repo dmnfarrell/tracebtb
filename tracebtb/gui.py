@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-    btbwgstool GUI.
+    tracebtb GUI.
     Created Mar 2022
     Copyright (C) Damien Farrell
 
@@ -42,7 +42,7 @@ data_path = os.path.join(module_path,'data')
 logoimg = os.path.join(module_path, 'logo.svg')
 stylepath = os.path.join(module_path, 'styles')
 iconpath = os.path.join(module_path, 'icons')
-#settingspath = os.path.join(homepath, '.config','btbwgstool')
+#settingspath = os.path.join(homepath, '.config','tracebtb')
 
 counties = ['Clare','Cork','Cavan','Monaghan','Louth','Kerry','Meath','Wicklow']
 cladelevels = ['snp3','snp12','snp50','snp200','snp500']
@@ -98,11 +98,11 @@ dockstyle = '''
 
 class App(QMainWindow):
     """GUI Application using PySide2 widgets"""
-    def __init__(self, project=None, tree=None):
+    def __init__(self, project=None):
 
         QMainWindow.__init__(self)
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
-        self.setWindowTitle("bTBWGStool")
+        self.setWindowTitle("TracebTB")
 
         self.setWindowIcon(QIcon(logoimg))
         self.create_menu()
@@ -132,8 +132,8 @@ class App(QMainWindow):
         self.title = None
         #self.load_test()
 
-        #if project != None:
-        #    self.load_project(project)
+        if project != None:
+            self.load_project(project)
         self.threadpool = QtCore.QThreadPool()
         self.redirect_stdout()
         return
@@ -148,7 +148,7 @@ class App(QMainWindow):
     def load_settings(self):
         """Load GUI settings"""
 
-        s = self.settings = QtCore.QSettings('btbwgstool','default')
+        s = self.settings = QtCore.QSettings('tracebtb','default')
         try:
             winsize = s.value('window_size')
             if winsize != None:
@@ -920,11 +920,12 @@ class App(QMainWindow):
         return
 
     def plot_in_region(self):
-        """Show all points in visible region of plot"""
+        """Show all points in the visible region of plot"""
 
         xmin,xmax,ymin,ymax = self.plotview.get_plot_lims()
         df = self.cent
         self.sub = df.cx[xmin:xmax, ymin:ymax]
+        self.title = ('selected region n=%s' %len(self.sub))
         self.update()
         #ax = self.plotview.ax
         #ax.set_xlim(xmin,xmax)
@@ -936,7 +937,6 @@ class App(QMainWindow):
 
         if self.parcels is None:
             return
-        #print (self.parcels)
         ax = self.plotview.ax
         self.parcels.plot(column='SPH_HERD_N',alpha=0.6,lw=1,cmap=cmap,ax=ax)
         return
@@ -962,7 +962,7 @@ class App(QMainWindow):
         """Show moves as lines on plot"""
 
         lpis_cent = self.lpis_cent
-        colors = plotting.random_colors(30, seed=12)
+        colors = plotting.random_colors(250, seed=12)
         i=0
         if moves is None:
             return
@@ -1198,7 +1198,7 @@ class App(QMainWindow):
     def online_documentation(self,event=None):
         """Open the online documentation"""
 
-        link='https://github.com/dmnfarrell/btbwgstool'
+        link='https://github.com/dmnfarrell/tracebtb/wiki'
         self.show_browser_tab(link, 'Help')
         return
 
@@ -1216,7 +1216,7 @@ class App(QMainWindow):
         pythonver = platform.python_version()
         mplver = matplotlib.__version__
 
-        text='bTBWGStool\n'\
+        text='TracebTB\n'\
             +'version '+__version__+'\n'\
             +'Copyright (C) Damien Farrell 2022-\n'\
             +'This program is free software; you can redistribute it and/or '\
@@ -1385,9 +1385,7 @@ def main():
 
     import sys, os
     from argparse import ArgumentParser
-    parser = ArgumentParser(description='btbgenie tool')
-    parser.add_argument("-t", "--tree", dest="tree",default=[],
-                        help="newick tree", metavar="FILE")
+    parser = ArgumentParser(description='TracebTB')
     parser.add_argument("-p", "--proj", dest="project",default=None,
                         help="load project file", metavar="FILE")
     args = vars(parser.parse_args())

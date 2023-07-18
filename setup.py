@@ -1,20 +1,20 @@
 from setuptools import setup
 import sys,os
 
-with open('btbwgstool/description.txt') as f:
+with open('tracebtb/description.txt') as f:
     long_description = f.read()
 
 setup(
-    name = 'btbwgstool',
-    version = '0.1.0',
-    description = 'BTBGenIE tool',
+    name = 'tracebtb',
+    version = '0.2.0',
+    description = 'TracebTB tool',
     long_description = long_description,
-    url='https://github.com/dmnfarrell/btbwgstools',
+    url='https://github.com/dmnfarrell/tracebtb',
     license='GPL v3',
     author = 'Damien Farrell',
     author_email = 'farrell.damien@gmail.com',
-    packages = ['btbwgstool'],
-    package_data={'btbwgstool': ['data/*.*','logo.png',
+    packages = ['tracebtb'],
+    package_data={'tracebtb': ['data/*.*','logo.png',
                   'description.txt']
                  },
     install_requires=['numpy',
@@ -23,13 +23,13 @@ setup(
                       'geopandas',
                       'pyqt5,
                       'toytree',
+                      'contextily'
                       ],
     entry_points = {
         'console_scripts': [
-            'btbwgstool=btbwgstool.gui:main']
+            'tracebtb=tracebtb.gui:main']
             },
     classifiers = ['Operating System :: OS Independent',
-            'Programming Language :: Python :: 2.7',
             'Programming Language :: Python :: 3.7',
             'Operating System :: MacOS :: MacOS X',
             'Operating System :: Microsoft :: Windows',

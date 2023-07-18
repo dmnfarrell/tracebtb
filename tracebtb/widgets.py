@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-    Qt widgets for snpgenie.
+    Qt widgets module.
     Created Jan 2020
     Copyright (C) Damien Farrell
 
