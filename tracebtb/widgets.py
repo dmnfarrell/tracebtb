@@ -834,8 +834,9 @@ class PlotViewer(QWidget):
         from matplotlib.backends.backend_qt5agg import FigureCanvas
         from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
         import matplotlib.pyplot as plt
-        #ax.plot(range(10))
+
         if fig == None:
+            plt.close()
             fig, ax = plt.subplots(1,1, figsize=(7,5), dpi=120)
             self.ax = ax
         if hasattr(self, 'canvas'):

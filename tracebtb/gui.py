@@ -450,13 +450,12 @@ class App(QMainWindow):
         """Create the menu bar for the application. """
 
         self.file_menu = QMenu('File', self)
-
         self.file_menu.addAction('Load Files', lambda: self.load_data_dialog())
         icon = QIcon(os.path.join(iconpath,'document-new.png'))
         self.file_menu.addAction('Load Folder', lambda: self.load_folder())
         icon = QIcon(os.path.join(iconpath,'document-new.png'))
-        #self.file_menu.addAction(icon, 'New Project', lambda: self.new_project(ask=True))
-        #icon = QIcon(os.path.join(iconpath,'document-open.png'))
+        self.file_menu.addAction(icon, 'New Project', lambda: self.new_project(ask=True))
+        icon = QIcon(os.path.join(iconpath,'document-open.png'))
         self.file_menu.addAction(icon, 'Open Project', self.load_project_dialog)
         self.recent_files_menu = QMenu("Recent Projects", self.file_menu)
         self.file_menu.addAction(self.recent_files_menu.menuAction())
@@ -571,7 +570,11 @@ class App(QMainWindow):
         self.outputdir = None
         self.proj_file = None
         self.meta_table.setDataFrame(pd.DataFrame({'sample':[]}))
-        #self.left_tabs.clear()
+        self.plotview.clear()
+        self.cladew.clear()
+        for i in self.opentables:
+            w = self.opentables[i]
+            w.setDataFrame()
         if hasattr(self, 'treeview'):
             self.treeview.clear()
         return
@@ -1131,7 +1134,7 @@ class App(QMainWindow):
         """Show moves for samples in separate table"""
 
         if df is None:
-            return
+            df = pd.DataFrame()
         w = tables.SampleTable(self, dataframe=df,
                             font=core.FONT, fontsize=core.FONTSIZE, app=self)
         if not 'moves' in self.docks:
@@ -1180,7 +1183,7 @@ class App(QMainWindow):
         """Show browser"""
 
         browser = QWebEngineView()
-        browser.setUrl(link)
+        browser.setUrl(QUrl(link))
         idx = self.tabs.addTab(browser, name)
         self.tabs.setCurrentIndex(idx)
         return
@@ -1240,10 +1243,10 @@ class App(QMainWindow):
         import matplotlib
         try:
             import PySide2
-            qtver = PySide2.QtCore.__version__
+            pyqtver = 'PySide2 v'+PySide2.QtCore.__version__
         except:
             from PyQt5.QtCore import PYQT_VERSION_STR
-            qtver = PYQT_VERSION_STR
+            pyqtver = 'PyQt5 v'+PYQT_VERSION_STR
         pandasver = pd.__version__
         pythonver = platform.python_version()
         mplver = matplotlib.__version__
@@ -1256,7 +1259,7 @@ class App(QMainWindow):
             +'as published by the Free Software Foundation; either '\
             +'version 3 of the License, or (at your option) any '\
             +'later version.\n'\
-            +'Using Python v%s, PySide2 v%s\n' %(pythonver, qtver)\
+            +'Using Python v%s, %s\n' %(pythonver, pyqtver)\
             +'pandas v%s, matplotlib v%s' %(pandasver,mplver)
 
         msg = QMessageBox.about(self, "About", text)
@@ -1376,7 +1379,8 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
         ax.set_title('no locations available')
         return
     minx, miny, maxx, maxy = df.total_bounds
-    #counties.plot(ax=ax, linewidth=.5, edgecolor='black',color='#F6F4F3')
+    maxx+=10
+    maxy+=10
     df = df[df.Species.isin(['Bovine','Badger'])]
     df['color'] = df.Species.map({'Bovine':'blue','Badger':'orange'})
 

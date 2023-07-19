@@ -13,9 +13,26 @@
    inkscape:version="1.1.2 (0a00cf5339, 2022-02-04)"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg"><defs
-   id="defs13" /><sodipodi:namedview
+   id="defs13"><linearGradient
+     inkscape:collect="always"
+     id="linearGradient830"><stop
+       style="stop-color:#777b76;stop-opacity:1"
+       offset="0"
+       id="stop826" /><stop
+       style="stop-color:#d4dbdd;stop-opacity:1"
+       offset="1"
+       id="stop828" /></linearGradient><linearGradient
+     inkscape:collect="always"
+     xlink:href="#linearGradient830"
+     id="linearGradient832"
+     x1="-275.33942"
+     y1="-52.10844"
+     x2="245.52322"
+     y2="444.17767"
+     gradientUnits="userSpaceOnUse" /></defs><sodipodi:namedview
    id="namedview11"
    pagecolor="#ffffff"
    bordercolor="#999999"
@@ -25,7 +42,7 @@
    inkscape:pagecheckerboard="0"
    showgrid="false"
    inkscape:zoom="0.90875"
-   inkscape:cx="386.24484"
+   inkscape:cx="379.64237"
    inkscape:cy="400"
    inkscape:window-width="2560"
    inkscape:window-height="1300"
@@ -35,7 +52,7 @@
    inkscape:current-layer="Capa_1" />
 <path
    id="path846"
-   style="fill:#bdc3c7;stroke-width:6.131;stroke-linecap:round;stroke-linejoin:round;paint-order:markers fill stroke;fill-opacity:1"
+   style="fill:url(#linearGradient832);stroke-width:6.131;stroke-linecap:round;stroke-linejoin:round;paint-order:markers fill stroke;fill-opacity:1"
    inkscape:transform-center-x="21.799983"
    inkscape:transform-center-y="-23.1492"
    transform="matrix(0.59837875,0,0,0.59837875,251.53308,119.84036)"

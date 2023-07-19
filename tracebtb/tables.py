@@ -49,6 +49,7 @@ class DataFrameWidget(QWidget):
             self.table = DataFrameTable(self, dataframe=pd.DataFrame())
         else:
             self.table = table
+            table.parent = self
         l.addWidget(self.table, 1, 1)
         if toolbar == True:
             self.createToolbar()
@@ -267,8 +268,11 @@ class DataFrameTable(QTableView):
         self.verticalHeader().setFont(font)
         return
 
-    def setDataFrame(self, df):
+    def setDataFrame(self, df=None):
+        """Set the dataframe. No argument will set an empty table"""
 
+        if df is None:
+            df = pd.DataFrame()
         tm = DataFrameModel(df)
         self.setModel(tm)
         self.model = tm
@@ -278,6 +282,7 @@ class DataFrameTable(QTableView):
         return self.model.df
 
     def zoomIn(self, fontsize=None):
+        """Zoom in"""
 
         if fontsize == None:
             s = self.font.pointSize()+1
@@ -717,6 +722,8 @@ class DataFrameModel(QtCore.QAbstractTableModel):
     def headerData(self, col, orientation, role=QtCore.Qt.DisplayRole):
         """What's displayed in the headers"""
 
+        if len(self.df.columns) == 0:
+            return
         if role == QtCore.Qt.DisplayRole:
             if orientation == QtCore.Qt.Horizontal:
                 return str(self.df.columns[col])
@@ -786,9 +793,11 @@ class SampleTable(DataFrameTable):
         self.setModel(tm)
         return
 
-    def setDataFrame(self, df):
+    def setDataFrame(self, df=None):
         """Override to use right model"""
 
+        if df is None:
+            df = pd.DataFrame()
         if 'sample' in df.columns:
             df = df.set_index('sample', drop=False)
             df.index.name = 'index'
@@ -801,7 +810,7 @@ class SampleTable(DataFrameTable):
 
         menu = self.menu
         detailsAction = menu.addAction("Sample Details")
-        removeAction = menu.addAction("Remove Selected")
+        removeAction = menu.addAction("Delete Selected")
         exportAction = menu.addAction("Export Table")
         plotpointsAction = menu.addAction("Plot Samples")
         #colorbyAction = menu.addAction("Color By Column")
@@ -809,8 +818,9 @@ class SampleTable(DataFrameTable):
         # Map the logical row index to a real index for the source model
         #model = self.model
         rows = self.getSelectedRows()
+        df = self.model.df.iloc[row]
         if action == detailsAction:
-            self.app.sample_details(row)
+            self.app.sample_details(df)
         elif action == removeAction:
             self.deleteRows(rows)
         elif action == exportAction:
@@ -835,14 +845,18 @@ class SampleTable(DataFrameTable):
         return
 
     def deleteRows(self, rows):
+        """Delete rows in sample table"""
 
         answer = QMessageBox.question(self, 'Delete Entry?',
-                             'Are you sure? This will not remove the sample file.',
+                             'Delete these rows. Are you sure?',
                              QMessageBox.Yes, QMessageBox.No)
         if answer == QMessageBox.No:
             return
         idx = self.model.df.index[rows]
         self.model.df = self.model.df.drop(idx)
+        #also sync the geodataframe
+        self.app.cent = self.app.cent.drop(idx)
+        self.app.update_clades()
         self.refresh()
         return
 
