@@ -40,7 +40,6 @@ home = os.path.expanduser("~")
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
 logoimg = os.path.join(module_path, 'logo.svg')
-stylepath = os.path.join(module_path, 'styles')
 iconpath = os.path.join(module_path, 'icons')
 #settingspath = os.path.join(homepath, '.config','tracebtb')
 
@@ -96,6 +95,70 @@ dockstyle = '''
      }
 '''
 
+#module level functions
+
+def get_largest_poly(x):
+    if type(x) is MultiPolygon:
+        return max(x.geoms, key=lambda a: a.area)
+    else:
+        return x
+
+def calculate_parcel_centroids(parcels):
+    """Get centroids of lpis parcels"""
+
+    largest = parcels.geometry.apply(get_largest_poly)
+    cent = largest.geometry.centroid
+    cent = gpd.GeoDataFrame(geometry=cent,crs='EPSG:29902')
+    cent['SPH_HERD_N'] = parcels.SPH_HERD_N
+    return cent
+
+def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
+                        legend=False, title='', ax=None):
+    """plot cluster"""
+
+    df = df[~df.is_empty]
+    if len(df) == 0:
+        ax.clear()
+        ax.set_title('no locations available')
+        return
+    minx, miny, maxx, maxy = df.total_bounds
+    maxx+=10
+    maxy+=10
+    df = df[df.Species.isin(['Bovine','Badger'])]
+    df['color'] = df.Species.map({'Bovine':'blue','Badger':'orange'})
+
+    if col == None or col == '':
+        df.plot(color=df.color,ax=ax,alpha=0.6,markersize=ms,linewidth=.5,label='farm/badger',legend=legend)
+    else:
+        cow = df[df.Species=='Bovine']
+        badger = df[df.Species=='Badger']
+        cow.plot(column=col,ax=ax,alpha=0.6,markersize=ms,linewidth=1,ec='black',cmap=cmap,legend=legend)
+        badger.plot(color='orange',ax=ax,alpha=0.6,marker='s',markersize=ms,linewidth=1,ec='black')
+    ax.set_title(title)
+    ax.axis('off')
+    if margin == None:
+        margin = (maxx-minx)*0.3
+    ax.set_xlim(minx-margin,maxx+margin)
+    ax.set_ylim(miny-margin,maxy+margin)
+    ax.add_artist(ScaleBar(dx=1,location=3))
+    #ax.legend(fontsize=12)
+    return
+
+def get_coords_data(df):
+
+    df['P2'] = df.geometry.shift(-1)
+    coords = df[:-1].apply(lambda x: LineString([x.geometry,x.P2]),1)
+    return coords
+
+def jitter_points(r, scale=1):
+    """Jitter GeoDataFrame points"""
+
+    a=np.random.normal(0,scale)
+    b=np.random.normal(0,scale)
+    if (r.geometry.is_empty): return r.geometry
+    x,y = r.geometry.x+a,r.geometry.y+b
+    return Point(x,y)
+
 class App(QMainWindow):
     """GUI Application using PySide2 widgets"""
     def __init__(self, project=None):
@@ -118,7 +181,9 @@ class App(QMainWindow):
         self.recent_files = ['']
         self.scratch_items = {}
         self.opentables = {}
+        self.lpis_master = None
         self.lpis_cent = None
+        self.parcels = None
         self.main.setFocus()
         self.setCentralWidget(self.main)
         self.create_tool_bar()
@@ -247,6 +312,7 @@ class App(QMainWindow):
     def create_option_widgets(self):
         """Set up map view options"""
 
+        self.widgets = {}
         m = QWidget()
         m.setStyleSheet(style)
         m.setMaximumWidth(140)
@@ -261,7 +327,7 @@ class App(QMainWindow):
         l.addWidget(QLabel('Clade level:'))
         l.addWidget(w)
         w.currentIndexChanged.connect(self.update_clades)
-
+        self.widgets['cladelevel'] = w
         #select clade/cluster
         l.addWidget(QLabel('Clade:'))
         t = self.cladew = QTreeWidget()
@@ -275,6 +341,7 @@ class App(QMainWindow):
         #t.customContextMenuRequested.connect(self.update_clades)
         t.itemSelectionChanged.connect(self.plot_selected_clade)
         l.addWidget(t)
+        self.widgets['clade'] = t
 
         #zoom to county
         self.countyw =w = QComboBox(m)
@@ -286,28 +353,33 @@ class App(QMainWindow):
         self.labelsw = w = QComboBox(m)
         l.addWidget(QLabel('Labels:'))
         l.addWidget(w)
+        self.widgets['labels'] = w
         #color points by
         self.colorbyw = w = QComboBox(m)
         l.addWidget(QLabel('Color by:'))
         l.addWidget(w)
         w.setMaxVisibleItems(12)
+        self.widgets['colorby'] = w
         #colormaps
         self.cmapw = w = QComboBox(m)
         l.addWidget(QLabel('Colormap:'))
         l.addWidget(w)
         w.addItems(colormaps)
         w.setCurrentText('Paired')
+        self.widgets['colormap'] = w
         #toggle cx
         self.contextw = w = QComboBox(m)
         l.addWidget(QLabel('Context map:'))
         l.addWidget(w)
         w.addItems(providers.keys())
+        self.widgets['context'] = w
         self.markersizew = w = QSpinBox(m)
         w.setRange(1,300)
         w.setValue(50)
         l.addWidget(QLabel('Marker size:'))
         l.addWidget(w)
         l.addStretch()
+        self.widgets['markersize'] = w
         return m
 
     def map_buttons(self):
@@ -326,14 +398,17 @@ class App(QMainWindow):
         self.parcelsb = b = widgets.createButton(m, None, self.update, 'plot-parcels', core.ICONSIZE, 'show parcels')
         b.setCheckable(True)
         l.addWidget(b)
+        self.widgets['showparcels'] = b
         self.movesb = b = widgets.createButton(m, None, self.update, 'plot-moves', core.ICONSIZE, 'show moves')
         b.setCheckable(True)
         l.addWidget(b)
+        self.widgets['showmoves'] = b
         b = widgets.createButton(m, None, self.show_tree, 'tree', core.ICONSIZE, 'show tree')
         l.addWidget(b)
         self.legendb = b = widgets.createButton(m, None, self.update, 'legend', core.ICONSIZE, 'show legend')
         b.setCheckable(True)
         l.addWidget(b)
+        self.widgets['showlegend'] = b
         self.colorcountiesb = b = widgets.createButton(m, None, self.update, 'counties', core.ICONSIZE, 'color counties')
         b.setCheckable(True)
         l.addWidget(b)
@@ -451,40 +526,44 @@ class App(QMainWindow):
 
         self.file_menu = QMenu('File', self)
         self.file_menu.addAction('Load Files', lambda: self.load_data_dialog())
-        icon = QIcon(os.path.join(iconpath,'document-new.png'))
         self.file_menu.addAction('Load Folder', lambda: self.load_folder())
-        icon = QIcon(os.path.join(iconpath,'document-new.png'))
+        icon = QIcon(os.path.join(iconpath,'document-new.svg'))
         self.file_menu.addAction(icon, 'New Project', lambda: self.new_project(ask=True))
-        icon = QIcon(os.path.join(iconpath,'document-open.png'))
+        icon = QIcon(os.path.join(iconpath,'document-open.svg'))
         self.file_menu.addAction(icon, 'Open Project', self.load_project_dialog)
         self.recent_files_menu = QMenu("Recent Projects", self.file_menu)
         self.file_menu.addAction(self.recent_files_menu.menuAction())
-        icon = QIcon(os.path.join(iconpath,'save.png'))
+        icon = QIcon(os.path.join(iconpath,'save.svg'))
         self.file_menu.addAction(icon, '&Save Project', self.save_project,
                 QtCore.Qt.CTRL + QtCore.Qt.Key_S)
         self.file_menu.addAction('Save Project As', self.save_project_dialog)
-        icon = QIcon(os.path.join(iconpath,'application-exit.png'))
+        icon = QIcon(os.path.join(iconpath,'application-exit.svg'))
         self.file_menu.addAction(icon, 'Quit', self.quit)
         self.menuBar().addMenu(self.file_menu)
 
         self.edit_menu = QMenu('Edit', self)
         self.menuBar().addMenu(self.edit_menu)
-        icon = QIcon(os.path.join(iconpath,'settings.png'))
+        icon = QIcon(os.path.join(iconpath,'settings.svg'))
         self.edit_menu.addAction(icon, 'Preferences', self.preferences)
 
         self.view_menu = QMenu('View', self)
         self.menuBar().addMenu(self.view_menu)
-        icon = QIcon(os.path.join(iconpath,'zoom-in.png'))
+        icon = QIcon(os.path.join(iconpath,'zoom-in.svg'))
         self.view_menu.addAction(icon, 'Zoom In', self.zoom_in,
                 QtCore.Qt.CTRL + QtCore.Qt.Key_Equal)
-        icon = QIcon(os.path.join(iconpath,'zoom-out.png'))
+        icon = QIcon(os.path.join(iconpath,'zoom-out.svg'))
         self.view_menu.addAction(icon, 'Zoom Out', self.zoom_out,
                 QtCore.Qt.CTRL + QtCore.Qt.Key_Minus)
 
         self.tools_menu = QMenu('Tools', self)
         self.menuBar().addMenu(self.tools_menu)
-        self.tools_menu.addAction('Make Test Data', self.make_test_data)
+        self.tools_menu.addAction('Load LPIS file', self.set_lpis_file)
+        icon = QIcon(os.path.join(iconpath,'jitter.svg'))
+        self.tools_menu.addAction(icon, 'Calculate LPIS centroids', self.get_lpis_centroids)
+        icon = QIcon(os.path.join(iconpath,'plot-parcels.svg'))
+        self.tools_menu.addAction(icon,'Get land parcels', self.get_parcels_from_lpis)
         self.tools_menu.addAction('Show Herd Summary', self.herd_summary)
+        self.tools_menu.addAction('Make Simulated Data', self.make_test_data)
 
         self.scratch_menu = QMenu('Scratchpad', self)
         self.menuBar().addMenu(self.scratch_menu)
@@ -531,12 +610,13 @@ class App(QMainWindow):
 
         filename = self.proj_file
         data={}
-        keys = ['cent','moves','lpis','lpis_cent','coresnps']
+        keys = ['cent','moves','parcels','lpis_cent']#,'coresnps']
         for k in keys:
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
         data['scratch_items'] = self.scratch_items
         data['fig'] = self.plotview.fig
+        data['widget_values'] = widgets.getWidgetValues(self.widgets)
         #self.projectlabel.setText(filename)
         pickle.dump(data, open(filename,'wb'))
         self.add_recent_file(filename)
@@ -584,7 +664,7 @@ class App(QMainWindow):
 
         self.new_project()
         data = pickle.load(open(filename,'rb'))
-        keys = ['cent','moves','lpis','lpis_cent','coresnps']
+        keys = ['cent','moves','parcels','lpis_cent','coresnps']
         for k in keys:
             if k in data:
                 self.__dict__[k] = data[k]
@@ -599,13 +679,20 @@ class App(QMainWindow):
         self.labelsw.addItems(cols)
         self.colorbyw.addItems(cols)
         self.colorbyw.setCurrentText('')
-
+        if 'widget_values' in data:
+            #print (data['widget_values'])
+            widgets.setWidgetValues(self.widgets, data['widget_values'])
         self.proj_file = filename
         self.projectlabel.setText(self.proj_file)
-        #self.outdirLabel.setText(self.outputdir)
         if 'scratch_items' in data:
             self.scratch_items = data['scratch_items']
         self.add_recent_file(filename)
+
+        #t = self.cladew
+        #t.setCurrentIndex(t.model().index(0, 4))
+        #print (t.selectedIndexes())
+
+        #self.set_locations()
         return
 
     def load_project_dialog(self):
@@ -649,17 +736,79 @@ class App(QMainWindow):
         #moves
         self.moves= pd.read_csv('testing/moves.csv')
 
+        #lpis master
+        self.lpis_master = gpd.read_file('/storage/btbgenie/monaghan/LPIS/comb_2022_sum_no_com.shp').set_crs('EPSG:29902')
         #lpis centroids
         self.lpis_cent = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_cent.shp').set_crs('EPSG:29902')
-        #land parcels
-        self.lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_merged.shp').set_crs('EPSG:29902')
+        #land parcels for farms in meta data
+        self.parcels = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_merged.shp').set_crs('EPSG:29902')
         return
 
-    def load_data_dialog(self):
-        """Allow user to load files"""
+    def set_lpis_file(self):
+        """Set path to LPIS master file"""
 
-        w = widgets.MultipleFilesDialog(self)
+        filename, _ = QFileDialog.getOpenFileName(self, 'Open File', './',
+                                        filter="Shapefiles(*.shp);;All Files(*.*)")
+        if not filename:
+            return
+        print ('reading LPIS file..')
+        def func(progress_callback):
+            self.lpis_master = gpd.read_file(filename).set_crs('EPSG:29902')
+        self.run_threaded_process(func, self.processing_completed)
+        return
 
+    def get_lpis_centroids(self):
+        """Calculate LPIS centroids"""
+
+        if self.lpis_master is None:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Information)
+            msg.setText("No LPIS master file loaded")
+            msg.exec_()
+            return
+
+        def completed():
+            #add locations to meta data
+            print ('updating table..')
+            self.set_locations()
+            self.processing_completed()
+            return
+
+        def func(progress_callback):
+            self.lpis_cent = calculate_parcel_centroids(self.lpis_master)
+        print ('calculating centroids..')
+        self.run_threaded_process(func, completed)
+        return
+
+    def get_parcels_from_lpis(self):
+        """Get land parcels from lpis for our farms, usually run once or when metadata is updated"""
+
+        if self.lpis_master is None:
+            print ('no LPIS master file loaded')
+            return
+
+        x = self.lpis_master
+        self.parcels = x[x.SPH_HERD_N.isin(self.cent.HERD_NO)]
+        return
+
+    def set_locations(self):
+        """Add locations to meta data from lpis_cent"""
+
+        if self.lpis_cent is None:
+            print ('no centroids')
+            return
+        df = self.cent
+        #remove previous geometry if any
+        if type(df) is gpd.GeoDataFrame:
+            df = pd.DataFrame(df)
+            df.drop(columns=['geometry'], inplace=True)
+        df = df.merge(self.lpis_cent,left_on='HERD_NO',right_on='SPH_HERD_N',how='left')
+        df = gpd.GeoDataFrame(df,geometry=df.geometry).set_crs('EPSG:29902')
+        if 'sample' in df.columns:
+            df = df.set_index('sample')
+        #print (df.sample(10))
+        self.cent = df
+        self.meta_table.setDataFrame(self.cent)
         return
 
     def load_folder(self, path=None):
@@ -732,16 +881,6 @@ class App(QMainWindow):
         cent = gpd.GeoDataFrame(df,geometry=gpd.points_from_xy(df[x], df[y])).set_crs('EPSG:29902')
         return cent
 
-    def get_parcels(self, gdf):
-        """Combine land parcels with metadata"""
-
-        if self.lpis is None:
-            return
-        #print (gdf.HERD_NO)
-        herds = list(self.sub.HERD_NO)
-        p = self.lpis[self.lpis.SPH_HERD_N.isin(herds)]
-        return p
-
     def get_tabs(self):
 
         n=[]
@@ -803,7 +942,6 @@ class App(QMainWindow):
 
         ms = self.markersizew.value()
         colorcol = self.colorbyw.currentText()
-        #kind = self.plotkindw.currentText()
         cmap = self.cmapw.currentText()
         legend = self.legendb.isChecked()
         jitter = self.jitterb.isChecked()
@@ -811,8 +949,9 @@ class App(QMainWindow):
         self.plot_counties()
         #land parcels
         if self.parcelsb.isChecked():
-            self.parcels = self.get_parcels(self.sub)
-            self.plot_parcels(col=colorcol,cmap=cmap)
+            herds = list(self.sub.HERD_NO)
+            p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
+            self.plot_parcels(p, col=colorcol,cmap=cmap)
 
         if jitter == True:
             self.sub['geometry'] = self.sub.apply(lambda x: jitter_points(x,50),1)
@@ -840,6 +979,7 @@ class App(QMainWindow):
         except:
             pass
 
+        #if refreshing using previous plot limits
         lims = self.plotview.lims
         if self.plotview.lims != None:
             ax.set_xlim(lims[0],lims[1])
@@ -870,7 +1010,7 @@ class App(QMainWindow):
 
         if len(clades) == 0:
             return
-        self.sub = cent[cent[level].isin(clades)].copy()
+        self.sub = cent[cent[level].isin(clades)].copy()        
         cl= ','.join(clades)
         self.title = '%s=%s n=%s' %(level,cl,len(self.sub))
         self.plotview.lims = None
@@ -911,7 +1051,7 @@ class App(QMainWindow):
         """Plot points from table selection"""
 
         df = self.meta_table.model.df
-        rows = self.meta_table.getSelectedRows()
+        rows = self.meta_table.getSelectedRows()     
         idx = df.index[rows]
         self.sub = self.cent.loc[idx]
         self.title = '(table selection) n=%s' %len(self.sub)
@@ -932,13 +1072,14 @@ class App(QMainWindow):
         #ax.set_ylim(ymin,ymax)
         return
 
-    def plot_parcels(self, col, cmap='Set1'):
-        """Show land parcels"""
+    def plot_parcels(self, parcels, col, cmap='Set1'):
+        """Show selected land parcels"""
 
-        if self.parcels is None:
-            return
+        #if self.parcels is None:
+        #    return
+        #parcels = self.get_parcels(self.sub)
         ax = self.plotview.ax
-        self.parcels.plot(column='SPH_HERD_N',alpha=0.6,lw=1,cmap=cmap,ax=ax)
+        parcels.plot(column='SPH_HERD_N',alpha=0.6,lw=1,cmap=cmap,ax=ax)
         return
 
     def get_moves_bytag(self, df, move_df):
@@ -950,7 +1091,7 @@ class App(QMainWindow):
         cols=['Animal_ID','HERD_NO','move_to','move_date','data_type','breed','dob']
         t = df.merge(move_df,left_on='Animal_ID',right_on='tag',how='inner')[cols]
         m = t.merge(lpis_cent,left_on='move_to',right_on='SPH_HERD_N', how='left')
-        #print (len(t),len(m))
+        
         if len(m)==0:
             return
         x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
@@ -987,6 +1128,18 @@ class App(QMainWindow):
         self.title = '(herd selection)'
         self.parcelsb.setChecked(True)
         self.update()
+        #set bounds to parcels
+        self.set_bounds(self.parcels)
+        return
+
+    def set_bounds(self, gdf):
+
+        margin=10
+        ax=self.plotview.ax
+        minx, miny, maxx, maxy = gdf.total_bounds
+        ax.set_xlim(minx-margin,maxx+margin)
+        ax.set_ylim(miny-margin,maxy+margin)
+        self.plotview.redraw()
         return
 
     def show_labels(self, col):
@@ -1106,13 +1259,14 @@ class App(QMainWindow):
         return
 
     def show_table(self, table, name, side='right'):
+        """Show a table in the dock"""
 
         if not name in self.docks:
             dock = self.add_dock(table,name,side)
             self.docks[name] = dock
             self.add_dock_item(name)
         else:
-            self.docks[name].setWidget(w)
+            self.docks[name].setWidget(table)
         self.opentables[name] = table
         return
 
@@ -1120,14 +1274,8 @@ class App(QMainWindow):
         """Show selected samples in separate table"""
 
         w = tables.SampleTable(self, dataframe=self.sub,
-        font=core.FONT, fontsize=core.FONTSIZE, app=self)
-        if not 'selected' in self.docks:
-            dock = self.add_dock(w,'selected','left')
-            self.docks['selected'] = dock
-            self.add_dock_item('selected')
-        else:
-            self.docks['selected'].setWidget(w)
-        self.opentables['selected'] = w
+                font=core.FONT, fontsize=core.FONTSIZE, app=self)
+        self.show_table(w, 'selected', 'left')
         return
 
     def show_moves_table(self, df):
@@ -1135,15 +1283,9 @@ class App(QMainWindow):
 
         if df is None:
             df = pd.DataFrame()
-        w = tables.SampleTable(self, dataframe=df,
+        w = tables.MovesTable(self, dataframe=df,
                             font=core.FONT, fontsize=core.FONTSIZE, app=self)
-        if not 'moves' in self.docks:
-            dock = self.add_dock(w,'moves','right')
-            self.docks['moves'] = dock
-            self.add_dock_item('moves')
-        else:
-            self.docks['moves'].setWidget(w)
-        self.opentables['moves'] = w
+        self.show_table(w, 'moves')
         return
 
     def sample_details(self, data):
@@ -1152,13 +1294,7 @@ class App(QMainWindow):
         w = tables.DataFrameTable(self, pd.DataFrame(data),
                                 font=core.FONT, fontsize=core.FONTSIZE)
         w.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        if not 'details' in self.docks:
-            dock = self.add_dock(w,'sample details','right')
-            self.docks['details'] = dock
-            self.add_dock_item('details')
-        else:
-            self.docks['details'].setWidget(w)
-        self.opentables['details'] = w
+        self.show_table(w, 'sample details')
         return
 
     def zoom_in(self):
@@ -1342,79 +1478,6 @@ class AppOptions(widgets.BaseOptions):
         self.opts = {'threads':{'type':'spinbox','default':4,'range':(1,cpus)},
                     }
         return
-
-def get_cluster_samples(cent,col,n=3):
-    #get samples in relevant clusters with more than n members
-    v=cent[col].value_counts()
-    v=v[v>=n]
-    #print (col, v.index)
-    clusts=v.index
-    g = cent[cent[col]!='-1']
-    g = g[g[col].isin(clusts)]
-    g = g.sort_values(col)
-    #print (col, len(g))
-    #print (list(g[col].unique()))
-    return g
-
-def get_clusts_info(cent,col, n=3):
-    from shapely.geometry import Polygon
-    new=[]
-    for i,df in cent.groupby(col):
-        if len(df)<n:
-            continue
-        d=df.dissolve(by=col)
-        d['geometry'] = d.geometry.centroid
-        d['area'] = df.dissolve(by=col).envelope.area/1e6
-        d['animals'] = len(df)
-        new.append(d[['geometry','area','animals']])
-    return pd.concat(new).reset_index().sort_values('animals',ascending=False)
-
-def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
-                        legend=False, title='', ax=None):
-    """plot cluster"""
-
-    df = df[~df.is_empty]
-    if len(df) == 0:
-        ax.clear()
-        ax.set_title('no locations available')
-        return
-    minx, miny, maxx, maxy = df.total_bounds
-    maxx+=10
-    maxy+=10
-    df = df[df.Species.isin(['Bovine','Badger'])]
-    df['color'] = df.Species.map({'Bovine':'blue','Badger':'orange'})
-
-    if col == None or col == '':
-        df.plot(color=df.color,ax=ax,alpha=0.6,markersize=ms,linewidth=.5,label='farm/badger',legend=legend)
-    else:
-        cow = df[df.Species=='Bovine']
-        badger = df[df.Species=='Badger']
-        cow.plot(column=col,ax=ax,alpha=0.6,markersize=ms,linewidth=1,ec='black',cmap=cmap,legend=legend)
-        badger.plot(color='orange',ax=ax,alpha=0.6,marker='s',markersize=ms,linewidth=1,ec='black')
-    ax.set_title(title)
-    ax.axis('off')
-    if margin == None:
-        margin = (maxx-minx)*0.3
-    ax.set_xlim(minx-margin,maxx+margin)
-    ax.set_ylim(miny-margin,maxy+margin)
-    ax.add_artist(ScaleBar(dx=1,location=3))
-    #ax.legend(fontsize=12)
-    return
-
-def get_coords_data(df):
-
-    df['P2'] = df.geometry.shift(-1)
-    coords = df[:-1].apply(lambda x: LineString([x.geometry,x.P2]),1)
-    return coords
-
-def jitter_points(r, scale=1):
-    """Jitter GeoDataFrame points"""
-
-    a=np.random.normal(0,scale)
-    b=np.random.normal(0,scale)
-    if (r.geometry.is_empty): return Point()
-    x,y = r.geometry.x+a,r.geometry.y+b
-    return Point(x,y)
 
 def main():
     "Run the application"

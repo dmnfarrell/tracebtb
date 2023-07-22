@@ -859,6 +859,45 @@ class SampleTable(DataFrameTable):
         self.app.update_clades()
         self.refresh()
         return
+       
+    def deleteColumn(self, cols):
+        """Delete columns in sample table""" 
+
+        answer = QMessageBox.question(self, 'Delete Columns?',
+                             'Delete these columns. Are you sure?',
+                             QMessageBox.Yes, QMessageBox.No)
+        if answer == QMessageBox.No:
+            return        
+        self.model.df = self.model.df.drop(columns=cols)
+        #also sync the geodataframe
+        self.app.cent = self.app.cent.drop(columns=cols)        
+        self.refresh()
+        return
+
+class MovesTable(DataFrameTable):
+    """
+    QTableView with pandas DataFrame as model.
+    """
+    def __init__(self, parent=None, app=None, dataframe=None, **kwargs):
+        DataFrameTable.__init__(self, **kwargs)
+        self.parent = parent
+        self.app = app
+        self.setWordWrap(False)
+        tm = DataFrameModel(dataframe)
+        self.setModel(tm)
+        self.model = tm
+        return
+
+    def addActions(self, event, row):
+
+        menu = self.menu
+        #showmovedAction = menu.addAction("Show Moved Only")
+        exportAction = menu.addAction("Export Table")
+        action = menu.exec_(self.mapToGlobal(event.pos()))
+        if action == exportAction:
+            self.exportTable()
+
+        return
 
 class HerdTable(DataFrameTable):
     """

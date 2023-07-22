@@ -238,12 +238,16 @@ def getWidgetValues(widgets):
                 val = w.toPlainText()
             elif type(w) is QComboBox or type(w) is QFontComboBox:
                 val = w.currentText()
-            elif type(w) is QCheckBox:
+            elif type(w) is QCheckBox or type(w) is QPushButton:
                 val = w.isChecked()
             elif type(w) is QSlider:
                 val = w.value()
             elif type(w) in [QSpinBox,QDoubleSpinBox]:
                 val = w.value()
+            elif type(w) is QTreeWidget:
+                idx = w.selectedIndexes()
+                if len(idx)>0:
+                    val = idx[0].row()
             if val != None:
                 kwds[i] = val
     kwds = kwds
@@ -256,8 +260,8 @@ def setWidgetValues(widgets, values):
     for i in values:
         val = values[i]
         if i in widgets:
-            #print (i, val, type(val))
             w = widgets[i]
+            #print (i, type(w), val, type(val))
             if type(w) is QLineEdit:
                 w.setText(str(val))
             elif type(w) is QPlainTextEdit:
@@ -267,10 +271,14 @@ def setWidgetValues(widgets, values):
                 w.setCurrentIndex(index)
             elif type(w) is QCheckBox:
                 w.setChecked(val)
+            elif type(w) is QPushButton and w.isCheckable() == True:
+                w.setChecked(val)
             elif type(w) is QSlider:
                 w.setValue(val)
             elif type(w) in [QSpinBox,QDoubleSpinBox]:
                 w.setValue(val)
+            #elif type(w) is QTreeWidget:
+            #     w.setCurrentIndex(w.model().index(0, val))
     return
 
 def addToolBarItems(toolbar, parent, items):
@@ -1054,11 +1062,13 @@ class PlotViewer(QWidget):
 
 class CustomPlotViewer(PlotViewer):
     """Custom plot view with interactions"""
+
     def __init__(self, parent=None, controls=True, app=None):
         super(CustomPlotViewer, self).__init__(parent, controls)
         self.fig.canvas.mpl_connect('button_press_event', self.onclick)
         self.fig.canvas.mpl_connect('button_release_event', self.onrelease)
         #self.fig.canvas.mpl_connect('pick_event', self.onpick)
+        self.fig.canvas.mpl_connect('motion_notify_event', self.motion_hover)
         self.app = app
         self.lims = None
         self.opts = PlotOptions()
@@ -1068,6 +1078,11 @@ class CustomPlotViewer(PlotViewer):
 
         return
 
+    def motion_hover(self, event):
+
+
+        return
+    
     def onrelease(self, event):
         #print("updated xlims: ", self.ax.get_xlim())
         self.lims = self.get_plot_lims()
