@@ -859,18 +859,18 @@ class SampleTable(DataFrameTable):
         self.app.update_clades()
         self.refresh()
         return
-       
+
     def deleteColumn(self, cols):
-        """Delete columns in sample table""" 
+        """Delete columns in sample table"""
 
         answer = QMessageBox.question(self, 'Delete Columns?',
                              'Delete these columns. Are you sure?',
                              QMessageBox.Yes, QMessageBox.No)
         if answer == QMessageBox.No:
-            return        
+            return
         self.model.df = self.model.df.drop(columns=cols)
         #also sync the geodataframe
-        self.app.cent = self.app.cent.drop(columns=cols)        
+        self.app.cent = self.app.cent.drop(columns=cols)
         self.refresh()
         return
 
@@ -891,12 +891,21 @@ class MovesTable(DataFrameTable):
     def addActions(self, event, row):
 
         menu = self.menu
-        #showmovedAction = menu.addAction("Show Moved Only")
+        showmovedAction = menu.addAction("Show Moved Only")
         exportAction = menu.addAction("Export Table")
         action = menu.exec_(self.mapToGlobal(event.pos()))
         if action == exportAction:
             self.exportTable()
+        elif action == showmovedAction:
+            self.showMoved()
+        return
 
+    def showMoved(self):
+
+        df = self.model.df
+        m = (df.Animal_ID.value_counts()>2).index
+        self.filtered = df[df.Animal_ID.isin(m)]
+        self.refresh()
         return
 
 class HerdTable(DataFrameTable):

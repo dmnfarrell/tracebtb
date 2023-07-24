@@ -6,13 +6,13 @@ with open('tracebtb/description.txt') as f:
 
 setup(
     name = 'tracebtb',
-    version = '0.2.0',
+    version = '0.3.0',
     description = 'TracebTB tool',
     long_description = long_description,
     url='https://github.com/dmnfarrell/tracebtb',
     license='GPL v3',
     author = 'Damien Farrell',
-    author_email = 'farrell.damien@gmail.com',
+    author_email = 'damien.farrell@ucd.ie',
     packages = ['tracebtb'],
     package_data={'tracebtb': ['data/*.*','logo.png',
                   'description.txt']
@@ -30,8 +30,7 @@ setup(
             'tracebtb=tracebtb.gui:main']
             },
     classifiers = ['Operating System :: OS Independent',
-            'Programming Language :: Python :: 3.7',
-            'Operating System :: MacOS :: MacOS X',
+            'Programming Language :: Python :: 3.7',      
             'Operating System :: Microsoft :: Windows',
             'Operating System :: POSIX',
             'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',

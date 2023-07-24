@@ -415,6 +415,8 @@ class App(QMainWindow):
         self.jitterb = b = widgets.createButton(m, None, self.update, 'jitter', core.ICONSIZE, 'jitter points')
         b.setCheckable(True)
         l.addWidget(b)
+        b = widgets.createButton(m, None, self.show_neighbours, 'neighbours', core.ICONSIZE, 'show neighbours')
+        l.addWidget(b)
         b = widgets.createButton(m, None, self.save_to_scratchpad, 'snapshot', core.ICONSIZE, 'take snapshot')
         l.addWidget(b)
         return m
@@ -562,14 +564,15 @@ class App(QMainWindow):
         self.tools_menu.addAction(icon, 'Calculate LPIS centroids', self.get_lpis_centroids)
         icon = QIcon(os.path.join(iconpath,'plot-parcels.svg'))
         self.tools_menu.addAction(icon,'Get land parcels', self.get_parcels_from_lpis)
-        self.tools_menu.addAction('Show Herd Summary', self.herd_summary)
+        icon = QIcon(os.path.join(iconpath,'cow.svg'))
+        self.tools_menu.addAction(icon, 'Show Herd Summary', self.herd_summary)
         self.tools_menu.addAction('Make Simulated Data', self.make_test_data)
 
         self.scratch_menu = QMenu('Scratchpad', self)
         self.menuBar().addMenu(self.scratch_menu)
-        icon = QIcon(os.path.join(iconpath,'scratchpad.png'))
+        icon = QIcon(os.path.join(iconpath,'scratchpad.svg'))
         self.scratch_menu.addAction(icon,'Show Scratchpad', lambda: self.show_scratchpad())
-        icon = QIcon(os.path.join(iconpath,'scratchpad-plot.png'))
+        icon = QIcon(os.path.join(iconpath,'snapshot.svg'))
         self.scratch_menu.addAction(icon,'Plot to Scratchpad', lambda: self.save_to_scratchpad())
 
         self.dock_menu = QMenu('Docks', self)
@@ -954,7 +957,8 @@ class App(QMainWindow):
             self.plot_parcels(p, col=colorcol,cmap=cmap)
 
         if jitter == True:
-            self.sub['geometry'] = self.sub.apply(lambda x: jitter_points(x,50),1)
+             idx = self.sub[self.sub.duplicated('geometry')].index
+             self.sub['geometry'] = self.sub.apply(lambda x: jitter_points(x,50) if x.name in idx else x.geometry,1)
 
         plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
 
@@ -1010,7 +1014,7 @@ class App(QMainWindow):
 
         if len(clades) == 0:
             return
-        self.sub = cent[cent[level].isin(clades)].copy()        
+        self.sub = cent[cent[level].isin(clades)].copy()
         cl= ','.join(clades)
         self.title = '%s=%s n=%s' %(level,cl,len(self.sub))
         self.plotview.lims = None
@@ -1051,9 +1055,11 @@ class App(QMainWindow):
         """Plot points from table selection"""
 
         df = self.meta_table.model.df
-        rows = self.meta_table.getSelectedRows()     
+        rows = self.meta_table.getSelectedRows()
         idx = df.index[rows]
-        self.sub = self.cent.loc[idx]
+        mask = self.cent.index.isin(idx)
+        self.sub = self.cent[mask]
+        #self.sub = self.cent.loc[idx]
         self.title = '(table selection) n=%s' %len(self.sub)
         self.plotview.lims = None
         self.update()
@@ -1091,7 +1097,7 @@ class App(QMainWindow):
         cols=['Animal_ID','HERD_NO','move_to','move_date','data_type','breed','dob']
         t = df.merge(move_df,left_on='Animal_ID',right_on='tag',how='inner')[cols]
         m = t.merge(lpis_cent,left_on='move_to',right_on='SPH_HERD_N', how='left')
-        
+
         if len(m)==0:
             return
         x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
@@ -1286,6 +1292,29 @@ class App(QMainWindow):
         w = tables.MovesTable(self, dataframe=df,
                             font=core.FONT, fontsize=core.FONTSIZE, app=self)
         self.show_table(w, 'moves')
+        return
+
+    def show_neighbours(self):
+        """Show neighbouring farms"""
+
+        def func(progress_callback):
+            d=800
+            found = []
+            lpis_cent = self.lpis_cent
+            for x in self.sub.geometry:
+                dists = lpis_cent.distance(x)
+                points = lpis_cent[(dists<=d) & (dists>10)]
+                found.append(points)
+            found = pd.concat(found).drop_duplicates()
+            self.neighbours = found
+
+        def completed():
+            ax = self.plotview.ax
+            self.neighbours.plot(color='red',marker='s',alpha=0.5,ax=ax)
+            self.processing_completed()
+
+        print ('getting neighbours..')
+        self.run_threaded_process(func, completed)
         return
 
     def sample_details(self, data):
