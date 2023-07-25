@@ -97,6 +97,15 @@ dockstyle = '''
 
 #module level functions
 
+def show_labels(df, col, ax):
+    """Add labels to plot"""
+
+    if col == '': return
+    for x, y, label in zip(df.geometry.x, df.geometry.y, df[col]):
+        ax.annotate(label, xy=(x, y), xytext=(2, 0), textcoords="offset points",
+                    fontsize=8)
+    return
+
 def get_largest_poly(x):
     if type(x) is MultiPolygon:
         return max(x.geoms, key=lambda a: a.area)
@@ -184,6 +193,8 @@ class App(QMainWindow):
         self.lpis_master = None
         self.lpis_cent = None
         self.parcels = None
+        self.neighbours = None
+        self.sub = None
         self.main.setFocus()
         self.setCentralWidget(self.main)
         self.create_tool_bar()
@@ -415,7 +426,8 @@ class App(QMainWindow):
         self.jitterb = b = widgets.createButton(m, None, self.update, 'jitter', core.ICONSIZE, 'jitter points')
         b.setCheckable(True)
         l.addWidget(b)
-        b = widgets.createButton(m, None, self.show_neighbours, 'neighbours', core.ICONSIZE, 'show neighbours')
+        self.showneighboursb = b = widgets.createButton(m, None, self.update, 'neighbours', core.ICONSIZE, 'show neighbours')
+        b.setCheckable(True)
         l.addWidget(b)
         b = widgets.createButton(m, None, self.save_to_scratchpad, 'snapshot', core.ICONSIZE, 'take snapshot')
         l.addWidget(b)
@@ -564,6 +576,8 @@ class App(QMainWindow):
         self.tools_menu.addAction(icon, 'Calculate LPIS centroids', self.get_lpis_centroids)
         icon = QIcon(os.path.join(iconpath,'plot-parcels.svg'))
         self.tools_menu.addAction(icon,'Get land parcels', self.get_parcels_from_lpis)
+        icon = QIcon(os.path.join(iconpath,'neighbours.svg'))
+        self.tools_menu.addAction(icon,'Get neighbouring parcels', self.get_neighbouring_parcels)
         icon = QIcon(os.path.join(iconpath,'cow.svg'))
         self.tools_menu.addAction(icon, 'Show Herd Summary', self.herd_summary)
         self.tools_menu.addAction('Make Simulated Data', self.make_test_data)
@@ -613,7 +627,7 @@ class App(QMainWindow):
 
         filename = self.proj_file
         data={}
-        keys = ['cent','moves','parcels','lpis_cent']#,'coresnps']
+        keys = ['cent','moves','parcels','lpis_cent','neighbours']#,'coresnps']
         for k in keys:
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
@@ -667,7 +681,7 @@ class App(QMainWindow):
 
         self.new_project()
         data = pickle.load(open(filename,'rb'))
-        keys = ['cent','moves','parcels','lpis_cent','coresnps']
+        keys = ['cent','moves','parcels','lpis_cent','neighbours','coresnps']
         for k in keys:
             if k in data:
                 self.__dict__[k] = data[k]
@@ -792,6 +806,37 @@ class App(QMainWindow):
 
         x = self.lpis_master
         self.parcels = x[x.SPH_HERD_N.isin(self.cent.HERD_NO)]
+        return
+
+    def get_neighbouring_parcels(self):
+        """Find all neighbouring parcels from LPIS.
+        Requires the LPIS master file."""
+
+        if self.lpis_master is None:
+            print ('LPIS master file not loaded')
+            return
+
+        def completed():
+            self.processing_completed()
+            self.update()
+            print ('found %s parcels' %len(self.neighbours))
+            return
+
+        def func(progress_callback):
+            d=800
+            found = []
+            lpis = self.lpis_master
+            for x in self.cent.geometry:
+                dists = self.lpis_cent.distance(x)
+                points = self.lpis_cent[(dists<=d) & (dists>10)]
+                found.append(points)
+
+            found = pd.concat(found).drop_duplicates()
+            p = lpis[lpis.SPH_HERD_N.isin(found.SPH_HERD_N)]
+            self.neighbours = p
+
+        print ('getting parcels..')
+        self.run_threaded_process(func, completed)
         return
 
     def set_locations(self):
@@ -949,6 +994,8 @@ class App(QMainWindow):
         legend = self.legendb.isChecked()
         jitter = self.jitterb.isChecked()
 
+        if self.sub is None or len(self.sub) == 0:
+            return
         self.plot_counties()
         #land parcels
         if self.parcelsb.isChecked():
@@ -963,7 +1010,12 @@ class App(QMainWindow):
         plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
 
         labelcol = self.labelsw.currentText()
-        self.show_labels(labelcol)
+        show_labels(self.sub, labelcol, ax)
+
+        if self.showneighboursb.isChecked():
+            self.neighbours.plot(color='gray',alpha=0.4,ax=ax)
+            #if labelcol != '':
+            #    show_labels(self.neighbours, 'SPH_HERD_N', ax)
 
         ax.add_artist(ScaleBar(dx=1,location=3))
         ax.axis('off')
@@ -1148,17 +1200,6 @@ class App(QMainWindow):
         self.plotview.redraw()
         return
 
-    def show_labels(self, col):
-        """Add labels to plot"""
-
-        if col == '': return
-        df = self.sub
-        ax = self.plotview.ax
-        for x, y, label in zip(df.geometry.x, df.geometry.y, df[col]):
-            ax.annotate(label, xy=(x, y), xytext=(2, 0), textcoords="offset points",
-                        fontsize=8)
-        return
-
     def add_context_map(self, source=None):
         """Contextily background map"""
 
@@ -1292,29 +1333,6 @@ class App(QMainWindow):
         w = tables.MovesTable(self, dataframe=df,
                             font=core.FONT, fontsize=core.FONTSIZE, app=self)
         self.show_table(w, 'moves')
-        return
-
-    def show_neighbours(self):
-        """Show neighbouring farms"""
-
-        def func(progress_callback):
-            d=800
-            found = []
-            lpis_cent = self.lpis_cent
-            for x in self.sub.geometry:
-                dists = lpis_cent.distance(x)
-                points = lpis_cent[(dists<=d) & (dists>10)]
-                found.append(points)
-            found = pd.concat(found).drop_duplicates()
-            self.neighbours = found
-
-        def completed():
-            ax = self.plotview.ax
-            self.neighbours.plot(color='red',marker='s',alpha=0.5,ax=ax)
-            self.processing_completed()
-
-        print ('getting neighbours..')
-        self.run_threaded_process(func, completed)
         return
 
     def sample_details(self, data):
