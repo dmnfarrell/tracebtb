@@ -855,7 +855,9 @@ class SampleTable(DataFrameTable):
         idx = self.model.df.index[rows]
         self.model.df = self.model.df.drop(idx)
         #also sync the geodataframe
-        self.app.cent = self.app.cent.drop(idx)
+        mask = ~self.app.cent.index.isin(idx)
+        self.app.cent = self.app.cent[mask]
+        print (len(self.app.cent))
         self.app.update_clades()
         self.refresh()
         return

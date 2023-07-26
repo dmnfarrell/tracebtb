@@ -28,7 +28,7 @@ from .qt import *
 import pandas as pd
 import numpy as np
 import pylab as plt
-from Bio import SeqIO
+from Bio import SeqIO, AlignIO
 import matplotlib as mpl
 from . import core, widgets, tables, plotting, treeview, trees
 import geopandas as gpd
@@ -126,6 +126,8 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
     """plot cluster"""
 
     df = df[~df.is_empty]
+    df = df[df.geometry.notnull()]
+
     if len(df) == 0:
         ax.clear()
         ax.set_title('no locations available')
@@ -406,7 +408,7 @@ class App(QMainWindow):
         l.addWidget(b)
         b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', core.ICONSIZE, 'show all in region')
         l.addWidget(b)
-        self.parcelsb = b = widgets.createButton(m, None, self.update, 'plot-parcels', core.ICONSIZE, 'show parcels')
+        self.parcelsb = b = widgets.createButton(m, None, self.update, 'parcels', core.ICONSIZE, 'show parcels')
         b.setCheckable(True)
         l.addWidget(b)
         self.widgets['showparcels'] = b
@@ -539,8 +541,10 @@ class App(QMainWindow):
         """Create the menu bar for the application. """
 
         self.file_menu = QMenu('File', self)
-        self.file_menu.addAction('Load Files', lambda: self.load_data_dialog())
-        self.file_menu.addAction('Load Folder', lambda: self.load_folder())
+        #self.file_menu.addAction('Load Folder', lambda: self.load_folder())
+        self.file_menu.addAction('Load Samples', lambda: self.load_samples())
+        self.file_menu.addAction('Load Moves', lambda: self.load_moves())
+        self.file_menu.addAction('Load Alignment', lambda: self.load_alignment())
         icon = QIcon(os.path.join(iconpath,'document-new.svg'))
         self.file_menu.addAction(icon, 'New Project', lambda: self.new_project(ask=True))
         icon = QIcon(os.path.join(iconpath,'document-open.svg'))
@@ -572,12 +576,12 @@ class App(QMainWindow):
         self.tools_menu = QMenu('Tools', self)
         self.menuBar().addMenu(self.tools_menu)
         self.tools_menu.addAction('Load LPIS file', self.set_lpis_file)
-        icon = QIcon(os.path.join(iconpath,'jitter.svg'))
-        self.tools_menu.addAction(icon, 'Calculate LPIS centroids', self.get_lpis_centroids)
-        icon = QIcon(os.path.join(iconpath,'plot-parcels.svg'))
-        self.tools_menu.addAction(icon,'Get land parcels', self.get_parcels_from_lpis)
+        icon = QIcon(os.path.join(iconpath,'parcels.svg'))
+        self.tools_menu.addAction(icon, 'Extract LPIS data', self.get_lpis_centroids)
         icon = QIcon(os.path.join(iconpath,'neighbours.svg'))
-        self.tools_menu.addAction(icon,'Get neighbouring parcels', self.get_neighbouring_parcels)
+        self.tools_menu.addAction(icon,'Extract neighbouring parcels', self.get_neighbouring_parcels)
+        #icon = QIcon(os.path.join(iconpath,'shapefile.svg'))
+        #self.tools_menu.addAction(icon,'Load Shapefile', self.load_shapefile)
         icon = QIcon(os.path.join(iconpath,'cow.svg'))
         self.tools_menu.addAction(icon, 'Show Herd Summary', self.herd_summary)
         self.tools_menu.addAction('Make Simulated Data', self.make_test_data)
@@ -627,7 +631,7 @@ class App(QMainWindow):
 
         filename = self.proj_file
         data={}
-        keys = ['cent','moves','parcels','lpis_cent','neighbours']#,'coresnps']
+        keys = ['cent','moves','parcels','lpis_cent','neighbours','aln']
         for k in keys:
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
@@ -681,7 +685,7 @@ class App(QMainWindow):
 
         self.new_project()
         data = pickle.load(open(filename,'rb'))
-        keys = ['cent','moves','parcels','lpis_cent','neighbours','coresnps']
+        keys = ['cent','moves','parcels','lpis_cent','neighbours','aln']
         for k in keys:
             if k in data:
                 self.__dict__[k] = data[k]
@@ -709,7 +713,7 @@ class App(QMainWindow):
         #t.setCurrentIndex(t.model().index(0, 4))
         #print (t.selectedIndexes())
 
-        #self.set_locations()
+        #self.cent = self.cent.set_index('sample')
         return
 
     def load_project_dialog(self):
@@ -724,23 +728,26 @@ class App(QMainWindow):
         self.load_project(filename)
         return
 
+    def load_shapefile(self):
+
+        return
+
     def load_test(self):
         """Load test dataset"""
 
         #metadata
         df = pd.read_csv('testing/metadata.csv')
-        index_col = 'SeqID'
-        df.set_index(index_col,inplace=True)
+        #index_col = 'sample'
+        #df.set_index(index_col,inplace=True)
+        self.cent = df
         t = self.meta_table
         t.setDataFrame(df)
         t.resizeColumns()
 
-        #GeoDataFrame from input df
-        self.cent = self.gdf_from_table(df)
         for col in cladelevels:
             self.cent[col] = self.cent[col].astype(str)
         self.update_clades()
-        #print (self.cent)
+        #print (self.cent[:5])
 
         cols = ['']+list(self.cent.columns)
         self.labelsw.addItems(cols)
@@ -749,16 +756,9 @@ class App(QMainWindow):
         self.plot_selected_clade()
 
         #snps
-        self.coresnps = pd.read_csv('testing/core_snps_mbovis.txt', sep=' ')
+        #self.coresnps = pd.read_csv('testing/core_snps_mbovis.txt', sep=' ')
         #moves
         self.moves= pd.read_csv('testing/moves.csv')
-
-        #lpis master
-        self.lpis_master = gpd.read_file('/storage/btbgenie/monaghan/LPIS/comb_2022_sum_no_com.shp').set_crs('EPSG:29902')
-        #lpis centroids
-        self.lpis_cent = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_cent.shp').set_crs('EPSG:29902')
-        #land parcels for farms in meta data
-        self.parcels = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_merged.shp').set_crs('EPSG:29902')
         return
 
     def set_lpis_file(self):
@@ -775,7 +775,8 @@ class App(QMainWindow):
         return
 
     def get_lpis_centroids(self):
-        """Calculate LPIS centroids"""
+        """Calculate LPIS centroids and parcels for samples, run once when metdata
+        is updated."""
 
         if self.lpis_master is None:
             msg = QMessageBox()
@@ -788,6 +789,8 @@ class App(QMainWindow):
             #add locations to meta data
             print ('updating table..')
             self.set_locations()
+            x = self.lpis_master
+            self.parcels = x[x.SPH_HERD_N.isin(self.cent.HERD_NO)]
             self.processing_completed()
             return
 
@@ -795,17 +798,6 @@ class App(QMainWindow):
             self.lpis_cent = calculate_parcel_centroids(self.lpis_master)
         print ('calculating centroids..')
         self.run_threaded_process(func, completed)
-        return
-
-    def get_parcels_from_lpis(self):
-        """Get land parcels from lpis for our farms, usually run once or when metadata is updated"""
-
-        if self.lpis_master is None:
-            print ('no LPIS master file loaded')
-            return
-
-        x = self.lpis_master
-        self.parcels = x[x.SPH_HERD_N.isin(self.cent.HERD_NO)]
         return
 
     def get_neighbouring_parcels(self):
@@ -840,7 +832,7 @@ class App(QMainWindow):
         return
 
     def set_locations(self):
-        """Add locations to meta data from lpis_cent"""
+        """Add locations to meta data from lpis_cent."""
 
         if self.lpis_cent is None:
             print ('no centroids')
@@ -850,13 +842,56 @@ class App(QMainWindow):
         if type(df) is gpd.GeoDataFrame:
             df = pd.DataFrame(df)
             df.drop(columns=['geometry'], inplace=True)
-        df = df.merge(self.lpis_cent,left_on='HERD_NO',right_on='SPH_HERD_N',how='left')
+
+        df = df.merge(self.lpis_cent,left_on='HERD_NO',right_on='SPH_HERD_N',how='left')#.set_index(idx)
         df = gpd.GeoDataFrame(df,geometry=df.geometry).set_crs('EPSG:29902')
-        if 'sample' in df.columns:
-            df = df.set_index('sample')
-        #print (df.sample(10))
+        df['geometry'] = [Point() if x is None else x for x in df.geometry]
+        #if 'sample' in df.columns:
+        #    df = df.set_index('sample')
         self.cent = df
         self.meta_table.setDataFrame(self.cent)
+        return
+
+    def load_samples(self):
+        """Load meta data"""
+
+        reply = QMessageBox.question(self, 'Continue?', "This will overwrite the current meta data. Are you sure?",
+                                        QMessageBox.Cancel | QMessageBox.Yes)
+        if reply == QMessageBox.Cancel:
+            return
+
+        filename, _ = QFileDialog.getOpenFileName(self, 'Open Meta Data', './',
+                                        filter="csv file(*.csv *.txt);;All Files(*.*)")
+        if not filename:
+            return
+        self.cent = pd.read_csv(filename)
+        for col in cladelevels:
+            self.cent[col] = self.cent[col].astype(str)
+        t = self.meta_table
+        t.setDataFrame(self.cent)
+        self.update_clades()
+        return
+
+    def load_moves(self):
+        """Load movement data"""
+
+        filename, _ = QFileDialog.getOpenFileName(self, 'Open CSV file', './',
+                                        filter="csv file(*.csv *.txt);;All Files(*.*)")
+        if not filename:
+            return
+        self.moves = pd.read_csv(filename)
+        print ('loaded %s rows' %len(self.moves))
+        return
+
+    def load_alignment(self):
+        """Load sequence alignment"""
+
+        filename, _ = QFileDialog.getOpenFileName(self, 'Open Fasta', './',
+                                        filter="fasta file(*.fa *.fasta);;All Files(*.*)")
+        if not filename:
+            return
+        self.aln = AlignIO.read(filename, format='fasta')
+        print ('loaded alignment with %s rows' %len(self.aln))
         return
 
     def load_folder(self, path=None):
@@ -918,10 +953,21 @@ class App(QMainWindow):
         if not path:
             return
         def func(progress_callback):
-            btbabm.simulate_test_data(path)
+            btbabm.simulate_test_data(path, steps=500)
+        def completed():
+            #process meta data
+            m = pd.read_csv(os.path.join(path,'meta.csv'))
+            gdf = gpd.read_file(os.path.join(path,'gdf.shp'))
+            gdf = gdfrename(columns={'id':'Animal_ID','herd':'HERD_NO'})
+            #m.to_csv(os.path.join,'meta.csv')
+            #process moves
+            #moves =
+            #self.load_folder(path)
+            self.cent = gdf
+            self.meta_table.setDataFrame(self.cent)
+            self.processing_completed()
 
-        self.run_threaded_process(func, self.processing_completed)
-        self.load_folder(path)
+        self.run_threaded_process(func, completed)
         return
 
     def gdf_from_table(self, df, x='X_COORD',y='Y_COORD'):
@@ -996,6 +1042,7 @@ class App(QMainWindow):
 
         if self.sub is None or len(self.sub) == 0:
             return
+
         self.plot_counties()
         #land parcels
         if self.parcelsb.isChecked():
@@ -1012,7 +1059,7 @@ class App(QMainWindow):
         labelcol = self.labelsw.currentText()
         show_labels(self.sub, labelcol, ax)
 
-        if self.showneighboursb.isChecked():
+        if self.showneighboursb.isChecked() and self.neighbours is not None:
             self.neighbours.plot(color='gray',alpha=0.4,ax=ax)
             #if labelcol != '':
             #    show_labels(self.neighbours, 'SPH_HERD_N', ax)
@@ -1133,9 +1180,8 @@ class App(QMainWindow):
     def plot_parcels(self, parcels, col, cmap='Set1'):
         """Show selected land parcels"""
 
-        #if self.parcels is None:
-        #    return
-        #parcels = self.get_parcels(self.sub)
+        if len(parcels) == 0 or parcels is None:
+            return
         ax = self.plotview.ax
         parcels.plot(column='SPH_HERD_N',alpha=0.6,lw=1,cmap=cmap,ax=ax)
         return
@@ -1183,7 +1229,7 @@ class App(QMainWindow):
         """Plot farm(s)"""
 
         self.sub = self.cent[self.cent.HERD_NO.isin(herd_no)]
-        self.title = '(herd selection)'
+        self.title = '(herd selection) %s' %' '.join(list(herd_no))
         self.parcelsb.setChecked(True)
         self.update()
         #set bounds to parcels
@@ -1214,11 +1260,16 @@ class App(QMainWindow):
     def show_tree(self):
         """Show phylogeny for selected subset"""
 
+        from Bio.Align import MultipleSeqAlignment
         idx = list(self.sub.index)
         #phylogeny - change to use seqs
-        snpmat = self.coresnps[['pos']+idx]
+        #snpmat = self.coresnps[['pos']+idx]
+        #treefile = trees.tree_from_snps(snpmat)
 
-        treefile = trees.tree_from_snps(snpmat)
+        seqs = [rec for rec in self.aln if rec.id in idx]
+        aln = MultipleSeqAlignment(seqs)
+        #print (aln)
+        treefile = trees.tree_from_aln(aln)
         tv = self.treeview
         tv.load_tree(treefile)
         tv.update()
