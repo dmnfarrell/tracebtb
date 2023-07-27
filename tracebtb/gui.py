@@ -623,6 +623,17 @@ class App(QMainWindow):
         self.recent_files_menu.setEnabled(len(self.recent_files))
         return
 
+    def update_dock_items(self, data):
+        """Update dock status from saved menu items"""
+
+        for action in self.dock_menu.actions():
+            name = action.text()
+            if name in data:
+                val = data[name]
+                if val is False:
+                    self.docks[name].hide()
+        return
+
     def save_project(self):
         """Save project"""
 
@@ -631,14 +642,17 @@ class App(QMainWindow):
 
         filename = self.proj_file
         data={}
-        keys = ['cent','moves','parcels','lpis_cent','neighbours','aln']
+        keys = ['cent','sub','moves','parcels','lpis_cent','neighbours','aln']
         for k in keys:
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
         data['scratch_items'] = self.scratch_items
         data['fig'] = self.plotview.fig
         data['widget_values'] = widgets.getWidgetValues(self.widgets)
-        #self.projectlabel.setText(filename)
+        dock_items = {}
+        for action in self.dock_menu.actions():
+            dock_items[action.text()] = action.isChecked()
+        data['dock_items'] = dock_items
         pickle.dump(data, open(filename,'wb'))
         self.add_recent_file(filename)
         return
@@ -655,6 +669,7 @@ class App(QMainWindow):
                 filename += '.tracebtb'
             self.proj_file = filename
             self.save_project()
+            self.projectlabel.setText(filename)
         return
 
     def new_project(self, ask=False):
@@ -685,13 +700,11 @@ class App(QMainWindow):
 
         self.new_project()
         data = pickle.load(open(filename,'rb'))
-        keys = ['cent','moves','parcels','lpis_cent','neighbours','aln']
+        keys = ['cent','sub','moves','parcels','lpis_cent','neighbours','aln']
         for k in keys:
             if k in data:
                 self.__dict__[k] = data[k]
 
-        #if 'fig' in data:
-        #    self.plotview.set_figure(data['fig'])
         t = self.meta_table
         t.setDataFrame(self.cent)
         self.table_widget.updateStatusBar()
@@ -708,11 +721,12 @@ class App(QMainWindow):
         if 'scratch_items' in data:
             self.scratch_items = data['scratch_items']
         self.add_recent_file(filename)
-
+        self.update()
+        if 'dock_items' in data:
+            self.update_dock_items(data['dock_items'])
         #t = self.cladew
         #t.setCurrentIndex(t.model().index(0, 4))
         #print (t.selectedIndexes())
-
         #self.cent = self.cent.set_index('sample')
         return
 
@@ -935,7 +949,7 @@ class App(QMainWindow):
         self.update_clades()
         #snps
         #self.coresnps = pd.read_csv(snp_file, sep=' ')
-        self.snpdist = pd.read_csv(snp_file,index_col=0)
+        #self.snpdist = pd.read_csv(snp_file,index_col=0)
         #movement
         #self.moves= pd.read_csv(moves_file)
         self.update()
