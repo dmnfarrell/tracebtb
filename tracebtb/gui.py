@@ -46,9 +46,10 @@ iconpath = os.path.join(module_path, 'icons')
 counties = ['Clare','Cork','Cavan','Monaghan','Louth','Kerry','Meath','Wicklow']
 cladelevels = ['snp3','snp12','snp50','snp200','snp500']
 providers = {'None':None,
-            'default': cx.providers.Stamen.Terrain,
-            'Tonerlite': cx.providers.Stamen.TonerLite,
             'OSM':cx.providers.OpenStreetMap.Mapnik,
+            'Terrain': cx.providers.Stamen.Terrain,
+            'Tonerlite': cx.providers.Stamen.TonerLite,
+            #'Place Labels': cx.providers.Stamen.TonerLabels,
             'CartoDB':cx.providers.CartoDB.Positron,
             'Watercolor': cx.providers.Stamen.Watercolor}
 #colormaps = sorted(m for m in plt.cm.datad if not m.endswith("_r"))
@@ -102,7 +103,7 @@ def show_labels(df, col, ax):
 
     if col == '': return
     for x, y, label in zip(df.geometry.x, df.geometry.y, df[col]):
-        ax.annotate(label, xy=(x, y), xytext=(2, 0), textcoords="offset points",
+        ax.annotate(label, xy=(x, y), xytext=(5, 0), textcoords="offset points",
                     fontsize=8)
     return
 
@@ -543,6 +544,8 @@ class App(QMainWindow):
         self.file_menu = QMenu('File', self)
         #self.file_menu.addAction('Load Folder', lambda: self.load_folder())
         self.file_menu.addAction('Load Samples', lambda: self.load_samples())
+        #icon = QIcon(os.path.join(iconpath,'shapefile.svg'))
+        #self.tools_menu.addAction(icon,'Load Shapefile', self.load_shapefile)
         self.file_menu.addAction('Load Moves', lambda: self.load_moves())
         self.file_menu.addAction('Load Alignment', lambda: self.load_alignment())
         icon = QIcon(os.path.join(iconpath,'document-new.svg'))
@@ -580,8 +583,10 @@ class App(QMainWindow):
         self.tools_menu.addAction(icon, 'Extract LPIS data', self.get_lpis_centroids)
         icon = QIcon(os.path.join(iconpath,'neighbours.svg'))
         self.tools_menu.addAction(icon,'Extract neighbouring parcels', self.get_neighbouring_parcels)
-        #icon = QIcon(os.path.join(iconpath,'shapefile.svg'))
-        #self.tools_menu.addAction(icon,'Load Shapefile', self.load_shapefile)
+
+        self.tools_menu.addSeparator()
+        #icon = QIcon(os.path.join(iconpath,'mbovis.svg'))
+        #self.tools_menu.addAction(icon, 'Strain Typing', self.strain_typing)
         icon = QIcon(os.path.join(iconpath,'cow.svg'))
         self.tools_menu.addAction(icon, 'Show Herd Summary', self.herd_summary)
         self.tools_menu.addAction('Make Simulated Data', self.make_test_data)
@@ -1407,6 +1412,14 @@ class App(QMainWindow):
                                 font=core.FONT, fontsize=core.FONTSIZE)
         w.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.show_table(w, 'sample details')
+        return
+
+    def strain_typing(self):
+
+        from . import strain_typing
+        self.st = strain_typing.StrainTypingTool(self)
+        self.add_dock(self.st, 'strain typing', 'right')
+        self.add_dock_item('strain typing')
         return
 
     def zoom_in(self):

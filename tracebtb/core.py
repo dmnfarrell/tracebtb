@@ -24,6 +24,10 @@ import sys,os,subprocess,glob,re
 import time, datetime
 import platform
 
+home = os.path.expanduser("~")
+module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
+config_path = os.path.join(home, '.config','tracebtb')
+
 defaultfont = 'Lato'
 defaults = {
             'FONT' :defaultfont,
