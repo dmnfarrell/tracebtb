@@ -222,3 +222,4 @@ def create_hex_grid(gdf=None, bounds=None, n_cells=10, overlap=False, crs="EPSG:
         cols = ['grid_id','geometry','grid_area']
         grid = grid.sjoin(gdf, how='inner').drop_duplicates('geometry')[cols]
     return grid
+

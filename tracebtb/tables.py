@@ -25,7 +25,7 @@ import pandas as pd
 import numpy as np
 import pylab as plt
 from .qt import *
-from . import widgets, plotting
+from . import core, widgets, plotting
 from pandas.api.types import is_datetime64_any_dtype as is_datetime
 
 class ColumnHeader(QHeaderView):
@@ -692,7 +692,7 @@ class DataFrameModel(QtCore.QAbstractTableModel):
         if role == QtCore.Qt.DisplayRole:
             value = self.df.iloc[i, j]
             if isdate:
-                return value.strftime(TIMEFORMAT)
+                return value.strftime(core.TIMEFORMAT)
             elif type(value) != str:
                 if type(value) in [float,np.float64] and np.isnan(value):
                     return ''

@@ -765,18 +765,53 @@ class TableViewer(QDialog):
         self.table.model.df = dataframe
         return
 
-class PlotWidget(FigureCanvas):
+class PlotWidget(QWidget):
     """Basic mpl plot view"""
 
-    def __init__(self, parent=None, figure=None, dpi=100, hold=False):
+    def __init__(self, parent=None, toolbar=False):
 
-        if figure == None:
-            figure = Figure()
-        super(PlotWidget, self).__init__(figure)
+        super(PlotWidget, self).__init__(parent)
         self.setParent(parent)
-        self.figure = Figure(dpi=dpi)
-        self.canvas = FigureCanvas(self.figure)
-        self.ax = self.figure.add_subplot(111)
+
+        self.main = QSplitter()
+        self.setLayout(QVBoxLayout())
+        self.layout().addWidget(self.main)
+        self.create_figure(toolbar=toolbar)
+        return
+
+    def create_figure(self, fig=None, toolbar=False):
+        """Create canvas and figure"""
+
+        import matplotlib.pyplot as plt
+
+        if fig == None:
+            plt.close()
+            fig, ax = plt.subplots(1,1, figsize=(7,5), dpi=120)
+            self.ax = ax
+        if hasattr(self, 'canvas'):
+            self.layout().removeWidget(self.canvas)
+        canvas = FigureCanvas(fig)
+        left = QWidget()
+        self.main.addWidget(left)
+        l = QVBoxLayout()
+        left.setLayout(l)
+        l.addWidget(canvas)
+        self.toolbar = NavigationToolbar(canvas, self)
+        l.addWidget(self.toolbar)
+        self.fig = fig
+        self.canvas = canvas
+        return
+
+    def set_figure(self, fig):
+        """Set the figure if we have plotted elsewhere"""
+
+        self.clear()
+        self.create_figure(fig)
+        self.canvas.draw()
+        return
+
+    def redraw(self):
+        self.canvas.draw()
 
 class PlotOptions(BaseOptions):
     """Class to provide a dialog for plot options"""
@@ -822,7 +857,7 @@ class PlotOptions(BaseOptions):
         return
 
 class PlotViewer(QWidget):
-    """matplotlib plots widget"""
+    """Matplotlib widget for plotting dataframes with controls"""
     def __init__(self, parent=None, controls=True):
 
         super(PlotViewer, self).__init__(parent)
@@ -839,8 +874,6 @@ class PlotViewer(QWidget):
     def create_figure(self, fig=None):
         """Create canvas and figure"""
 
-        from matplotlib.backends.backend_qt5agg import FigureCanvas
-        from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
         import matplotlib.pyplot as plt
 
         if fig == None:
@@ -1082,7 +1115,7 @@ class CustomPlotViewer(PlotViewer):
 
 
         return
-    
+
     def onrelease(self, event):
         #print("updated xlims: ", self.ax.get_xlim())
         self.lims = self.get_plot_lims()

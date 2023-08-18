@@ -171,6 +171,11 @@ def jitter_points(r, scale=1):
     x,y = r.geometry.x+a,r.geometry.y+b
     return Point(x,y)
 
+def get_move_dates(df):
+
+    df['end_date'] = df.move_date.shift(-1)
+    return df[['move_date','end_date','move_to']][:-1]
+
 class App(QMainWindow):
     """GUI Application using PySide2 widgets"""
     def __init__(self, project=None):
@@ -417,6 +422,10 @@ class App(QMainWindow):
         b.setCheckable(True)
         l.addWidget(b)
         self.widgets['showmoves'] = b
+        self.timelineb = b = widgets.createButton(m, None, self.update, 'timeline', core.ICONSIZE, 'moves timeline')
+        b.setCheckable(True)
+        l.addWidget(b)
+        self.widgets['showtimeline'] = b
         b = widgets.createButton(m, None, self.show_tree, 'tree', core.ICONSIZE, 'show tree')
         l.addWidget(b)
         self.legendb = b = widgets.createButton(m, None, self.update, 'legend', core.ICONSIZE, 'show legend')
@@ -585,8 +594,8 @@ class App(QMainWindow):
         self.tools_menu.addAction(icon,'Extract neighbouring parcels', self.get_neighbouring_parcels)
 
         self.tools_menu.addSeparator()
-        #icon = QIcon(os.path.join(iconpath,'mbovis.svg'))
-        #self.tools_menu.addAction(icon, 'Strain Typing', self.strain_typing)
+        icon = QIcon(os.path.join(iconpath,'mbovis.svg'))
+        self.tools_menu.addAction(icon, 'Strain Typing', self.strain_typing)
         icon = QIcon(os.path.join(iconpath,'cow.svg'))
         self.tools_menu.addAction(icon, 'Show Herd Summary', self.herd_summary)
         self.tools_menu.addAction('Make Simulated Data', self.make_test_data)
@@ -1093,6 +1102,8 @@ class App(QMainWindow):
             mov = self.get_moves_bytag(self.sub, self.moves)
             self.plot_moves(mov, ax=ax)
             self.show_moves_table(mov)
+            if self.timelineb.isChecked():
+                self.show_moves_timeline(mov)
 
         if self.title != None:
             fig.suptitle(self.title)
@@ -1276,6 +1287,62 @@ class App(QMainWindow):
                 attribution=False, source=source)
         return
 
+    def plot_moves_timeline(self, df, ax=None):
+        """Timeline from moves"""
+
+        from datetime import datetime, timedelta
+        from matplotlib.patches import Rectangle
+        import matplotlib.dates as mdates
+
+        df['move_date'] = pd.to_datetime(df.move_date)
+        groups = df.groupby('Animal_ID')
+        if ax == None:
+            fig,ax=plt.subplots(1,1,figsize=(10,4))
+        i=.1
+        tags = groups.groups.keys()
+        clrs,cmap = plotting.get_color_mapping(df, 'move_to')
+        leg = {}
+        for tag,t in groups:
+            if t is None:
+                continue
+            d = get_move_dates(t)
+            for r,row in d.iterrows():
+                herd = row.move_to
+                start = mdates.date2num(row.move_date)
+                end = mdates.date2num(row.end_date)
+                width = end - start
+                rect = Rectangle((start, i), width, .8, color=cmap[herd], ec='black')
+                ax.add_patch(rect)
+                leg[herd] = rect
+            i+=1
+
+        ax.set_xlim((14000, 19000))
+        ax.set_ylim((0, i))
+        locator = mdates.AutoDateLocator(minticks=3)
+        formatter = mdates.AutoDateFormatter(locator)
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(formatter)
+
+        ax.set_yticks(np.arange(len(tags))+0.5)
+        ax.set_yticklabels(tags)
+        ax.grid(axis='y')
+        plt.subplots_adjust(left=0.3)
+        #ax.legend(leg.values(), leg.keys(), loc='upper right', bbox_to_anchor=(1.2, 1))
+
+        ax.tick_params(axis='both', labelsize=8)
+        return
+
+    def show_moves_timeline(self, df):
+        """Show moves timeline plot"""
+
+        fig,ax = plt.subplots(1,1)
+        #w = widgets.CustomPlotViewer(self, controls=False, app=self)
+        w = widgets.PlotWidget(self)
+        self.plot_moves_timeline(df,w.ax)
+        #w.redraw()
+        self.show_dock_object(w, 'timeline')
+        return
+
     def show_tree(self):
         """Show phylogeny for selected subset"""
 
@@ -1372,19 +1439,20 @@ class App(QMainWindow):
         res = res.sort_values('strains',ascending=False)
         w = tables.HerdTable(self, dataframe=res,
                     font=core.FONT, fontsize=core.FONTSIZE, app=self)
-        self.show_table(w, 'herd summary')
+        self.show_dock_object(w, 'herd summary')
         return
 
-    def show_table(self, table, name, side='right'):
+    def show_dock_object(self, widget, name, side='right'):
         """Show a table in the dock"""
 
         if not name in self.docks:
-            dock = self.add_dock(table,name,side)
+            dock = self.add_dock(widget,name,side)
             self.docks[name] = dock
             self.add_dock_item(name)
         else:
-            self.docks[name].setWidget(table)
-        self.opentables[name] = table
+            self.docks[name].setWidget(widget)
+        if type(widget) is tables.SampleTable:
+            self.opentables[name] = widget
         return
 
     def show_selected_table(self):
@@ -1392,7 +1460,7 @@ class App(QMainWindow):
 
         w = tables.SampleTable(self, dataframe=self.sub,
                 font=core.FONT, fontsize=core.FONTSIZE, app=self)
-        self.show_table(w, 'selected', 'left')
+        self.show_dock_object(w, 'selected', 'left')
         return
 
     def show_moves_table(self, df):
@@ -1402,7 +1470,7 @@ class App(QMainWindow):
             df = pd.DataFrame()
         w = tables.MovesTable(self, dataframe=df,
                             font=core.FONT, fontsize=core.FONTSIZE, app=self)
-        self.show_table(w, 'moves')
+        self.show_dock_object(w, 'moves')
         return
 
     def sample_details(self, data):
@@ -1411,7 +1479,7 @@ class App(QMainWindow):
         w = tables.DataFrameTable(self, pd.DataFrame(data),
                                 font=core.FONT, fontsize=core.FONTSIZE)
         w.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.show_table(w, 'sample details')
+        self.show_dock_object(w, 'sample details')
         return
 
     def strain_typing(self):
