@@ -156,6 +156,27 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
     #ax.legend(fontsize=12)
     return
 
+def plot_moves(moves, lpis_cent, ax):
+    """Show moves as lines on plot"""
+    
+    colors = plotting.random_colors(250, seed=12)
+    i=0
+    if moves is None:
+        return
+    moves = moves[moves.geometry.notnull()]
+    for tag,t in moves.groupby('Animal_ID'):
+        if t is not None:
+            #print (t[cols])
+            moved = lpis_cent[lpis_cent.SPH_HERD_N.isin(t.move_to)]
+            coords = get_coords_data(t)
+            if len(coords)>0:
+                mlines = gpd.GeoDataFrame(geometry=coords)
+                mlines.plot(color=colors[i],linewidth=1,ax=ax)
+                moved.plot(color='none',ec=colors[i],marker='s',
+                            markersize=80,linewidth=1,alpha=0.8,ax=ax)
+                i+=1
+    return
+    
 def get_coords_data(df):
 
     df['P2'] = df.geometry.shift(-1)
@@ -171,6 +192,21 @@ def jitter_points(r, scale=1):
     x,y = r.geometry.x+a,r.geometry.y+b
     return Point(x,y)
 
+def get_moves_bytag(df, move_df, lpis_cent):
+    """Get moves and coords for one or more samples.     
+    """
+    
+    cols=['Animal_ID','HERD_NO','move_to','move_date','data_type','breed','dob']
+    t = df.merge(move_df,left_on='Animal_ID',right_on='tag',how='inner')[cols]
+    m = t.merge(lpis_cent,left_on='move_to',right_on='SPH_HERD_N', how='left')
+
+    if len(m)==0:
+        return
+    x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
+    m = pd.concat([m,x]).dropna(subset='Animal_ID')
+    m = m.sort_values(by=['Animal_ID','move_date'])
+    return m
+    
 def get_move_dates(df):
 
     df['end_date'] = df.move_date.shift(-1)
@@ -1099,8 +1135,8 @@ class App(QMainWindow):
 
         #moves
         if self.movesb.isChecked():
-            mov = self.get_moves_bytag(self.sub, self.moves)
-            self.plot_moves(mov, ax=ax)
+            mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
+            self.plot_moves(mov, self.lpis_cent, ax=ax)
             self.show_moves_table(mov)
             if self.timelineb.isChecked():
                 self.show_moves_timeline(mov)
@@ -1214,45 +1250,6 @@ class App(QMainWindow):
             return
         ax = self.plotview.ax
         parcels.plot(column='SPH_HERD_N',alpha=0.6,lw=1,cmap=cmap,ax=ax)
-        return
-
-    def get_moves_bytag(self, df, move_df):
-        """Get moves and coords for one or more samples.
-        Uses lpis_cent.
-        """
-
-        lpis_cent = self.lpis_cent
-        cols=['Animal_ID','HERD_NO','move_to','move_date','data_type','breed','dob']
-        t = df.merge(move_df,left_on='Animal_ID',right_on='tag',how='inner')[cols]
-        m = t.merge(lpis_cent,left_on='move_to',right_on='SPH_HERD_N', how='left')
-
-        if len(m)==0:
-            return
-        x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
-        m = pd.concat([m,x]).dropna(subset='Animal_ID')
-        m = m.sort_values(by=['Animal_ID','move_date'])
-        return m
-
-    def plot_moves(self, moves, ax):
-        """Show moves as lines on plot"""
-
-        lpis_cent = self.lpis_cent
-        colors = plotting.random_colors(250, seed=12)
-        i=0
-        if moves is None:
-            return
-        moves = moves[moves.geometry.notnull()]
-        for tag,t in moves.groupby('Animal_ID'):
-            if t is not None:
-                #print (t[cols])
-                moved = lpis_cent[lpis_cent.SPH_HERD_N.isin(t.move_to)]
-                coords = get_coords_data(t)
-                if len(coords)>0:
-                    mlines = gpd.GeoDataFrame(geometry=coords)
-                    mlines.plot(color=colors[i],linewidth=1,ax=ax)
-                    moved.plot(color='none',ec=colors[i],marker='s',
-                               markersize=80,linewidth=1,alpha=0.8,ax=ax)
-                    i+=1
         return
 
     def plot_herd_selection(self, herd_no):
