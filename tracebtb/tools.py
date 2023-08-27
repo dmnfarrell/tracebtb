@@ -46,6 +46,33 @@ def get_cmd(cmd):
         cmd = os.path.join(bin_path, '%s.exe' %cmd)
     return cmd
 
+def random_hex_color():
+    """random hex color"""
+
+    r = lambda: np.random.randint(0,255)
+    c='#%02X%02X%02X' % (r(),r(),r())
+    return c
+
+def random_hex_colors(n=1,seed=None):
+    if seed != None:
+        np.random.seed(seed)
+    return [random_hex_color() for i in range(n)]
+
+def colormap_colors(colormap_name, n):
+    """Colors list from mpl colormap"""
+
+    colormap = plt.cm.get_cmap(colormap_name, n)
+    colors = [mpl.colors.rgb2hex(colormap(i)) for i in range(n)]
+    return colors
+
+def colormap_from_labels(colormap_name, labels):
+    """Get dict of colors mapping to labels using mpl colormap"""
+
+    n = len(labels)
+    colormap = plt.cm.get_cmap(colormap_name, n)
+    colors = {labels[i]: mpl.colors.rgb2hex(colormap(i)) for i in range(n)}
+    return colors
+    
 def random_colors(n=10, seed=1):
     """Generate random hex colors as list of length n."""
 
@@ -121,3 +148,53 @@ def alignment_from_snps(df):
 
     aln = Align.MultipleSeqAlignment(seqs)
     return aln
+
+def snp_dist_matrix(aln):
+    """
+    Compute the number of Single Nucleotide Polymorphisms (SNPs)
+    between sequences in a Biopython alignment.
+    Args:
+        aln:
+            Biopython multiple sequence alignment object.
+    returns:
+        a matrix as pandas dataframe
+    """
+
+    names=[s.id for s in aln]
+    num_sequences = len(aln)
+    matrix = np.zeros((num_sequences, num_sequences))
+
+    for i in range(num_sequences):
+        seq1 = str(aln[i].seq)
+        for j in range(i + 1, num_sequences):
+            seq2 = str(aln[j].seq)
+            # Calculate the number of SNPs
+            snp_count = sum(c1 != c2 for c1, c2 in zip(seq1, seq2))
+            matrix[i, j] = snp_count
+            matrix[j, i] = snp_count
+
+    m = pd.DataFrame(matrix,index=names,columns=names).astype(int)
+    return m
+    
+def dist_matrix_to_mst(distance_matrix, ax):
+
+    import networkx as nx
+    import pylab as plt
+    G = nx.Graph()
+
+    for i, row in distance_matrix.iterrows():
+        for j, weight in row.items():
+            G.add_edge(i, j, weight=weight)
+
+    T = nx.minimum_spanning_tree(G)
+    # Compute edge lengths based on distances
+    edge_lengths = [T[u][v]['weight'] for u, v in T.edges()]
+    # Plot the minimum spanning tree with edge lengths proportional to distances
+    pos = nx.spring_layout(T)#, weight='weight', scale=10, seed=42)
+    labels = nx.get_edge_attributes(T, 'weight')
+
+    nx.draw_networkx(T, pos, node_color='lightblue',font_size=8, ax=ax)
+    nx.draw_networkx_edge_labels(T, pos, edge_labels=labels, font_size=7, ax=ax)
+    #nx.draw_networkx_edges(T, pos, width=edge_lengths)
+    ax.axis('off')
+    return

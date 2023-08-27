@@ -1,0 +1,182 @@
+/*
+HTML5 display definitions from [HTML5 Boilerplate](http://j.mp/rP0wmY)
+
+No styleguide reference.
+*/
+article,
+aside,
+details,
+figcaption,
+figure,
+footer,
+header,
+hgroup,
+nav,
+section {
+  display: block;
+}
+
+html {
+  font-size: 100%;
+  overflow-y: scroll;
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+}
+
+body {
+  font-family: "Lato", Arial, sans-serif;
+  font-size: 10px;
+  line-height: 1.625em;
+}
+
+h1,
+h2,
+h3,
+h4,q
+h5,
+h6 {
+  font-family: "Lato", Arial, sans-serif;
+}
+h1,
+.h1 {
+  font-size: 24px;
+  line-height: 26px;
+  margin-top: 12px;
+  margin-bottom: 16px;
+}
+h2,
+.h2 {
+  font-size: 22px;
+  line-height: 22px;
+  margin-top: 22px;
+  margin-bottom: 10px;
+}
+h3,
+.h3 {
+  font-size: 18px;
+  line-height: 16px;
+  margin-top: 12px;
+  margin-bottom: 16px;
+}
+h4,
+.h4 {
+  font-size: 14.5px;
+  line-height: 18px;
+  margin-top: 10px;
+  margin-bottom: 16px;
+}
+p,
+ul,
+ol,
+dl,
+img {
+  margin-top: 0;
+  margin-bottom: 1.625em;
+}
+
+table {
+  font-family: "Ubuntu Mono", monospace;
+  font-size: 12px;
+  background-color: rgb(255, 255, 255);  
+}
+
+th {
+  font-weight: bold;
+  text-align: left;
+}
+
+table, th, td {
+  border: 0px;
+  padding: 2px; 
+}
+
+.mytable {
+  font-family: "Ubuntu Mono", monospace;
+  font-size: 11px;
+  border-collapse: collapse;   
+}
+.mytable th, .mytable td {  
+  border: 1px solid black;   
+  padding: 2px;
+  text-align: left;
+}
+.mytable th {
+  background-color: rgb(217, 226, 230); 
+}
+
+.thumbnail {
+   width: 220px;
+   flex-basis: 25%;
+   border-width: 0px;
+   border-color: black;
+   border-style: solid;
+   margin: 3;
+   margin-left: auto;
+   margin-right: auto;
+justify-content: center;
+}
+
+img.scaled {
+  width: 90%;
+  padding: 3px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+img.small-scaled {
+  width: 60%;
+  padding: 3px;
+  margin-left: auto;
+  margin-right: auto;
+  border: 2px solid #333; 
+}
+
+@media screen and (max-width: 750px) {
+    img.small-scaled {
+         width: 400px;
+    }
+}
+
+figure {
+    display: inline-block;
+    border: 1px dotted gray;
+    margin: 20px; /* adjust as needed */
+}
+
+.caption {
+  font-family: serif;
+  color: gray;
+  font-style: italic;
+  text-align: center;
+}
+
+figcaption{
+  color: gray;
+  font-style: italic;
+  text-align: center;
+  padding: 3px;
+  align: center;
+  max-width: 300px;
+}
+
+.container {
+  height: 300px; 
+  background-color: #f0f0f0;
+  position: relative;
+}
+
+.title {
+  display: inline-block; 
+}
+
+@page {
+  size: A4; /* Set the paper size */
+  margin: 2cm; /* Set the page margins */
+  @bottom-center {
+      content: "Generated with tracebtb" " page " counter(page);
+      font-family: serif;
+      font-style: italic;
+      font-size: 8pt;
+      
+  }
+}

@@ -30,7 +30,7 @@ import numpy as np
 import pylab as plt
 from Bio import SeqIO, AlignIO
 import matplotlib as mpl
-from . import core, widgets, tables, plotting, treeview, trees
+from . import core, widgets, tables, tools, plotting, treeview, trees
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
 from matplotlib_scalebar.scalebar import ScaleBar
@@ -158,7 +158,7 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
 
 def plot_moves(moves, lpis_cent, ax):
     """Show moves as lines on plot"""
-    
+
     colors = plotting.random_colors(250, seed=12)
     i=0
     if moves is None:
@@ -176,7 +176,52 @@ def plot_moves(moves, lpis_cent, ax):
                             markersize=80,linewidth=1,alpha=0.8,ax=ax)
                 i+=1
     return
-    
+
+def plot_moves_timeline(df, ax=None):
+    """Timeline from moves"""
+
+    from datetime import datetime, timedelta
+    from matplotlib.patches import Rectangle
+    import matplotlib.dates as mdates
+
+    df['move_date'] = pd.to_datetime(df.move_date)
+    groups = df.groupby('Animal_ID')
+    if ax == None:
+        fig,ax=plt.subplots(1,1,figsize=(10,4))
+    i=.1
+    tags = groups.groups.keys()
+    clrs,cmap = plotting.get_color_mapping(df, 'move_to')
+    leg = {}
+    for tag,t in groups:
+        if t is None:
+            continue
+        d = get_move_dates(t)
+        for r,row in d.iterrows():
+            herd = row.move_to
+            start = mdates.date2num(row.move_date)
+            end = mdates.date2num(row.end_date)
+            width = end - start
+            rect = Rectangle((start, i), width, .8, color=cmap[herd], ec='black')
+            ax.add_patch(rect)
+            leg[herd] = rect
+        i+=1
+
+    ax.set_xlim((14000, 19000))
+    ax.set_ylim((0, i))
+    locator = mdates.AutoDateLocator(minticks=3)
+    formatter = mdates.AutoDateFormatter(locator)
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(formatter)
+
+    ax.set_yticks(np.arange(len(tags))+0.5)
+    ax.set_yticklabels(tags)
+    ax.grid(axis='y')
+    plt.subplots_adjust(left=0.3)
+    #ax.legend(leg.values(), leg.keys(), loc='upper right', bbox_to_anchor=(1.2, 1))
+
+    ax.tick_params(axis='both', labelsize=8)
+    return
+
 def get_coords_data(df):
 
     df['P2'] = df.geometry.shift(-1)
@@ -184,7 +229,7 @@ def get_coords_data(df):
     return coords
 
 def jitter_points(r, scale=1):
-    """Jitter GeoDataFrame points"""
+    """Jitter GeoDataFrame points, vector based function"""
 
     a=np.random.normal(0,scale)
     b=np.random.normal(0,scale)
@@ -193,9 +238,9 @@ def jitter_points(r, scale=1):
     return Point(x,y)
 
 def get_moves_bytag(df, move_df, lpis_cent):
-    """Get moves and coords for one or more samples.     
+    """Get moves and coords for one or more samples.
     """
-    
+
     cols=['Animal_ID','HERD_NO','move_to','move_date','data_type','breed','dob']
     t = df.merge(move_df,left_on='Animal_ID',right_on='tag',how='inner')[cols]
     m = t.merge(lpis_cent,left_on='move_to',right_on='SPH_HERD_N', how='left')
@@ -206,7 +251,7 @@ def get_moves_bytag(df, move_df, lpis_cent):
     m = pd.concat([m,x]).dropna(subset='Animal_ID')
     m = m.sort_values(by=['Animal_ID','move_date'])
     return m
-    
+
 def get_move_dates(df):
 
     df['end_date'] = df.move_date.shift(-1)
@@ -462,8 +507,6 @@ class App(QMainWindow):
         b.setCheckable(True)
         l.addWidget(b)
         self.widgets['showtimeline'] = b
-        b = widgets.createButton(m, None, self.show_tree, 'tree', core.ICONSIZE, 'show tree')
-        l.addWidget(b)
         self.legendb = b = widgets.createButton(m, None, self.update, 'legend', core.ICONSIZE, 'show legend')
         b.setCheckable(True)
         l.addWidget(b)
@@ -475,6 +518,14 @@ class App(QMainWindow):
         b.setCheckable(True)
         l.addWidget(b)
         self.showneighboursb = b = widgets.createButton(m, None, self.update, 'neighbours', core.ICONSIZE, 'show neighbours')
+        b.setCheckable(True)
+        l.addWidget(b)
+        self.widgets['showneighbours'] = b
+        self.showtreeb = b = widgets.createButton(m, None, self.update, 'tree', core.ICONSIZE, 'show tree')
+        b.setCheckable(True)
+        l.addWidget(b)
+        self.widgets['showtree'] = b
+        self.showmstb = b = widgets.createButton(m, None, self.update, 'mst', core.ICONSIZE, 'show MST')
         b.setCheckable(True)
         l.addWidget(b)
         b = widgets.createButton(m, None, self.save_to_scratchpad, 'snapshot', core.ICONSIZE, 'take snapshot')
@@ -635,6 +686,8 @@ class App(QMainWindow):
         icon = QIcon(os.path.join(iconpath,'cow.svg'))
         self.tools_menu.addAction(icon, 'Show Herd Summary', self.herd_summary)
         self.tools_menu.addAction('Make Simulated Data', self.make_test_data)
+        icon = QIcon(os.path.join(iconpath,'pdf.svg'))
+        self.tools_menu.addAction(icon,'Cluster Report', self.cluster_report)
 
         self.scratch_menu = QMenu('Scratchpad', self)
         self.menuBar().addMenu(self.scratch_menu)
@@ -741,8 +794,8 @@ class App(QMainWindow):
         for i in self.opentables:
             w = self.opentables[i]
             w.setDataFrame()
-        if hasattr(self, 'treeview'):
-            self.treeview.clear()
+        #if hasattr(self, 'treeview'):
+        #    self.treeview.clear()
         return
 
     def load_project(self, filename=None):
@@ -1136,10 +1189,17 @@ class App(QMainWindow):
         #moves
         if self.movesb.isChecked():
             mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
-            self.plot_moves(mov, self.lpis_cent, ax=ax)
+            plot_moves(mov, self.lpis_cent, ax=ax)
             self.show_moves_table(mov)
             if self.timelineb.isChecked():
                 self.show_moves_timeline(mov)
+
+        #tree
+        if self.showtreeb.isChecked():
+            self.show_tree()
+        #mst
+        if self.showmstb.isChecked():
+            self.plot_mst()
 
         if self.title != None:
             fig.suptitle(self.title)
@@ -1162,6 +1222,27 @@ class App(QMainWindow):
 
         #update subset table
         self.show_selected_table()
+        return
+
+    def cluster_report(self):
+        """Make pdf report"""
+
+
+        options = QFileDialog.Options()
+        filename, _ = QFileDialog.getSaveFileName(self,"Save Report",
+                                                  "","pdf files (*.pdf);;All files (*.*)",
+                                                  options=options)
+        if not filename:
+            return
+
+        colorcol = self.colorbyw.currentText()
+        cmap = self.cmapw.currentText()
+        legend = self.legendb.isChecked()
+
+        from . import reports
+        reports.cluster_report(self.cent, self.parcels, self.lpis_cent, moves=self.moves,
+                                level='snp3', clades=['91'], cmap=cmap,
+                                labelcol='Animal_ID', outfile=filename)
         return
 
     def refresh(self):
@@ -1279,54 +1360,8 @@ class App(QMainWindow):
         if source == None:
             return
         ax = self.plotview.ax
-        fig = self.plotview.fig
         cx.add_basemap(ax, crs=self.cent.crs, #zoom=18,
                 attribution=False, source=source)
-        return
-
-    def plot_moves_timeline(self, df, ax=None):
-        """Timeline from moves"""
-
-        from datetime import datetime, timedelta
-        from matplotlib.patches import Rectangle
-        import matplotlib.dates as mdates
-
-        df['move_date'] = pd.to_datetime(df.move_date)
-        groups = df.groupby('Animal_ID')
-        if ax == None:
-            fig,ax=plt.subplots(1,1,figsize=(10,4))
-        i=.1
-        tags = groups.groups.keys()
-        clrs,cmap = plotting.get_color_mapping(df, 'move_to')
-        leg = {}
-        for tag,t in groups:
-            if t is None:
-                continue
-            d = get_move_dates(t)
-            for r,row in d.iterrows():
-                herd = row.move_to
-                start = mdates.date2num(row.move_date)
-                end = mdates.date2num(row.end_date)
-                width = end - start
-                rect = Rectangle((start, i), width, .8, color=cmap[herd], ec='black')
-                ax.add_patch(rect)
-                leg[herd] = rect
-            i+=1
-
-        ax.set_xlim((14000, 19000))
-        ax.set_ylim((0, i))
-        locator = mdates.AutoDateLocator(minticks=3)
-        formatter = mdates.AutoDateFormatter(locator)
-        ax.xaxis.set_major_locator(locator)
-        ax.xaxis.set_major_formatter(formatter)
-
-        ax.set_yticks(np.arange(len(tags))+0.5)
-        ax.set_yticklabels(tags)
-        ax.grid(axis='y')
-        plt.subplots_adjust(left=0.3)
-        #ax.legend(leg.values(), leg.keys(), loc='upper right', bbox_to_anchor=(1.2, 1))
-
-        ax.tick_params(axis='both', labelsize=8)
         return
 
     def show_moves_timeline(self, df):
@@ -1335,7 +1370,7 @@ class App(QMainWindow):
         fig,ax = plt.subplots(1,1)
         #w = widgets.CustomPlotViewer(self, controls=False, app=self)
         w = widgets.PlotWidget(self)
-        self.plot_moves_timeline(df,w.ax)
+        plot_moves_timeline(df,w.ax)
         #w.redraw()
         self.show_dock_object(w, 'timeline')
         return
@@ -1343,41 +1378,37 @@ class App(QMainWindow):
     def show_tree(self):
         """Show phylogeny for selected subset"""
 
-        from Bio.Align import MultipleSeqAlignment
-        idx = list(self.sub.index)
-        #phylogeny - change to use seqs
-        #snpmat = self.coresnps[['pos']+idx]
-        #treefile = trees.tree_from_snps(snpmat)
+        colorcol = self.colorbyw.currentText()
+        cmap = self.cmapw.currentText()
 
+        from Bio.Align import MultipleSeqAlignment
+        import toyplot
+
+        idx = list(self.sub.index)
         seqs = [rec for rec in self.aln if rec.id in idx]
         aln = MultipleSeqAlignment(seqs)
         #print (aln)
         treefile = trees.tree_from_aln(aln)
-        tv = self.treeview
-        tv.load_tree(treefile)
-        tv.update()
-        tv.show()
-        tv.activateWindow()
-        return
-
-    def plot_snp_matrix(self):
-
-        mat = pd.read_csv(self.results['snp_dist'],index_col=0)
-        bv = widgets.BrowserViewer()
-        import toyplot
-        min=mat.min().min()
-        max=mat.max().max()
-        colormap = toyplot.color.brewer.map("BlueGreen", domain_min=min, domain_max=max)
-        locator = toyplot.locator.Explicit(range(len(mat)),list(mat.index))
-        canvas,axes = toyplot.matrix((mat.values,colormap), llocator=locator, tlocator=locator,
-                        label="SNP distance matrix", colorshow=True)
+        w = QWebEngineView()
+        canvas = trees.draw_tree(treefile, self.sub)#, colorcol, cmap)
         toyplot.html.render(canvas, "temp.html")
         with open('temp.html', 'r') as f:
             html = f.read()
-            bv.browser.setHtml(html)
+            w.setHtml(html)
+        self.show_dock_object(w, 'tree')
+        return
 
-        idx = self.tabs.addTab(bv, 'snp dist')
-        self.tabs.setCurrentIndex(idx)
+    def plot_mst(self):
+        """Show min spanning tree for selected subset"""
+
+        from Bio.Align import MultipleSeqAlignment
+        idx = list(self.sub.index)
+        seqs = [rec for rec in self.aln if rec.id in idx]
+        aln = MultipleSeqAlignment(seqs)
+        D = tools.snp_dist_matrix(aln)
+        w = widgets.PlotWidget(self)
+        tools.dist_matrix_to_mst(D,w.ax)
+        self.show_dock_object(w, 'mst')
         return
 
     def show_scratchpad(self):

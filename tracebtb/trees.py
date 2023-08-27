@@ -149,10 +149,11 @@ def draw_tree(filename,df=None,col=None,cmap=None,width=500,height=500,**kwargs)
     import toytree
     tre = toytree.tree(filename)   
     idx = tre.get_tip_labels()
-    if df is not None:
+    if df is not None and col != None:
         labels = df[col].unique()
         if cmap == None:
             cmap = ({c:tools.random_hex_color() if c in labels else 'black' for c in labels})
+            print (cmap)
         #m = set(idx) - set(df.index)
         #tre = tre.drop_tips(m)
         #idx = tre.get_tip_labels()
@@ -166,7 +167,7 @@ def draw_tree(filename,df=None,col=None,cmap=None,width=500,height=500,**kwargs)
         node_colors = None
         node_sizes = None
 
-    canvas,axes,mark = tre.draw(scalebar=True,edge_widths=.5,height=height,width=width,
+    canvas,axes,mark = tre.draw(scalebar=True,edge_widths=1,height=height,width=width,
                                 tip_labels_colors=tip_colors,node_colors=node_colors,
                                 node_sizes=node_sizes,**kwargs)
     return canvas
