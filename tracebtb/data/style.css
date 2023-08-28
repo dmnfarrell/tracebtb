@@ -46,24 +46,24 @@ h1,
 }
 h2,
 .h2 {
-  font-size: 22px;
+  font-size: 20px;
   line-height: 22px;
-  margin-top: 22px;
+  margin-top: 20px;
   margin-bottom: 10px;
 }
 h3,
 .h3 {
-  font-size: 18px;
-  line-height: 16px;
-  margin-top: 12px;
-  margin-bottom: 16px;
+  font-size: 16px;
+  line-height: 18px;
+  margin-top: 10px;
+  margin-bottom: 10px;
 }
 h4,
 .h4 {
-  font-size: 14.5px;
-  line-height: 18px;
+  font-size: 12.5px;
+  line-height: 16px;
   margin-top: 10px;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 p,
 ul,
@@ -128,7 +128,7 @@ img.small-scaled {
   padding: 3px;
   margin-left: auto;
   margin-right: auto;
-  border: 2px solid #333; 
+  border: 1px solid #333; 
 }
 
 @media screen and (max-width: 750px) {
@@ -159,24 +159,40 @@ figcaption{
   max-width: 300px;
 }
 
-.container {
-  height: 300px; 
-  background-color: #f0f0f0;
-  position: relative;
+.title {
+ 
+  background-color: rgb(217, 226, 230); 
 }
 
-.title {
-  display: inline-block; 
+.container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.column {
+  width: 48%; /* Adjust as needed */
+  margin-bottom: 20px;
 }
 
 @page {
   size: A4; /* Set the paper size */
   margin: 2cm; /* Set the page margins */
   @bottom-center {
-      content: "Generated with tracebtb" " page " counter(page);
+      content: "page " counter(page);
       font-family: serif;
       font-style: italic;
-      font-size: 8pt;
-      
+      font-size: 8pt;      
   }
+  @bottom-right {
+    content: "Generated with TracebTB";
+    font-family: monospace;
+    font-size: 7pt;  
+  }  
+  @top-left {
+    content: "Cluster report" ;
+    font-family: serif;
+    font-style: italic;
+    font-size: 8pt;
+    
 }

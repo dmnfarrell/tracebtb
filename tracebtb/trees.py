@@ -124,7 +124,7 @@ def tree_from_snps(snpmat):
 
 def njtree_from_snps():
     """NJ tree from core SNP alignment"""
-    
+
     aln = tools.alignment_from_snps(df)
     # Calculate the pairwise distances
     calculator = DistanceCalculator("identity")
@@ -143,32 +143,38 @@ def biopython_draw_tree(filename):
     Phylo.draw(tree)
     return
 
-def draw_tree(filename,df=None,col=None,cmap=None,width=500,height=500,**kwargs):
+def draw_tree(filename,df=None,col=None,cmap=None,tiplabelcol=None,width=500,height=500,**kwargs):
     """Draw newick tree with toytree"""
 
     import toytree
-    tre = toytree.tree(filename)   
+    tre = toytree.tree(filename)
     idx = tre.get_tip_labels()
     if df is not None and col != None:
+        df = df.fillna('')       
         labels = df[col].unique()
         if cmap == None:
             cmap = ({c:tools.random_hex_color() if c in labels else 'black' for c in labels})
-            print (cmap)
-        #m = set(idx) - set(df.index)
-        #tre = tre.drop_tips(m)
-        #idx = tre.get_tip_labels()
+        else:
+            c,cmap = tools.get_color_mapping(df, col, cmap)
+   
         df['color'] = df[col].apply(lambda x: cmap[x])
         df = df.loc[idx]
         tip_colors = list(df.color)
-        node_sizes=[0 if i else 6 for i in tre.get_node_values(None, 1, 0)]
+        node_sizes=[0 if i else 8 for i in tre.get_node_values(None, 1, 0)]
         node_colors = [cmap[df.loc[n][col]] if n in df.index else 'black' for n in tre.get_node_values('name', True, True)]
+        if tiplabelcol != None:
+            tip_labels = list(df[tiplabelcol].astype(str))
+        else:
+            tip_labels = None       
     else:
         tip_colors = None
         node_colors = None
         node_sizes = None
+        tip_labels = None  
 
     canvas,axes,mark = tre.draw(scalebar=True,edge_widths=1,height=height,width=width,
                                 tip_labels_colors=tip_colors,node_colors=node_colors,
+                                tip_labels=tip_labels,
                                 node_sizes=node_sizes,**kwargs)
     return canvas
 

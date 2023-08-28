@@ -257,6 +257,17 @@ def get_move_dates(df):
     df['end_date'] = df.move_date.shift(-1)
     return df[['move_date','end_date','move_to']][:-1]
 
+class CustomTreeWidgetItem( QTreeWidgetItem ):
+    def __init__(self, parent=None):
+        QTreeWidgetItem.__init__(self, parent)
+
+    def __lt__(self, otherItem):
+        column = self.treeWidget().sortColumn()
+        try:
+            return float( self.text(column) ) < float( otherItem.text(column) )
+        except ValueError:
+            return self.text(column) > otherItem.text(column)
+
 class App(QMainWindow):
     """GUI Application using PySide2 widgets"""
     def __init__(self, project=None):
@@ -378,6 +389,9 @@ class App(QMainWindow):
                  'Zoom in': {'action':self.zoom_in,'file':'zoom-in'},
                  'Scratchpad': {'action':self.show_scratchpad,'file':'scratchpad'},
                  'Settings': {'action':self.preferences,'file':'settings'},
+                 'Herd Summary':{'action':self.herd_summary,'file':'cow'},
+                 'Cluster Report':{'action':self.cluster_report ,'file':'pdf'},
+                 #'Make Simulated Data':{'action':self.make_test_data ,'file':'simulate'},
                  'Quit': {'action':self.quit,'file':'application-exit'}
                 }
 
@@ -431,7 +445,7 @@ class App(QMainWindow):
         #select clade/cluster
         l.addWidget(QLabel('Clade:'))
         t = self.cladew = QTreeWidget()
-        t.setHeaderItem(QTreeWidgetItem(["name","size"]))
+        t.setHeaderItem(CustomTreeWidgetItem(["name","size"]))
         t.setColumnWidth(0, 50)
         t.setColumnWidth(1, 30)
         t.setSortingEnabled(True)
@@ -674,7 +688,8 @@ class App(QMainWindow):
 
         self.tools_menu = QMenu('Tools', self)
         self.menuBar().addMenu(self.tools_menu)
-        self.tools_menu.addAction('Load LPIS file', self.set_lpis_file)
+        icon = QIcon(os.path.join(iconpath,'shapefile.svg'))
+        self.tools_menu.addAction(icon, 'Load LPIS file', self.set_lpis_file)
         icon = QIcon(os.path.join(iconpath,'parcels.svg'))
         self.tools_menu.addAction(icon, 'Extract LPIS data', self.get_lpis_centroids)
         icon = QIcon(os.path.join(iconpath,'neighbours.svg'))
@@ -685,7 +700,8 @@ class App(QMainWindow):
         self.tools_menu.addAction(icon, 'Strain Typing', self.strain_typing)
         icon = QIcon(os.path.join(iconpath,'cow.svg'))
         self.tools_menu.addAction(icon, 'Show Herd Summary', self.herd_summary)
-        self.tools_menu.addAction('Make Simulated Data', self.make_test_data)
+        icon = QIcon(os.path.join(iconpath,'simulate.svg'))
+        self.tools_menu.addAction(icon, 'Make Simulated Data', self.make_test_data)
         icon = QIcon(os.path.join(iconpath,'pdf.svg'))
         self.tools_menu.addAction(icon,'Cluster Report', self.cluster_report)
 
@@ -1235,14 +1251,23 @@ class App(QMainWindow):
         if not filename:
             return
 
+        clades = [item.text(0) for item in self.cladew.selectedItems()]
         colorcol = self.colorbyw.currentText()
         cmap = self.cmapw.currentText()
         legend = self.legendb.isChecked()
 
-        from . import reports
-        reports.cluster_report(self.cent, self.parcels, self.lpis_cent, moves=self.moves,
-                                level='snp3', clades=['91'], cmap=cmap,
-                                labelcol='Animal_ID', outfile=filename)
+        def func(progress_callback):
+            from . import reports
+            reports.cluster_report(self.cent, self.parcels, self.lpis_cent, moves=self.moves,
+                                    alignment=self.aln,
+                                    level='snp3', clades=clades, cmap=cmap,
+                                    labelcol='Animal_ID', outfile=filename)
+            
+        def completed():
+            self.show_pdf(filename)
+            self.processing_completed()
+
+        self.run_threaded_process(func, completed)
         return
 
     def refresh(self):
@@ -1380,6 +1405,7 @@ class App(QMainWindow):
 
         colorcol = self.colorbyw.currentText()
         cmap = self.cmapw.currentText()
+        labelcol = self.labelsw.currentText()
 
         from Bio.Align import MultipleSeqAlignment
         import toyplot
@@ -1390,7 +1416,7 @@ class App(QMainWindow):
         #print (aln)
         treefile = trees.tree_from_aln(aln)
         w = QWebEngineView()
-        canvas = trees.draw_tree(treefile, self.sub)#, colorcol, cmap)
+        canvas = trees.draw_tree(treefile, self.sub, colorcol, cmap, tiplabelcol=labelcol)
         toyplot.html.render(canvas, "temp.html")
         with open('temp.html', 'r') as f:
             html = f.read()
@@ -1585,6 +1611,12 @@ class App(QMainWindow):
                 self.save_project()
         self.save_settings()
         event.accept()
+        return
+
+    def show_pdf(self, filename):
+        """Show a pdf"""
+
+        self.show_browser_tab(filename, filename)
         return
 
     def online_documentation(self,event=None):

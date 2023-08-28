@@ -72,7 +72,7 @@ def colormap_from_labels(colormap_name, labels):
     colormap = plt.cm.get_cmap(colormap_name, n)
     colors = {labels[i]: mpl.colors.rgb2hex(colormap(i)) for i in range(n)}
     return colors
-    
+
 def random_colors(n=10, seed=1):
     """Generate random hex colors as list of length n."""
 
@@ -105,12 +105,12 @@ def gen_colors(cmap,n,reverse=False):
     import matplotlib.pyplot as plt
     import matplotlib.colors as colors
     c_map = plt.cm.get_cmap(str(cmap)) # select the desired cmap
-    arr=np.linspace(0,1,n) #create a list with numbers from 0 to 1 with n items
+    arr = np.linspace(0,1,n) #create a list with numbers from 0 to 1 with n items
     colorlist=list()
     for c in arr:
         rgba=c_map(c) #select the rgba value of the cmap at point c which is a number between 0 to 1
         clr=colors.rgb2hex(rgba) #convert to hex
-        colorlist.append(str(clr)) # create a list of these colors
+        colorlist.append(str(clr))
 
     if reverse==True:
         colorlist.reverse()
@@ -125,15 +125,19 @@ def show_colors(colors):
     return
 
 def get_color_mapping(df, col, cmap=None, seed=1):
-    """Get random color map for categorcical dataframe column"""
+    """Get random color map for categorical dataframe column"""
 
+    import matplotlib.colors as colors
     c = df[col].unique()
     if cmap == None:
-        rcolors = random_colors(len(c),seed)
+        clrs = random_colors(len(c),seed)
     else:
-        cmap = mpl.cm.get_cmap(cmap)
-        rcolors = [cmap(i) for i in range(len(c))]
-    colormap = dict(zip(c, rcolors))
+        c_map = mpl.cm.get_cmap(cmap)
+        clrs = [colors.rgb2hex(c_map(i)) for i in range(len(c))]
+        #colors = gen_colors(cmap,len(c))
+        #print (clrs)
+
+    colormap = dict(zip(c, clrs))
     newcolors =  [colormap[i] if i in colormap else 'Black' for i in df[col]]
     return newcolors, colormap
 
@@ -175,7 +179,7 @@ def snp_dist_matrix(aln):
 
     m = pd.DataFrame(matrix,index=names,columns=names).astype(int)
     return m
-    
+
 def dist_matrix_to_mst(distance_matrix, ax):
 
     import networkx as nx
