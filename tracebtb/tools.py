@@ -180,9 +180,13 @@ def snp_dist_matrix(aln):
     m = pd.DataFrame(matrix,index=names,columns=names).astype(int)
     return m
 
-def dist_matrix_to_mst(distance_matrix, ax):
+def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, cmap='Set1', ax=None):
+    """Dist matrix to minimum spanning tree"""
 
+    if ax == None:
+        fig,ax=plt.subplots()
     import networkx as nx
+    from networkx.drawing.nx_agraph import graphviz_layout
     import pylab as plt
     G = nx.Graph()
 
@@ -190,15 +194,39 @@ def dist_matrix_to_mst(distance_matrix, ax):
         for j, weight in row.items():
             G.add_edge(i, j, weight=weight)
 
-    T = nx.minimum_spanning_tree(G)
+    T = nx.minimum_spanning_tree(G, algorithm='kruskal')
     # Compute edge lengths based on distances
     edge_lengths = [T[u][v]['weight'] for u, v in T.edges()]
     # Plot the minimum spanning tree with edge lengths proportional to distances
-    pos = nx.spring_layout(T)#, weight='weight', scale=10, seed=42)
+    #pos = nx.spring_layout(T)#, weight='weight', scale=10, seed=42)
+    pos = graphviz_layout(T)
     labels = nx.get_edge_attributes(T, 'weight')
-
-    nx.draw_networkx(T, pos, node_color='lightblue',font_size=8, ax=ax)
-    nx.draw_networkx_edge_labels(T, pos, edge_labels=labels, font_size=7, ax=ax)
+    if df is not None:
+        c,cmap = get_color_mapping(df, colorcol, cmap)
+        colors = dict(zip(df.index, c))
+        node_colors = [colors[node] for node in T.nodes()]
+        p=make_legend(ax.figure, cmap, loc=(1, .9), title=colorcol,fontsize=9)
+    else:
+        node_colors = 'lightblue'
+    nx.draw_networkx(T, pos, node_color=node_colors,node_size=40,font_size=6, ax=ax)
+    nx.draw_networkx_edge_labels(T, pos, edge_labels=labels, font_size=6, ax=ax)
     #nx.draw_networkx_edges(T, pos, width=edge_lengths)
     ax.axis('off')
     return
+
+def make_legend(fig, colormap, loc=(1.05, .6), title='',fontsize=12):
+    """Make a figure legend wth provided color mapping"""
+
+    import matplotlib.patches as mpatches
+    pts=[]
+    for c in colormap:
+        pts.append(mpatches.Patch(color=colormap[c],label=c))
+    fig.legend(handles=pts,bbox_to_anchor=loc,fontsize=fontsize,title=title)
+    return pts
+
+def subset_alignment(aln, names):
+    """Subset of a multpleseqalignment object"""
+
+    seqs = [rec for rec in aln if rec.id in names]
+    new = Align.MultipleSeqAlignment(seqs)
+    return new

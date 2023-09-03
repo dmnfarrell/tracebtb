@@ -390,7 +390,7 @@ class App(QMainWindow):
                  'Scratchpad': {'action':self.show_scratchpad,'file':'scratchpad'},
                  'Settings': {'action':self.preferences,'file':'settings'},
                  'Herd Summary':{'action':self.herd_summary,'file':'cow'},
-                 'Cluster Report':{'action':self.cluster_report ,'file':'pdf'},
+                 'Cluster Report':{'action':self.cluster_report ,'file':'cluster_report'},
                  #'Make Simulated Data':{'action':self.make_test_data ,'file':'simulate'},
                  'Quit': {'action':self.quit,'file':'application-exit'}
                 }
@@ -1264,7 +1264,7 @@ class App(QMainWindow):
                                     labelcol='Animal_ID', outfile=filename)
             
         def completed():
-            self.show_pdf(filename)
+            #self.show_pdf(filename)
             self.processing_completed()
 
         self.run_threaded_process(func, completed)
@@ -1427,13 +1427,16 @@ class App(QMainWindow):
     def plot_mst(self):
         """Show min spanning tree for selected subset"""
 
+        cmap = self.cmapw.currentText()
+        colorcol = self.colorbyw.currentText()
+        
         from Bio.Align import MultipleSeqAlignment
         idx = list(self.sub.index)
         seqs = [rec for rec in self.aln if rec.id in idx]
         aln = MultipleSeqAlignment(seqs)
         D = tools.snp_dist_matrix(aln)
         w = widgets.PlotWidget(self)
-        tools.dist_matrix_to_mst(D,w.ax)
+        tools.dist_matrix_to_mst(D,self.sub,colorcol, cmap=cmap,ax=w.ax)
         self.show_dock_object(w, 'mst')
         return
 
@@ -1615,7 +1618,7 @@ class App(QMainWindow):
 
     def show_pdf(self, filename):
         """Show a pdf"""
-
+        
         self.show_browser_tab(filename, filename)
         return
 

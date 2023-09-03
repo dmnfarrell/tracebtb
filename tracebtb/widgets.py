@@ -1289,7 +1289,7 @@ class ScratchPad(QWidget):
                 pw = PlotWidget(self.main)
                 self.main.addTab(pw, name)
                 pw.figure = obj
-                pw.draw()
+                pw.redraw()
                 plt.tight_layout()
         self.items = items
         return
