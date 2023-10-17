@@ -162,7 +162,7 @@ def draw_tree(filename,df=None,col=None,cmap=None,tiplabelcol=None,width=500,hei
         tip_colors = list(df.color)
         node_sizes=[0 if i else 8 for i in tre.get_node_values(None, 1, 0)]
         node_colors = [cmap[df.loc[n][col]] if n in df.index else 'black' for n in tre.get_node_values('name', True, True)]
-        if tiplabelcol != None:
+        if tiplabelcol not in [None, '']:
             tip_labels = list(df[tiplabelcol].astype(str))
         else:
             tip_labels = None       

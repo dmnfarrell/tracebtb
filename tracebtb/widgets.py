@@ -30,14 +30,13 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 import string
 from .qt import *
-from . import core
+from . import core, plotting
 
 try:
     _fromUtf8 = QtCore.QString.fromUtf8
 except AttributeError:
     def _fromUtf8(s):
         return s
-#from . import plotting
 
 module_path = os.path.dirname(os.path.abspath(__file__))
 iconpath = os.path.join(module_path, 'icons')
@@ -1215,19 +1214,62 @@ class FoliumViewer(QWidget):
         self.main.setHtml(code)
         return
 
-    def refresh(self, location=[54.1, -7.0]):
-        """Update map"""
+    def show(self, location=[54.1, -7.0]):
+        """Show initial map"""
 
         import folium
         #print (location)
-        m = folium.Map(location=location, tiles='Stamen Terrain', #crs='EPSG29902',
-                         width=300, height=300)
-        style1 = {'fillColor': 'blue', 'color': 'black','weight':2}
+        self.map = map = folium.Map(location=location, tiles='openstreetmap', crs='EPSG3857',
+                                    width=1500, height=1200)
         data = io.BytesIO()
-        m.save(data, close_file=False)
+        map.save(data, close_file=False)
         #print (data.getvalue().decode())
         self.main.setHtml(data.getvalue().decode())
         return
+    
+    def plot(self, sub, lpis, colorcol=None):
+
+        import folium
+        from branca.element import Figure
+        fig = Figure(width=600, height=600)
+        df = sub.to_crs('EPSG:4326')
+        print (df)
+        c  = df.dissolve().centroid.geometry
+        bounds = df.bounds
+        #print (c.x,c.y)
+        map = folium.Map(location=[c.y, c.x], crs='EPSG3857',tiles='openstreetmap',
+                            width=1500, height=1200, max_bounds=True)
+        #map = self.map
+        style1 = {'fillColor': 'blue', 'color': 'gray','weight':1}
+        p = folium.GeoJson(lpis.to_crs('EPSG:4326'),style_function=lambda x:style1)    
+        #map.add_child(p)
+        
+        #col='snp3'
+        labels = df[colorcol].unique()
+        #colors=plotting.gen_colors(cmap="nipy_spectral",n=len(labels))
+        colors = plotting.random_colors(n=len(labels),seed=20)
+        lut = dict(zip(labels, colors))
+        df['color'] = df[colorcol].map(lut)
+        #c['descr'] = c.apply(lambda x: x[col]+' ',1)
+        
+        for i,r in df.iterrows():
+            if r.geometry.is_empty: continue
+            x=r.geometry.x
+            y=r.geometry.y
+            w=0.005
+            pts = ((y-w/1.5,x-w),(y+w/1.5,x+w))        
+            folium.CircleMarker(location=(y,x), radius=10, 
+                            color=False,fill=True,fill_opacity=0.6,
+                            fill_color=r.color,tooltip=r.Species).add_to(map)
+    
+            icon=folium.Icon(color='blue', icon_color='white', icon='info-sign') 
+                                
+        fig.add_child(map)
+        data = io.BytesIO()
+        fig.save(data, close_file=False)
+        self.main.setHtml(data.getvalue().decode())
+        return
+   
 
 class ScratchPad(QWidget):
     """Temporary storage widget for plots and other items.

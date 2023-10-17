@@ -51,7 +51,7 @@ providers = {'None':None,
             'Tonerlite': cx.providers.Stamen.TonerLite,
             #'Place Labels': cx.providers.Stamen.TonerLabels,
             'CartoDB':cx.providers.CartoDB.Positron,
-            'Watercolor': cx.providers.Stamen.Watercolor}
+            'CartoDB.Voyager': cx.providers.CartoDB.Voyager}
 #colormaps = sorted(m for m in plt.cm.datad if not m.endswith("_r"))
 colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
             'tab10', 'tab20', 'tab20b', 'tab20c',
@@ -543,6 +543,9 @@ class App(QMainWindow):
         b.setCheckable(True)
         l.addWidget(b)
         b = widgets.createButton(m, None, self.save_to_scratchpad, 'snapshot', core.ICONSIZE, 'take snapshot')
+        l.addWidget(b)       
+        self.showfoliumb = b = widgets.createButton(m, None, self.update, 'folium', core.ICONSIZE, 'show folium')
+        b.setCheckable(True)
         l.addWidget(b)
         return m
 
@@ -603,8 +606,9 @@ class App(QMainWindow):
         self.info = widgets.Editor(main, readOnly=True, fontsize=10)
         self.add_dock(self.info, 'log', 'right')
         self.foliumview = widgets.FoliumViewer(main)
+        #self.foliumview.show()
         #self.add_dock(self.foliumview, 'folium', 'right')
-        #idx = self.tabs.addTab(self.foliumview, 'folium')
+        idx = self.tabs.addTab(self.foliumview, 'folium')
 
         self.info.append("Welcome\n")
         self.statusBar = QStatusBar()
@@ -1187,15 +1191,15 @@ class App(QMainWindow):
              idx = self.sub[self.sub.duplicated('geometry')].index
              self.sub['geometry'] = self.sub.apply(lambda x: jitter_points(x,50) if x.name in idx else x.geometry,1)
 
+        if self.showneighboursb.isChecked() and self.neighbours is not None:
+            self.neighbours.plot(color='gray',alpha=0.4,ax=ax)
+
         plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
 
         labelcol = self.labelsw.currentText()
-        show_labels(self.sub, labelcol, ax)
+        if labelcol != '':
+            show_labels(self.sub, labelcol, ax)
 
-        if self.showneighboursb.isChecked() and self.neighbours is not None:
-            self.neighbours.plot(color='gray',alpha=0.4,ax=ax)
-            #if labelcol != '':
-            #    show_labels(self.neighbours, 'SPH_HERD_N', ax)
 
         ax.add_artist(ScaleBar(dx=1,location=3))
         ax.axis('off')
@@ -1238,6 +1242,10 @@ class App(QMainWindow):
 
         #update subset table
         self.show_selected_table()
+
+        #update folium map
+        if self.showfoliumb.isChecked():
+            self.foliumview.plot(self.sub, self.parcels, colorcol=colorcol)
         return
 
     def cluster_report(self):
@@ -1416,6 +1424,8 @@ class App(QMainWindow):
         #print (aln)
         treefile = trees.tree_from_aln(aln)
         w = QWebEngineView()
+        if labelcol == '':
+            labelcol=None
         canvas = trees.draw_tree(treefile, self.sub, colorcol, cmap, tiplabelcol=labelcol)
         toyplot.html.render(canvas, "temp.html")
         with open('temp.html', 'r') as f:
