@@ -41,6 +41,22 @@ except AttributeError:
 module_path = os.path.dirname(os.path.abspath(__file__))
 iconpath = os.path.join(module_path, 'icons')
 
+def add_subplots_to_figure(fig, rows, cols):
+
+    fig.clf()
+    # Calculate the total number of subplots based on rows and columns
+    num_subplots = rows * cols
+
+    # Create an array to store the axes for each subplot
+    axes = []
+
+    for i in range(1, num_subplots + 1):
+        # Add a subplot to the figure
+        ax = fig.add_subplot(rows, cols, i)
+        ax.axis('off')
+        axes.append(ax)
+    return axes
+
 def createButton(parent, name, function, iconname=None, iconsize=20,
                  tooltip=None):
     """Create a button for a function and optional icon.
@@ -1195,81 +1211,7 @@ class BrowserViewer(QDialog):
 
     def zoom(self):
         zoom = self.zoomslider.value()/10
-        self.browser.setZoomFactor(zoom)
-
-class FoliumViewer(QWidget):
-    """folium plot widget"""
-    def __init__(self, parent=None):
-        super(FoliumViewer, self).__init__(parent)
-        self.main = QWebEngineView()
-        l = QVBoxLayout()
-        self.setLayout(l)
-        l.addWidget(self.main)
-        #l.addWidget(QLabel('test'))
-        #self.test()
-        return
-
-    def test(self):
-        code = '<html> HELLO </html>'
-        self.main.setHtml(code)
-        return
-
-    def show(self, location=[54.1, -7.0]):
-        """Show initial map"""
-
-        import folium
-        #print (location)
-        self.map = map = folium.Map(location=location, tiles='openstreetmap', crs='EPSG3857',
-                                    width=1500, height=1200)
-        data = io.BytesIO()
-        map.save(data, close_file=False)
-        #print (data.getvalue().decode())
-        self.main.setHtml(data.getvalue().decode())
-        return
-    
-    def plot(self, sub, lpis, colorcol=None):
-
-        import folium
-        from branca.element import Figure
-        fig = Figure(width=600, height=600)
-        df = sub.to_crs('EPSG:4326')
-        print (df)
-        c  = df.dissolve().centroid.geometry
-        bounds = df.bounds
-        #print (c.x,c.y)
-        map = folium.Map(location=[c.y, c.x], crs='EPSG3857',tiles='openstreetmap',
-                            width=1500, height=1200, max_bounds=True)
-        #map = self.map
-        style1 = {'fillColor': 'blue', 'color': 'gray','weight':1}
-        p = folium.GeoJson(lpis.to_crs('EPSG:4326'),style_function=lambda x:style1)    
-        #map.add_child(p)
-        
-        #col='snp3'
-        labels = df[colorcol].unique()
-        #colors=plotting.gen_colors(cmap="nipy_spectral",n=len(labels))
-        colors = plotting.random_colors(n=len(labels),seed=20)
-        lut = dict(zip(labels, colors))
-        df['color'] = df[colorcol].map(lut)
-        #c['descr'] = c.apply(lambda x: x[col]+' ',1)
-        
-        for i,r in df.iterrows():
-            if r.geometry.is_empty: continue
-            x=r.geometry.x
-            y=r.geometry.y
-            w=0.005
-            pts = ((y-w/1.5,x-w),(y+w/1.5,x+w))        
-            folium.CircleMarker(location=(y,x), radius=10, 
-                            color=False,fill=True,fill_opacity=0.6,
-                            fill_color=r.color,tooltip=r.Species).add_to(map)
-    
-            icon=folium.Icon(color='blue', icon_color='white', icon='info-sign') 
-                                
-        fig.add_child(map)
-        data = io.BytesIO()
-        fig.save(data, close_file=False)
-        self.main.setHtml(data.getvalue().decode())
-        return
-   
+        self.browser.setZoomFactor(zoom)   
 
 class ScratchPad(QWidget):
     """Temporary storage widget for plots and other items.

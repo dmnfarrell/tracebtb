@@ -24,13 +24,14 @@ import sys,os,traceback,subprocess
 import glob,platform,shutil
 import pickle
 import threading,time
+import math
 from .qt import *
 import pandas as pd
 import numpy as np
 import pylab as plt
 from Bio import SeqIO, AlignIO
 import matplotlib as mpl
-from . import core, widgets, tables, tools, plotting, treeview, trees
+from . import core, widgets, webwidgets, tables, tools, plotting, treeview, trees
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
 from matplotlib_scalebar.scalebar import ScaleBar
@@ -43,13 +44,11 @@ logoimg = os.path.join(module_path, 'logo.svg')
 iconpath = os.path.join(module_path, 'icons')
 #settingspath = os.path.join(homepath, '.config','tracebtb')
 
+counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:29902")
 counties = ['Clare','Cork','Cavan','Monaghan','Louth','Kerry','Meath','Wicklow']
 cladelevels = ['snp3','snp12','snp50','snp200','snp500']
 providers = {'None':None,
             'OSM':cx.providers.OpenStreetMap.Mapnik,
-            'Terrain': cx.providers.Stamen.Terrain,
-            'Tonerlite': cx.providers.Stamen.TonerLite,
-            #'Place Labels': cx.providers.Stamen.TonerLabels,
             'CartoDB':cx.providers.CartoDB.Positron,
             'CartoDB.Voyager': cx.providers.CartoDB.Voyager}
 #colormaps = sorted(m for m in plt.cm.datad if not m.endswith("_r"))
@@ -124,7 +123,7 @@ def calculate_parcel_centroids(parcels):
 
 def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
                         legend=False, title='', ax=None):
-    """plot cluster"""
+    """Plot a single map view of a set of points/farms"""
 
     df = df[~df.is_empty]
     df = df[df.geometry.notnull()]
@@ -155,6 +154,51 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
     ax.add_artist(ScaleBar(dx=1,location=3))
     #ax.legend(fontsize=12)
     return
+
+def calculate_grid_dimensions(n):
+    """Calculate the number of rows and columns that best approximate a square layout"""
+
+    sqrt_n = math.ceil(n**0.5)
+    rows = math.ceil(n / sqrt_n)
+    columns = math.ceil(n / rows)
+    return rows, columns
+
+def plot_grid(gdf, parcels=None, moves=None, fig=None, source=None):
+    """
+    Plot herds on multiple axes. Useful for overview of farms and reports.
+    """
+
+    groups = gdf.groupby('HERD_NO')
+    n = len(groups)+1
+    rows, cols = calculate_grid_dimensions(n)
+    if fig == None:
+        fig,ax = plt.subplots(rows,rows,figsize=(8,8))
+        axs = ax.flat
+    else:
+        axs = widgets.add_subplots_to_figure(fig, rows, cols)
+        print (axs)
+    i=0
+    for idx,df in groups:
+        ax=axs[i]
+        r=df.iloc[0]
+        if parcels is not None:
+            subp = parcels[parcels.SPH_HERD_N==idx]
+            subp.plot(color='red',alpha=0.6,lw=1,ax=ax)
+        df.plot(color='black',ax=ax)            
+        ax.axis('off')
+        ax.add_artist(ScaleBar(dx=1,location=3))
+        ax.set_title(r.HERD_NO)       
+        if source != None:     
+            cx.add_basemap(ax, crs=df.crs, attribution=False, source=source)
+        i+=1
+    ax=axs[i]
+    gdf.plot(ax=ax)
+    counties_gdf.plot(color='none',lw=.2,ax=ax)
+    if moves is not None:
+        plot_moves(moves,lpis_cent,ax)
+    ax.axis('off')
+    plt.tight_layout()
+    return ax
 
 def plot_moves(moves, lpis_cent, ax):
     """Show moves as lines on plot"""
@@ -376,7 +420,7 @@ class App(QMainWindow):
 
     def load_base_data(self):
         #reference map of counties
-        self.counties = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:29902")
+        self.counties = counties_gdf#gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:29902")
         return
 
     def create_tool_bar(self):
@@ -507,6 +551,11 @@ class App(QMainWindow):
         m.setLayout(l)
         b = widgets.createButton(m, None, self.update, 'refresh', core.ICONSIZE)
         l.addWidget(b)
+        self.showfoliumb = b = widgets.createButton(m, None, self.show_folium, 'folium', core.ICONSIZE, 'interactive view')
+        #b.setCheckable(True)
+        l.addWidget(b)
+        self.multiaxesb= b = widgets.createButton(m, None, self.plot_farms, 'plot-grid', core.ICONSIZE, 'farm split view')
+        l.addWidget(b)
         b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', core.ICONSIZE, 'show all in region')
         l.addWidget(b)
         self.parcelsb = b = widgets.createButton(m, None, self.update, 'parcels', core.ICONSIZE, 'show parcels')
@@ -543,9 +592,6 @@ class App(QMainWindow):
         b.setCheckable(True)
         l.addWidget(b)
         b = widgets.createButton(m, None, self.save_to_scratchpad, 'snapshot', core.ICONSIZE, 'take snapshot')
-        l.addWidget(b)       
-        self.showfoliumb = b = widgets.createButton(m, None, self.update, 'folium', core.ICONSIZE, 'show folium')
-        b.setCheckable(True)
         l.addWidget(b)
         return m
 
@@ -605,10 +651,10 @@ class App(QMainWindow):
 
         self.info = widgets.Editor(main, readOnly=True, fontsize=10)
         self.add_dock(self.info, 'log', 'right')
-        self.foliumview = widgets.FoliumViewer(main)
+        self.foliumview = webwidgets.FoliumViewer(main)
         #self.foliumview.show()
         #self.add_dock(self.foliumview, 'folium', 'right')
-        idx = self.tabs.addTab(self.foliumview, 'folium')
+        idx = self.tabs.addTab(self.foliumview, 'Interactive')
 
         self.info.append("Welcome\n")
         self.statusBar = QStatusBar()
@@ -1164,7 +1210,7 @@ class App(QMainWindow):
         utils.convert_branch_lengths(treefile, treefile, ls)
         return
 
-    def update(self, kind='points'):
+    def update(self):
         """Update plot"""
 
         self.plotview.clear()
@@ -1179,7 +1225,7 @@ class App(QMainWindow):
 
         if self.sub is None or len(self.sub) == 0:
             return
-
+        
         self.plot_counties()
         #land parcels
         if self.parcelsb.isChecked():
@@ -1188,8 +1234,8 @@ class App(QMainWindow):
             self.plot_parcels(p, col=colorcol,cmap=cmap)
 
         if jitter == True:
-             idx = self.sub[self.sub.duplicated('geometry')].index
-             self.sub['geometry'] = self.sub.apply(lambda x: jitter_points(x,50) if x.name in idx else x.geometry,1)
+            idx = self.sub[self.sub.duplicated('geometry')].index
+            self.sub['geometry'] = self.sub.apply(lambda x: jitter_points(x,50) if x.name in idx else x.geometry,1)
 
         if self.showneighboursb.isChecked() and self.neighbours is not None:
             self.neighbours.plot(color='gray',alpha=0.4,ax=ax)
@@ -1200,9 +1246,6 @@ class App(QMainWindow):
         if labelcol != '':
             show_labels(self.sub, labelcol, ax)
 
-
-        ax.add_artist(ScaleBar(dx=1,location=3))
-        ax.axis('off')
         #leg = ax.get_legend()
         #leg.set_bbox_to_anchor((0., 0., 1.2, 0.9))
 
@@ -1244,10 +1287,43 @@ class App(QMainWindow):
         self.show_selected_table()
 
         #update folium map
-        if self.showfoliumb.isChecked():
-            self.foliumview.plot(self.sub, self.parcels, colorcol=colorcol)
+        #if self.showfoliumb.isChecked():
+        #    self.foliumview.plot(self.sub, self.parcels, colorcol=colorcol)
         return
 
+    def show_folium(self):
+        """Update folium map"""
+        
+        colorcol = self.colorbyw.currentText()
+        cmap = self.cmapw.currentText()
+        self.foliumview.plot(self.sub, self.parcels, colorcol=colorcol)
+        self.tabs.setCurrentIndex(1)
+        return
+
+    def plot_farms(self):
+        """Seperate farms view in grid"""
+
+        if self.sub is None or len(self.sub) == 0:
+            return
+        source = providers[self.contextw.currentText()]
+        
+        herds = list(self.sub.HERD_NO)
+        p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
+
+        if not hasattr(self, 'gridview'):
+            self.gridview = widgets.CustomPlotViewer(self, controls=False, app=self)
+            self.m.addWidget(self.gridview)
+            idx = self.tabs.addTab(self.gridview, 'Farms')
+            self.tabs.setCurrentIndex(idx)
+
+        def plot_completed():
+            self.gridview.redraw()
+            self.processing_completed()
+        def func(progress_callback):
+            axs = plot_grid(self.sub, p, fig=self.gridview.fig, source=source)   
+        self.run_threaded_process(func, plot_completed) 
+        return
+    
     def cluster_report(self):
         """Make pdf report"""
 
@@ -1270,7 +1346,7 @@ class App(QMainWindow):
                                     alignment=self.aln,
                                     level='snp3', clades=clades, cmap=cmap,
                                     labelcol='Animal_ID', outfile=filename)
-            
+
         def completed():
             #self.show_pdf(filename)
             self.processing_completed()
@@ -1439,7 +1515,7 @@ class App(QMainWindow):
 
         cmap = self.cmapw.currentText()
         colorcol = self.colorbyw.currentText()
-        
+
         from Bio.Align import MultipleSeqAlignment
         idx = list(self.sub.index)
         seqs = [rec for rec in self.aln if rec.id in idx]
@@ -1628,7 +1704,7 @@ class App(QMainWindow):
 
     def show_pdf(self, filename):
         """Show a pdf"""
-        
+
         self.show_browser_tab(filename, filename)
         return
 
