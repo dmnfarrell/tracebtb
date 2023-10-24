@@ -212,12 +212,12 @@ def plot_moves(moves, lpis_cent, ax):
         if t is not None:
             #print (t[cols])
             moved = lpis_cent[lpis_cent.SPH_HERD_N.isin(t.move_to)]
-            coords = get_coords_data(t)
+            coords = tools.get_coords_data(t)
             if len(coords)>0:
                 mlines = gpd.GeoDataFrame(geometry=coords)
-                mlines.plot(color=colors[i],linewidth=1,ax=ax)
-                moved.plot(color='none',ec=colors[i],marker='s',
-                            markersize=80,linewidth=1,alpha=0.8,ax=ax)
+                mlines.plot(color='black',linewidth=.5,ax=ax)
+                moved.plot(color='none',ec='black',marker='s',
+                            markersize=80,linewidth=.8,alpha=0.5,ax=ax)
                 i+=1
     return
 
@@ -266,12 +266,6 @@ def plot_moves_timeline(df, ax=None):
     ax.tick_params(axis='both', labelsize=8)
     return
 
-def get_coords_data(df):
-
-    df['P2'] = df.geometry.shift(-1)
-    coords = df[:-1].apply(lambda x: LineString([x.geometry,x.P2]),1)
-    return coords
-
 def jitter_points(r, scale=1):
     """Jitter GeoDataFrame points, vector based function"""
 
@@ -294,6 +288,7 @@ def get_moves_bytag(df, move_df, lpis_cent):
     x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
     m = pd.concat([m,x]).dropna(subset='Animal_ID')
     m = m.sort_values(by=['Animal_ID','move_date'])
+    m = gpd.GeoDataFrame(m)
     return m
 
 def get_move_dates(df):
@@ -653,8 +648,11 @@ class App(QMainWindow):
         self.add_dock(self.info, 'log', 'right')
         self.foliumview = webwidgets.FoliumViewer(main)
         #self.foliumview.show()
-        #self.add_dock(self.foliumview, 'folium', 'right')
         idx = self.tabs.addTab(self.foliumview, 'Interactive')
+        #test map
+        #tmp = webwidgets.FoliumViewer(main)
+        #idx = self.tabs.addTab(tmp, 'test')
+        #tmp.test_map()
 
         self.info.append("Welcome\n")
         self.statusBar = QStatusBar()
@@ -1296,7 +1294,12 @@ class App(QMainWindow):
         
         colorcol = self.colorbyw.currentText()
         cmap = self.cmapw.currentText()
-        self.foliumview.plot(self.sub, self.parcels, colorcol=colorcol)
+        if self.movesb.isChecked():
+            mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
+        else:
+            mov = None
+        self.foliumview.plot(self.sub, self.parcels, moves=mov, 
+                             lpis_cent=self.lpis_cent, colorcol=colorcol)
         self.tabs.setCurrentIndex(1)
         return
 

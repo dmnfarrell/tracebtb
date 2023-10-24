@@ -30,6 +30,8 @@ from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from Bio import SeqIO
 from Bio import Phylo, AlignIO, Align
+import geopandas as gpd
+from shapely.geometry import Point, LineString, Polygon, MultiPolygon
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -230,3 +232,10 @@ def subset_alignment(aln, names):
     seqs = [rec for rec in aln if rec.id in names]
     new = Align.MultipleSeqAlignment(seqs)
     return new
+
+def get_coords_data(df):
+    """Get coordinates from geodataframe as linestrings"""
+
+    df['P2'] = df.geometry.shift(-1)
+    coords = df[:-1].apply(lambda x: LineString([x.geometry,x.P2]),1)
+    return coords
