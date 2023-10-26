@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-    Qt widgets module.
+    Qt web widgets module.
     Created Sep 2023
     Copyright (C) Damien Farrell
 
@@ -52,16 +52,18 @@ def get_bounds(gdf):
     maxy = bounding_box['maxy'].max()
     return minx, miny, maxx, maxy
 
-def create_map(location=[54.1, -7.0], width=1500, height=1200):
-    """Make a base map with tiles"""
+def create_map(location=[-51, 8]):
+    """Make a map"""
+    map = folium.Map(location=[c.y, c.x], crs='EPSG3857',tiles='openstreetmap',
+                          width=600, height=600 ,max_bounds=True)
+    return map
+
+def add_tiles(map):
+    """Add tile layers to base map"""
 
     import folium
     from folium import plugins
-    #print (location)
 
-    map = folium.Map(location=location, crs='EPSG3857',tiles='openstreetmap',
-                                width=width, height=height)
-    #tile layers
     tile = folium.TileLayer(
         tiles = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         attr = 'Esri',
@@ -87,13 +89,9 @@ def create_map(location=[54.1, -7.0], width=1500, height=1200):
         control = True
         ).add_to(map)
     folium.LayerControl().add_to(map)
-    style2 = {'fillColor': '#00000000', 'color': 'gray','weight':1}
-    b = folium.GeoJson(borders.to_crs('EPSG:4326'),name='borders',
-                    smooth_factor=2,
-                    style_function=lambda x:style2)
-    #map.add_child(b)
+    #style2 = {'fillColor': '#00000000', 'color': 'gray','weight':1}
     return map
-    
+
 def plot_moves_folium(moves, lpis_cent, map):
     """Plot moves in folium"""
 
@@ -174,8 +172,6 @@ class FoliumViewer(QWidget):
 
         import folium
         from branca.element import Figure
-        fig = Figure(width=600, height=600)
-        map = create_map()
 
         df = sub.to_crs('EPSG:4326')
         minx, miny, maxx, maxy = get_bounds(df)
@@ -183,10 +179,13 @@ class FoliumViewer(QWidget):
         bbox = [(miny-pad,minx-pad),(maxy+pad,maxx+pad)]
         c = df.dissolve().centroid.geometry
         bounds = df.bounds
+        #fig = Figure()
+        map = folium.Map(location=[c.y, c.x], crs='EPSG3857',tiles='openstreetmap',
+                            width=1500, height=1200 ,max_bounds=True, control_scale = True)
+
         style1 = {'fillColor': 'blue', 'color': 'gray','weight':1}
         p = folium.GeoJson(parcels.to_crs('EPSG:4326'),style_function=lambda x:style1)
-        #print (parcels)
-        #map.add_child(p)
+        #p.add_to(map, name='parcels')
 
         #colors = plotting.random_colors(n=len(labels),seed=20)
         if colorcol == None:
@@ -198,7 +197,7 @@ class FoliumViewer(QWidget):
             df['color'] = df[colorcol].map(lut)
 
         for i,r in df.iterrows():
-            if r.geometry.is_empty: continue
+            if r.geometry == None or r.geometry.is_empty: continue
             x=r.geometry.x
             y=r.geometry.y
             w=0.005
@@ -213,8 +212,8 @@ class FoliumViewer(QWidget):
         folium.FitBounds(bbox).add_to(map)
         if moves is not None:
             plot_moves_folium(moves, lpis_cent, map)
-        fig.add_child(map)
+        add_tiles(map)
         data = io.BytesIO()
-        fig.save(data, close_file=False)
+        map.save(data, close_file=False)
         self.main.setHtml(data.getvalue().decode())
-        return
+        return map
