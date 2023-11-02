@@ -20,7 +20,7 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 """
 
-import sys, os, io, platform
+import sys, os, io, platform, traceback
 import numpy as np
 import pandas as pd
 import pylab as plt
@@ -811,8 +811,9 @@ class PlotWidget(QWidget):
         l = QVBoxLayout()
         left.setLayout(l)
         l.addWidget(canvas)
-        self.toolbar = NavigationToolbar(canvas, self)
-        l.addWidget(self.toolbar)
+        if toolbar == True:
+            self.toolbar = NavigationToolbar(canvas, self)
+            l.addWidget(self.toolbar)
         self.fig = fig
         self.canvas = canvas
         return
@@ -1499,3 +1500,46 @@ class PreferencesDialog(QDialog):
         self.updateWidgets()
         self.apply()
         return
+
+
+class Worker(QtCore.QRunnable):
+    """Worker thread for running background tasks."""
+    #https://www.learnpyqt.com/courses/concurrent-execution/multithreading-pyqt-applications-qthreadpool/
+    def __init__(self, fn, *args, **kwargs):
+        super(Worker, self).__init__()
+        # Store constructor arguments (re-used for processing)
+        self.fn = fn
+        self.args = args
+        self.kwargs = kwargs
+        self.signals = WorkerSignals()
+        self.kwargs['progress_callback'] = self.signals.progress
+
+    @QtCore.Slot()
+    def run(self):
+        try:
+            result = self.fn(
+                *self.args, **self.kwargs)
+        except:
+            traceback.print_exc()
+            exctype, value = sys.exc_info()[:2]
+            self.signals.error.emit((exctype, value, traceback.format_exc()))
+        else:
+            self.signals.result.emit(result)
+        finally:
+            self.signals.finished.emit()
+
+class WorkerSignals(QtCore.QObject):
+    """
+    Defines the signals available from a running worker thread.
+    Supported signals are:
+    finished
+        No data
+    error
+        `tuple` (exctype, value, traceback.format_exc() )
+    result
+        `object` data returned from processing, anything
+    """
+    finished = QtCore.Signal()
+    error = QtCore.Signal(tuple)
+    result = QtCore.Signal(object)
+    progress = QtCore.Signal(float)

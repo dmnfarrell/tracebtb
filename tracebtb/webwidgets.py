@@ -184,11 +184,12 @@ class FoliumViewer(QWidget):
                             width=1500, height=1200 ,max_bounds=True, control_scale = True)
 
         style1 = {'fillColor': 'blue', 'color': 'gray','weight':1}
-        p = folium.GeoJson(parcels.to_crs('EPSG:4326'),style_function=lambda x:style1)
-        #p.add_to(map, name='parcels')
+        if parcels is not None:
+            p = folium.GeoJson(parcels.to_crs('EPSG:4326'),style_function=lambda x:style1)
+            #p.add_to(map, name='parcels')
 
         #colors = plotting.random_colors(n=len(labels),seed=20)
-        if colorcol == None:
+        if colorcol == None or colorcol == '':
             df['color'] = df.Species.map({'Bovine':'blue','Badger':'orange'})
         else:
             labels = df[colorcol].unique()
@@ -202,7 +203,7 @@ class FoliumViewer(QWidget):
             y=r.geometry.y
             w=0.005
             pts = ((y-w/1.5,x-w),(y+w/1.5,x+w))
-            tip =  """{}<br>{}<br>{}""".format(r.Animal_ID,r.Aliquot,r.HERD_NO)
+            tip =  """{}<br>{}<br>{}<br>snp3={}<br>st={}""".format(r.Animal_ID,r.Aliquot,r.HERD_NO,r.snp3,r.strain_name)
             folium.CircleMarker(location=(y,x), radius=10,
                             color=False,fill=True,fill_opacity=0.6,
                             fill_color=r.color,tooltip=tip).add_to(map)

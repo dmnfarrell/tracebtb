@@ -184,11 +184,11 @@ def plot_grid(gdf, parcels=None, moves=None, fig=None, source=None):
         if parcels is not None:
             subp = parcels[parcels.SPH_HERD_N==idx]
             subp.plot(color='red',alpha=0.6,lw=1,ax=ax)
-        df.plot(color='black',ax=ax)            
+        df.plot(color='black',ax=ax)
         ax.axis('off')
         ax.add_artist(ScaleBar(dx=1,location=3))
-        ax.set_title(r.HERD_NO)       
-        if source != None:     
+        ax.set_title(r.HERD_NO)
+        if source != None:
             cx.add_basemap(ax, crs=df.crs, attribution=False, source=source)
         i+=1
     ax=axs[i]
@@ -275,6 +275,28 @@ def jitter_points(r, scale=1):
     x,y = r.geometry.x+a,r.geometry.y+b
     return Point(x,y)
 
+def apply_jitter(gdf, radius=100):
+    """Apply jitter to overlapping points"""
+
+    def circular_jitter(centroid, points, radius):
+        angles = np.linspace(0, 2 * np.pi, len(points), endpoint=False)
+        jittered_points = []
+        for angle in angles:
+            x = radius * np.cos(angle)
+            y = radius * np.sin(angle)
+            jittered_points.append(Point(centroid.x + x, centroid.y + y))
+        return jittered_points
+
+    #Group by 'HERD_NO' and apply jitter to overlapping points
+    for herd, group in gdf.groupby('HERD_NO'):
+        if len(group) <= 1: continue
+        centroid = group['geometry'].iloc[0]
+        if centroid == None or centroid.is_empty: continue
+        jittered = circular_jitter(centroid, group['geometry'], radius)
+        #print (jittered)
+        gdf.loc[group.index, 'geometry'] = jittered
+    return gdf
+
 def get_moves_bytag(df, move_df, lpis_cent):
     """Get moves and coords for one or more samples.
     """
@@ -334,6 +356,7 @@ class App(QMainWindow):
         self.parcels = None
         self.neighbours = None
         self.sub = None
+        #self.moves = None
         self.main.setFocus()
         self.setCentralWidget(self.main)
         self.create_tool_bar()
@@ -430,7 +453,7 @@ class App(QMainWindow):
                  'Settings': {'action':self.preferences,'file':'settings'},
                  'Herd Summary':{'action':self.herd_summary,'file':'cow'},
                  'Cluster Report':{'action':self.cluster_report ,'file':'cluster_report'},
-                 #'Make Simulated Data':{'action':self.make_test_data ,'file':'simulate'},
+                 'Make Simulated Data':{'action':self.simulate_data ,'file':'simulate'},
                  'Quit': {'action':self.quit,'file':'application-exit'}
                 }
 
@@ -540,7 +563,7 @@ class App(QMainWindow):
 
         m = QWidget()
         m.setMaximumWidth(60)
-        m.setMinimumWidth(50)
+        m.setMinimumWidth(60)
         l = QVBoxLayout()
         l.setAlignment(QtCore.Qt.AlignTop)
         m.setLayout(l)
@@ -633,7 +656,7 @@ class App(QMainWindow):
 
         self.tabs = QTabWidget(main)
         self.m.addWidget(self.tabs)
-        self.tabs.setTabsClosable(True)
+        self.tabs.setTabsClosable(False)
         self.tabs.tabCloseRequested.connect(self.close_tab)
 
         self.plotview = widgets.CustomPlotViewer(self, controls=False, app=self)
@@ -749,7 +772,7 @@ class App(QMainWindow):
         icon = QIcon(os.path.join(iconpath,'cow.svg'))
         self.tools_menu.addAction(icon, 'Show Herd Summary', self.herd_summary)
         icon = QIcon(os.path.join(iconpath,'simulate.svg'))
-        self.tools_menu.addAction(icon, 'Make Simulated Data', self.make_test_data)
+        self.tools_menu.addAction(icon, 'Make Simulated Data', self.simulate_data)
         icon = QIcon(os.path.join(iconpath,'pdf.svg'))
         self.tools_menu.addAction(icon,'Cluster Report', self.cluster_report)
 
@@ -956,8 +979,8 @@ class App(QMainWindow):
         return
 
     def get_lpis_centroids(self):
-        """Calculate LPIS centroids and parcels for samples, run once when metdata
-        is updated."""
+        """Calculate LPIS centroids and parcels for samples, run once when the metadata
+           is updated using land parcel data."""
 
         if self.lpis_master is None:
             msg = QMessageBox()
@@ -1027,8 +1050,9 @@ class App(QMainWindow):
         df = df.merge(self.lpis_cent,left_on='HERD_NO',right_on='SPH_HERD_N',how='left')#.set_index(idx)
         df = gpd.GeoDataFrame(df,geometry=df.geometry).set_crs('EPSG:29902')
         df['geometry'] = [Point() if x is None else x for x in df.geometry]
-        #if 'sample' in df.columns:
-        #    df = df.set_index('sample')
+
+        #jitter any points in same farm
+        #df = apply_jitter(df, radius=100)
         self.cent = df
         self.meta_table.setDataFrame(self.cent)
         return
@@ -1036,7 +1060,7 @@ class App(QMainWindow):
     def load_samples(self):
         """Load meta data"""
 
-        reply = QMessageBox.question(self, 'Continue?', "This will overwrite the current meta data. Are you sure?",
+        reply = QMessageBox.question(self, 'Continue?', "This will overwrite any current meta data. Are you sure?",
                                         QMessageBox.Cancel | QMessageBox.Yes)
         if reply == QMessageBox.Cancel:
             return
@@ -1045,9 +1069,18 @@ class App(QMainWindow):
                                         filter="csv file(*.csv *.txt);;All Files(*.*)")
         if not filename:
             return
-        self.cent = pd.read_csv(filename)
+        df = pd.read_csv(filename)
         for col in cladelevels:
-            self.cent[col] = self.cent[col].astype(str)
+            if col in df.columns:
+                df[col] = df[col].astype(str)
+        #try to convert to geodataframe if has coords - (move to sep function)
+        if 'X_COORD' in df.columns:
+            print('found geometry column')
+            x='X_COORD'
+            y='Y_COORD'
+            df = gpd.GeoDataFrame(df,geometry=gpd.points_from_xy(df[x], df[y])).set_crs('EPSG:29902')
+
+        self.cent = df
         t = self.meta_table
         t.setDataFrame(self.cent)
         self.update_clades()
@@ -1122,33 +1155,13 @@ class App(QMainWindow):
         self.update()
         return
 
-    def make_test_data(self):
+    def simulate_data(self):
         """Artificial datasets using btbabm"""
 
-        import btbabm
-        options = QFileDialog.Options()
-        path = QFileDialog.getExistingDirectory(self,"Select folder",
-                                            #os.path.expanduser("~"),
-                                            os.getcwd(),
-                                            QFileDialog.ShowDirsOnly)
-        if not path:
-            return
-        def func(progress_callback):
-            btbabm.simulate_test_data(path, steps=500)
-        def completed():
-            #process meta data
-            m = pd.read_csv(os.path.join(path,'meta.csv'))
-            gdf = gpd.read_file(os.path.join(path,'gdf.shp'))
-            gdf = gdfrename(columns={'id':'Animal_ID','herd':'HERD_NO'})
-            #m.to_csv(os.path.join,'meta.csv')
-            #process moves
-            #moves =
-            #self.load_folder(path)
-            self.cent = gdf
-            self.meta_table.setDataFrame(self.cent)
-            self.processing_completed()
-
-        self.run_threaded_process(func, completed)
+        from . import simulate
+        if not hasattr(self, 'simapp'):
+            self.simapp = simulate.SimulateApp()
+        self.simapp.show()
         return
 
     def gdf_from_table(self, df, x='X_COORD',y='Y_COORD'):
@@ -1177,7 +1190,7 @@ class App(QMainWindow):
 
         if self.running == True:
             return
-        worker = Worker(fn=process)
+        worker = widgets.Worker(fn=process)
         self.threadpool.start(worker)
         worker.signals.finished.connect(on_complete)
         worker.signals.progress.connect(self.progress_fn)
@@ -1223,7 +1236,7 @@ class App(QMainWindow):
 
         if self.sub is None or len(self.sub) == 0:
             return
-        
+
         self.plot_counties()
         #land parcels
         if self.parcelsb.isChecked():
@@ -1231,9 +1244,9 @@ class App(QMainWindow):
             p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
             self.plot_parcels(p, col=colorcol,cmap=cmap)
 
+        #to be removed
         if jitter == True:
-            idx = self.sub[self.sub.duplicated('geometry')].index
-            self.sub['geometry'] = self.sub.apply(lambda x: jitter_points(x,50) if x.name in idx else x.geometry,1)
+            self.sub = apply_jitter(self.sub, radius=100)
 
         if self.showneighboursb.isChecked() and self.neighbours is not None:
             self.neighbours.plot(color='gray',alpha=0.4,ax=ax)
@@ -1249,6 +1262,9 @@ class App(QMainWindow):
 
         #moves
         if self.movesb.isChecked():
+            if self.moves is None:
+                print ('no moves loaded')
+                return
             mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
             plot_moves(mov, self.lpis_cent, ax=ax)
             self.show_moves_table(mov)
@@ -1291,14 +1307,14 @@ class App(QMainWindow):
 
     def show_folium(self):
         """Update folium map"""
-        
+
         colorcol = self.colorbyw.currentText()
         cmap = self.cmapw.currentText()
         if self.movesb.isChecked():
             mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
         else:
             mov = None
-        self.foliumview.plot(self.sub, self.parcels, moves=mov, 
+        self.foliumview.plot(self.sub, self.parcels, moves=mov,
                              lpis_cent=self.lpis_cent, colorcol=colorcol)
         self.tabs.setCurrentIndex(1)
         return
@@ -1309,7 +1325,7 @@ class App(QMainWindow):
         if self.sub is None or len(self.sub) == 0:
             return
         source = providers[self.contextw.currentText()]
-        
+
         herds = list(self.sub.HERD_NO)
         p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
 
@@ -1323,13 +1339,12 @@ class App(QMainWindow):
             self.gridview.redraw()
             self.processing_completed()
         def func(progress_callback):
-            axs = plot_grid(self.sub, p, fig=self.gridview.fig, source=source)   
-        self.run_threaded_process(func, plot_completed) 
+            axs = plot_grid(self.sub, p, fig=self.gridview.fig, source=source)
+        self.run_threaded_process(func, plot_completed)
         return
-    
+
     def cluster_report(self):
         """Make pdf report"""
-
 
         options = QFileDialog.Options()
         filename, _ = QFileDialog.getSaveFileName(self,"Save Report",
@@ -1745,49 +1760,6 @@ class App(QMainWindow):
 
         msg = QMessageBox.about(self, "About", text)
         return
-
-#https://www.learnpyqt.com/courses/concurrent-execution/multithreading-pyqt-applications-qthreadpool/
-class Worker(QtCore.QRunnable):
-    """Worker thread for running background tasks."""
-
-    def __init__(self, fn, *args, **kwargs):
-        super(Worker, self).__init__()
-        # Store constructor arguments (re-used for processing)
-        self.fn = fn
-        self.args = args
-        self.kwargs = kwargs
-        self.signals = WorkerSignals()
-        self.kwargs['progress_callback'] = self.signals.progress
-
-    @QtCore.Slot()
-    def run(self):
-        try:
-            result = self.fn(
-                *self.args, **self.kwargs)
-        except:
-            traceback.print_exc()
-            exctype, value = sys.exc_info()[:2]
-            self.signals.error.emit((exctype, value, traceback.format_exc()))
-        else:
-            self.signals.result.emit(result)
-        finally:
-            self.signals.finished.emit()
-
-class WorkerSignals(QtCore.QObject):
-    """
-    Defines the signals available from a running worker thread.
-    Supported signals are:
-    finished
-        No data
-    error
-        `tuple` (exctype, value, traceback.format_exc() )
-    result
-        `object` data returned from processing, anything
-    """
-    finished = QtCore.Signal()
-    error = QtCore.Signal(tuple)
-    result = QtCore.Signal(object)
-    progress = QtCore.Signal(str)
 
 class StdoutRedirect(QObject):
     printOccur = Signal(str, str, name="print")
