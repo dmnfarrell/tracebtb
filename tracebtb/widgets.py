@@ -821,8 +821,18 @@ class PlotWidget(QWidget):
     def set_figure(self, fig):
         """Set the figure if we have plotted elsewhere"""
 
-        self.clear()
-        self.create_figure(fig)
+        self.fig.clear()
+        self.fig = fig
+        self.canvas.figure = fig
+        self.canvas.draw()
+        self.canvas.flush_events()
+        return
+
+    def clear(self):
+        """Clear plot"""
+
+        self.fig.clear()
+        self.ax = self.fig.add_subplot(111)
         self.canvas.draw()
         return
 
@@ -1212,7 +1222,24 @@ class BrowserViewer(QDialog):
 
     def zoom(self):
         zoom = self.zoomslider.value()/10
-        self.browser.setZoomFactor(zoom)   
+        self.browser.setZoomFactor(zoom)
+
+class TreeViewer(BrowserViewer):
+    def __init__(self, parent=None):
+
+        super(TreeViewer, self).__init__(parent)
+        self.add_widgets()
+        return
+
+    def show(self, treefile, df, cmap='Set1'):
+        """Show phylogeny for selected subset"""
+
+        canvas = trees.draw_tree(treefile,  df, colorcol, tip_labels=False, width=500)
+        toyplot.html.render(canvas, "temp.html")
+        with open('temp.html', 'r') as f:
+            html = f.read()
+            self.browser.setHtml(html)
+        return
 
 class ScratchPad(QWidget):
     """Temporary storage widget for plots and other items.

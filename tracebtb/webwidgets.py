@@ -167,7 +167,7 @@ class FoliumViewer(QWidget):
         self.main.setHtml(data.getvalue().decode())
         return
 
-    def plot(self, sub, parcels, moves=None, lpis_cent=None, colorcol=None, cmap='Set1'):
+    def plot(self, sub, parcels, moves=None, lpis_cent=None, colorcol=None, parcelscol=None, cmap='Set1'):
         """Plot selected"""
 
         import folium
@@ -183,10 +183,25 @@ class FoliumViewer(QWidget):
         map = folium.Map(location=[c.y, c.x], crs='EPSG3857',tiles='openstreetmap',
                             width=1500, height=1200 ,max_bounds=True, control_scale = True)
 
-        style1 = {'fillColor': 'blue', 'color': 'gray','weight':1}
+        basestyle = {'fillColor': 'blue', 'color': 'gray','weight':1}
+        def style_func(data):
+            feature = data['features']
+            return {
+                'fillColor': feature['properties']['color'],
+                'weight': 1,
+                'fillOpacity': 0.7,
+            }
         if parcels is not None:
-            p = folium.GeoJson(parcels.to_crs('EPSG:4326'),style_function=lambda x:style1)
-            #p.add_to(map, name='parcels')
+            '''if parcelscol not in [None, '']:
+                labels = parcels[parcelscol].unique()
+                colors = plotting.gen_colors(cmap=cmap,n=len(labels))
+                lut = dict(zip(labels, colors))
+                parcels['color'] = parcels[parcelscol].map(lut)
+                style = style_func
+            else:'''
+            style = basestyle
+            p = folium.GeoJson(parcels.to_crs('EPSG:4326'),style_function=lambda x:style)
+            p.add_to(map, name='parcels')
 
         #colors = plotting.random_colors(n=len(labels),seed=20)
         if colorcol == None or colorcol == '':
@@ -203,7 +218,9 @@ class FoliumViewer(QWidget):
             y=r.geometry.y
             w=0.005
             pts = ((y-w/1.5,x-w),(y+w/1.5,x+w))
-            tip =  """{}<br>{}<br>{}<br>snp3={}<br>st={}""".format(r.Animal_ID,r.Aliquot,r.HERD_NO,r.snp3,r.strain_name)
+            #tip =  """{}<br>{}<br>{}<br>{}<br>snp3={}<br>st={}""".format(
+            #    r.Animal_ID,r.Species,r.Aliquot,r.HERD_NO,r.snp3,r.strain_name)
+            tip = self.get_tooltip(r)
             folium.CircleMarker(location=(y,x), radius=10,
                             color=False,fill=True,fill_opacity=0.6,
                             fill_color=r.color,tooltip=tip).add_to(map)
@@ -218,3 +235,13 @@ class FoliumViewer(QWidget):
         map.save(data, close_file=False)
         self.main.setHtml(data.getvalue().decode())
         return map
+
+    def get_tooltip(self, x):
+        """Tooltip"""
+
+        cols = ['Animal_ID','Species','Aliquot','HERD_NO','snp3','strain_name']
+        tip = ''
+        for i,val in x.items():
+            if i in cols:
+                tip+='{}={}<br>'.format(i,val)
+        return tip

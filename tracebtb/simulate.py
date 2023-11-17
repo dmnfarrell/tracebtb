@@ -20,7 +20,7 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 """
 
-import sys, os, io, platform
+import sys, os, io, platform, time
 import numpy as np
 import pandas as pd
 import pylab as plt
@@ -44,6 +44,7 @@ iconpath = os.path.join(module_path, 'icons')
 data_path = os.path.join(module_path,'data')
 borders = gpd.read_file(os.path.join(data_path,'counties.shp'))
 logoimg = os.path.join(iconpath, 'simulate.svg')
+bounds = [230000,230000,250000,250000]
 
 class SimulateApp(QWidget):
     """Simulation dialog"""
@@ -52,14 +53,15 @@ class SimulateApp(QWidget):
         super(SimulateApp, self).__init__(parent)
         self.parent = parent
         self.setMinimumSize(400,400)
-        self.setGeometry(QtCore.QRect(300, 200, 640, 600))
+        self.setGeometry(QtCore.QRect(300, 200, 680, 600))
         self.setWindowTitle("Herd ABM Simulation")
+        self.setWindowModality(Qt.ApplicationModal)
         self.createWidgets()
         sizepolicy = QSizePolicy()
         self.setSizePolicy(QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding))
         self.setWindowIcon(QIcon(logoimg))
         self.path = None
-        self.threadpool = QtCore.QThreadPool()
+        self.threadpool = QtCore.QThreadPool()       
         return
 
     def createWidgets(self):
@@ -98,7 +100,7 @@ class SimulateApp(QWidget):
         lbl = QLabel('Animals:')
         hbox.addWidget(lbl)
         w = self.animalsw = QSpinBox()
-        w.setRange(10,5000)
+        w.setRange(10,15000)
         w.setValue(800)
         w.setSingleStep(10)
         hbox.addWidget(w)
@@ -106,7 +108,7 @@ class SimulateApp(QWidget):
         hbox.addWidget(lbl)
         w = self.seedw = QSpinBox()
         w.setRange(1,10000)
-        w.setValue(12)
+        w.setValue(10)
         w.setSingleStep(1)
         hbox.addWidget(w)
         lbl = QLabel('Allow Moves:')
@@ -114,19 +116,50 @@ class SimulateApp(QWidget):
         w = self.movesw = QCheckBox()
         hbox.addWidget(w)
 
+        row = QWidget()
+        layout.addRow(row)
+        #0,mean_stay_time=360,mean_latency_time=180,
+        hbox = QHBoxLayout(row)
+        hbox.setAlignment(QtCore.Qt.AlignLeft)
+        lbl = QLabel('Mean Inf Time:')
+        hbox.addWidget(lbl)
+        w = self.inftimew = QSpinBox()
+        w.setRange(1,1000)
+        w.setValue(150)
+        hbox.addWidget(w)
+        lbl = QLabel('Mean Stay Time:')
+        hbox.addWidget(lbl)
+        w = self.staytimew = QSpinBox()
+        w.setRange(1,2000)
+        w.setValue(360)
+        hbox.addWidget(w)
+        lbl = QLabel('Empty Fraction:')
+        hbox.addWidget(lbl)   
+        w = self.emptyw = QDoubleSpinBox()
+        w.setRange(.01,.99)
+        w.setValue(.5)
+        w.setSingleStep(.01)
+        hbox.addWidget(w)
+
         w = self.tabs = QTabWidget(self)
         layout.addRow(w)
         w = self.gridview = widgets.PlotWidget(self)
         self.gridview.ax.axis('off')
         self.tabs.addTab(w, 'Network')
+        #w = self.grid2view = widgets.BrowserViewer(self)
+        #self.tabs.addTab(w, 'Network2')
         w = self.parcelsview = widgets.PlotWidget(self)
         self.parcelsview.ax.axis('off')
         self.tabs.addTab(w, 'Parcels')
         w = self.plotview = widgets.PlotWidget(self)
         self.plotview.ax.axis('off')
         self.tabs.addTab(w, 'Plots')
-        w = self.movesview = tables.DataFrameTable(self, dataframe=pd.DataFrame())        
-        self.tabs.addTab(w, 'Moves')  
+        #w = self.treeview = widgets.TreeViewer()
+        #self.tabs.addTab(w, 'Tree')
+        w = self.herdsview = tables.DataFrameTable(self, dataframe=pd.DataFrame())
+        self.tabs.addTab(w, 'Herds')
+        w = self.movesview = tables.DataFrameTable(self, dataframe=pd.DataFrame())
+        self.tabs.addTab(w, 'Moves')
 
         self.progressbar = QProgressBar()
         self.progressbar.setRange(0,1)
@@ -134,10 +167,10 @@ class SimulateApp(QWidget):
         self.progressbar.setAlignment(Qt.AlignRight)
         self.progressbar.setMaximum(100)
 
-        button = QPushButton("Run")
+        self.runbtn = button = QPushButton("Run")
         button.clicked.connect(self.run)
         layout.addRow(button)
-        self.stopbtn = button = QPushButton("Stop")
+        self.stopbtn = button = QPushButton("Stop/Pause")
         button.clicked.connect(self.stop)
         layout.addRow(button)
         self.resumebtn = button = QPushButton("Resume")
@@ -172,12 +205,16 @@ class SimulateApp(QWidget):
         print ('finished')
         return
 
+    def set_status(self, msg):
+        self.statusbar.setText(msg)
+
     def stop(self):
         self.running = False
         return
 
     def resume(self):
-        self.run(self.model)
+        print (self.model.time())
+        self.run(model=self.model)
 
     def clear(self):
         self.plotview.ax.clear()
@@ -193,34 +230,44 @@ class SimulateApp(QWidget):
         animals = self.animalsw.value()
         seed = self.seedw.value()
         moves = self.movesw.isChecked()
+        inf_time = self.inftimew.value()
+        stay_time = self.staytimew.value()
+        empty = self.emptyw.value()
         self.running = True
+        self.runbtn.setEnabled(False)
         self.progressbar.setValue(0)
         self.stopbtn.setStyleSheet("background-color: red;")
+        f = int(farms/20)
         if model is None:
-            self.statusbar.setText('creating model..')
+            print('creating model..')
             #create land parcels
-            parcels = btbabm.generate_land_parcels(1000,farms,empty=.5,
-                                                 fragments=2,fragmented_farms=10,seed=seed)
+            parcels = btbabm.generate_land_parcels(1000,farms,empty=empty,
+                                                 fragments=2,fragmented_farms=f,
+                                                 bounds=bounds,crs='EPSG:29902',
+                                                 seed=seed)
             parcels['loc_type'] = 'farm'
             self.parcels = parcels
-            parcels.plot(color=parcels.color,ec='.2',alpha=0.5,ax=self.parcelsview.ax)
-            self.parcelsview.redraw()
             Glp,pos,cent = btbabm.land_parcels_to_graph(parcels,dist=100,empty=.5)
-            #model = btbabm.FarmPathogenModel(farms,animals,0,
-            #                                    #graph_seed=seed,
-            #                                    seq_length=100,
-            #                                    allow_moves=moves)
             model = btbabm.FarmPathogenModel(graph=Glp,pos=pos,C=animals,
                                      seq_length=100,
                                      allow_moves=moves,
-                                     mean_inf_time=150,mean_stay_time=200,
+                                     mean_inf_time=inf_time,mean_stay_time=stay_time,
                                      mean_latency_time=120,infected_start=5)
-                                     
+
+            #parcels.plot(color=parcels.color,ec='.2',alpha=0.5,ax=self.parcelsview.ax)
+            fig = btbabm.plot_parcels_graph(parcels, cent, Glp, pos, labels=True)
+            #self.parcelsview.redraw()
+            self.parcelsview.set_figure(fig)
+        else:
+            #change some params in current model
+            self.model.allow_moves = moves
+            self.model.mean_inf_time = inf_time
+            print('resuming model..')
         self.model = model
 
         def func(progress_callback):
             print (self.model)
-            self.statusbar.setText('running..')
+            self.set_status('running..')
             for s in range(steps):
                 if self.running == False:
                     break
@@ -231,31 +278,35 @@ class SimulateApp(QWidget):
                 btbabm.plot_grid(model,ax=ax,pos=model.pos,colorby='strain',ns='num_infected')
                 plt.tight_layout()
                 self.gridview.redraw()
+                #bokehplot = btbabm.plot_grid_bokeh(model,pos=model.pos,colorby='strain',ns='num_infected')
 
         self.run_threaded_process(func, self.processing_completed)
         return
 
     def write_results(self):
+        """Write out all outputs"""
 
         if self.path == None:
             print ('no folder selected')
             return
         model = self.model
-        #animal level data
-        meta = model.get_animal_data(removed=True,infected=True)
-
-        #m = pd.read_csv(os.path.join(self.path,'meta.csv'))
-        #gdf = gpd.read_file(os.path.join(self.path,'gdf.shp'))
-        #gdf = gdf.rename(columns={'id':'Animal_ID','herd':'HERD_NO'})
-        meta.to_csv(os.path.join(self.path,'meta.csv'))
-
-        model.make_phylogeny(removed=True,redundant=False)
-        aln = AlignIO.read('temp.fasta','fasta')
-        snpdist = btbabm.snp_dist_matrix(aln)
+        #get animal meta data with snp dists
+        treefile = os.path.join(self.path,'tree.newick')
+        meta,snpdist = model.get_metadata(removed=False, treefile=treefile)
+        meta = meta.rename(columns={'id':'Animal_ID','herd':'HERD_NO','species':'Species'})
+        meta['X_COORD'] = meta.geometry.x
+        meta['Y_COORD'] = meta.geometry.y
+        meta.to_csv(os.path.join(self.path,'meta.csv'),index=False)
+        #dist matrix
         snpdist.to_csv(os.path.join(self.path,'snpdist.csv'))
+        #alignment
+        AlignIO.write(model.aln,os.path.join(self.path,'aln.fasta'),'fasta')
+        #parcels
+        self.parcels.to_file(os.path.join(self.path, 'parcels.shp'))
         #moves
         moves = model.get_moves()
-        moves.to_csv(os.path.join(self.path,'mmovement.csv'))
+        moves.to_csv(os.path.join(self.path,'movement.csv'),index=False)
+        self.set_status('wrote outputs to %s' %self.path)
         return
 
     def progress_fn(self, val):
@@ -281,11 +332,21 @@ class SimulateApp(QWidget):
         df = model.get_column_data()
         df.plot(ax=self.plotview.ax)
         self.plotview.redraw()
+        self.herdsview.setDataFrame(model.get_herds_data())
         self.movesview.setDataFrame(model.get_moves())
+        #show tree
+        #model.make_phylogeny(alnfile, treefile)
         print ('finished')
-
+        self.set_status('done')
         self.stopbtn.setStyleSheet("")
         self.progressbar.setValue(100)
+        self.runbtn.setEnabled(True)
+        return
+
+    def closeEvent(self, event):
+        
+        self.running = False        
+        event.accept()
         return
 
 def main():

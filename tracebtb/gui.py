@@ -135,16 +135,21 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
     minx, miny, maxx, maxy = df.total_bounds
     maxx+=10
     maxy+=10
-    df = df[df.Species.isin(['Bovine','Badger'])]
-    df['color'] = df.Species.map({'Bovine':'blue','Badger':'orange'})
+
+    #df['color'] = df.Species.map({'Bovine':'blue','Badger':'orange'})
+    #map color to col here properly?
+    df['color'] = 'blue'
 
     if col == None or col == '':
         df.plot(color=df.color,ax=ax,alpha=0.6,markersize=ms,linewidth=.5,label='farm/badger',legend=legend)
     else:
-        cow = df[df.Species=='Bovine']
-        badger = df[df.Species=='Badger']
-        cow.plot(column=col,ax=ax,alpha=0.6,markersize=ms,linewidth=1,ec='black',cmap=cmap,legend=legend)
-        badger.plot(color='orange',ax=ax,alpha=0.6,marker='s',markersize=ms,linewidth=1,ec='black')
+        df.plot(column=col,ax=ax,alpha=0.6,markersize=ms,linewidth=.5,label='farm/badger',cmap=cmap,legend=legend)
+    cow = df[df.Species=='Bovine']
+    badger = df[df.Species=='Badger']
+    #cow.plot(column=col,ax=ax,alpha=0.6,markersize=ms,linewidth=1,ec='black',cmap=cmap,legend=legend)
+    #outline badgers with shape
+    if len(badger)>0:
+        badger.plot(color='none',ax=ax,alpha=0.8,marker='^',markersize=ms+40,linewidth=.5,ec='black')
     ax.set_title(title)
     ax.axis('off')
     if margin == None:
@@ -176,7 +181,7 @@ def plot_grid(gdf, parcels=None, moves=None, fig=None, source=None):
         axs = ax.flat
     else:
         axs = widgets.add_subplots_to_figure(fig, rows, cols)
-        print (axs)
+        #print (axs)
     i=0
     for idx,df in groups:
         ax=axs[i]
@@ -298,17 +303,22 @@ def apply_jitter(gdf, radius=100):
     return gdf
 
 def get_moves_bytag(df, move_df, lpis_cent):
-    """Get moves and coords for one or more samples.
+    """
+    Get moves and coords for one or more samples.
     """
 
-    cols=['Animal_ID','HERD_NO','move_to','move_date','data_type','breed','dob']
+    cols=['Animal_ID']+list(move_df.columns)
     t = df.merge(move_df,left_on='Animal_ID',right_on='tag',how='inner')[cols]
+    #print (t)
+    #merge result with parcels to get coords of moved_to farms
     m = t.merge(lpis_cent,left_on='move_to',right_on='SPH_HERD_N', how='left')
 
     if len(m)==0:
         return
+    #add in source farms - is this needed?
     x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
-    m = pd.concat([m,x]).dropna(subset='Animal_ID')
+    m = pd.concat([m,x])#.dropna(subset='Animal_ID')
+    #print (m.iloc[0])
     m = m.sort_values(by=['Animal_ID','move_date'])
     m = gpd.GeoDataFrame(m)
     return m
@@ -348,7 +358,9 @@ class App(QMainWindow):
             self.showMaximized()
         self.setMinimumSize(400,300)
 
+        self.load_base_data()
         self.recent_files = ['']
+
         self.scratch_items = {}
         self.opentables = {}
         self.lpis_master = None
@@ -357,6 +369,7 @@ class App(QMainWindow):
         self.neighbours = None
         self.sub = None
         #self.moves = None
+
         self.main.setFocus()
         self.setCentralWidget(self.main)
         self.create_tool_bar()
@@ -364,7 +377,6 @@ class App(QMainWindow):
         self.setup_gui()
         self.show_recent_files()
 
-        self.load_base_data()
         self.new_project()
         self.running = False
         self.title = None
@@ -500,7 +512,7 @@ class App(QMainWindow):
         #select cluster level
         self.cladelevelw = w = QComboBox(m)
         w.addItems(cladelevels)
-        l.addWidget(QLabel('Clade level:'))
+        l.addWidget(QLabel('Group by:'))
         l.addWidget(w)
         w.currentIndexChanged.connect(self.update_clades)
         self.widgets['cladelevel'] = w
@@ -536,6 +548,12 @@ class App(QMainWindow):
         l.addWidget(w)
         w.setMaxVisibleItems(12)
         self.widgets['colorby'] = w
+        #color parcels by
+        self.colorparcelsbyw = w = QComboBox(m)
+        l.addWidget(QLabel('Color parcels by:'))
+        l.addWidget(w)
+        w.setMaxVisibleItems(12)
+        self.widgets['colorparcelsby'] = w
         #colormaps
         self.cmapw = w = QComboBox(m)
         l.addWidget(QLabel('Colormap:'))
@@ -725,11 +743,15 @@ class App(QMainWindow):
         self.file_menu = QMenu('File', self)
         #self.file_menu.addAction('Load Folder', lambda: self.load_folder())
         self.file_menu.addAction('Load Samples', lambda: self.load_samples())
-        #icon = QIcon(os.path.join(iconpath,'shapefile.svg'))
-        #self.tools_menu.addAction(icon,'Load Shapefile', self.load_shapefile)
-        self.file_menu.addAction('Load Moves', lambda: self.load_moves())
+        icon = QIcon(os.path.join(iconpath,'shapefile.svg'))
+        self.file_menu.addAction(icon,'Load Parcels', self.load_parcels)
+        icon = QIcon(os.path.join(iconpath,'plot-moves.svg'))
+        self.file_menu.addAction(icon, 'Load Moves', lambda: self.load_moves())
         self.file_menu.addAction('Load Alignment', lambda: self.load_alignment())
+        icon = QIcon(os.path.join(iconpath,'snp-dist.svg'))
+        self.file_menu.addAction(icon, 'Load SNP Distance Matrix', lambda: self.load_snp_dist())
         icon = QIcon(os.path.join(iconpath,'document-new.svg'))
+        self.file_menu.addSeparator()
         self.file_menu.addAction(icon, 'New Project', lambda: self.new_project(ask=True))
         icon = QIcon(os.path.join(iconpath,'document-open.svg'))
         self.file_menu.addAction(icon, 'Open Project', self.load_project_dialog)
@@ -832,7 +854,7 @@ class App(QMainWindow):
 
         filename = self.proj_file
         data={}
-        keys = ['cent','sub','moves','parcels','lpis_cent','neighbours','aln']
+        keys = ['cent','sub','moves','parcels','lpis_cent','neighbours','aln','snpdist']
         for k in keys:
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
@@ -890,7 +912,7 @@ class App(QMainWindow):
 
         self.new_project()
         data = pickle.load(open(filename,'rb'))
-        keys = ['cent','sub','moves','parcels','lpis_cent','neighbours','aln']
+        keys = ['cent','sub','moves','parcels','lpis_cent','neighbours','aln','snpdist']
         for k in keys:
             if k in data:
                 self.__dict__[k] = data[k]
@@ -903,6 +925,10 @@ class App(QMainWindow):
         self.labelsw.addItems(cols)
         self.colorbyw.addItems(cols)
         self.colorbyw.setCurrentText('')
+        if hasattr(self, 'parcels'):
+            cols = ['']+list(self.parcels.columns)
+            self.colorparcelsbyw.addItems(cols)
+        self.colorparcelsbyw.setCurrentText('')
         if 'widget_values' in data:
             #print (data['widget_values'])
             widgets.setWidgetValues(self.widgets, data['widget_values'])
@@ -930,10 +956,6 @@ class App(QMainWindow):
         if not os.path.exists(filename):
             print ('no such file')
         self.load_project(filename)
-        return
-
-    def load_shapefile(self):
-
         return
 
     def load_test(self):
@@ -1070,16 +1092,24 @@ class App(QMainWindow):
         if not filename:
             return
         df = pd.read_csv(filename)
+        #get index column
+        cols = df.columns
+        item, ok = QInputDialog.getItem(self, 'Select Index field', 'Index field:', cols, 0, False)
+        df = df.set_index(item, drop=False)
+        df.index.name = 'index'
+
         for col in cladelevels:
             if col in df.columns:
                 df[col] = df[col].astype(str)
+
         #try to convert to geodataframe if has coords - (move to sep function)
         if 'X_COORD' in df.columns:
             print('found geometry column')
             x='X_COORD'
             y='Y_COORD'
             df = gpd.GeoDataFrame(df,geometry=gpd.points_from_xy(df[x], df[y])).set_crs('EPSG:29902')
-
+        else:
+            print ('no coords found. you can still use parcels to determine locations')
         self.cent = df
         t = self.meta_table
         t.setDataFrame(self.cent)
@@ -1093,7 +1123,11 @@ class App(QMainWindow):
                                         filter="csv file(*.csv *.txt);;All Files(*.*)")
         if not filename:
             return
-        self.moves = pd.read_csv(filename)
+        df = pd.read_csv(filename)
+        cols = df.columns
+        item, ok = QInputDialog.getItem(self, 'Select tag field', 'tag field:', cols, 0, False)
+        df = df.rename(columns={item: 'tag'})
+        self.moves = df
         print ('loaded %s rows' %len(self.moves))
         return
 
@@ -1106,6 +1140,17 @@ class App(QMainWindow):
             return
         self.aln = AlignIO.read(filename, format='fasta')
         print ('loaded alignment with %s rows' %len(self.aln))
+        return
+
+    def load_snp_dist(self):
+        """Load snp dist matrix"""
+
+        filename, _ = QFileDialog.getOpenFileName(self, 'Open Matrix', './',
+                                        filter="csv file(*.csv *.txt);;All Files(*.*)")
+        if not filename:
+            return
+        self.snpdist = pd.read_csv(filename,index_col=0)
+        print ('loaded dist matrix with %s rows' %len(self.snpdist))
         return
 
     def load_folder(self, path=None):
@@ -1155,6 +1200,28 @@ class App(QMainWindow):
         self.update()
         return
 
+    def load_parcels(self):
+        """Import a parcels shapefile"""
+
+        filename, _ = QFileDialog.getOpenFileName(self, 'Open Shapefile', './',
+                                        filter="shapefile(*.shp);;All Files(*.*)")
+        df = gpd.read_file(filename)
+        #get herd_no column
+        cols = df.columns
+        item, ok = QInputDialog.getItem(self, 'Select HERD_NO field', 'HERD_NO field:', cols, 0, False)
+        df = df.rename(columns={item: 'SPH_HERD_N'})
+        if df.crs is None:
+            codes = ['EPSG:29902','EPSG:29901','EPSG:27700','EPSG:4362','WGS84']
+            crs, ok = QInputDialog.getItem(self, 'No CRS present', 'Select CRS:', codes, 0, False)
+            df.set_crs(crs)
+        #convert crs to default
+        df = df.set_crs("EPSG:29902")
+        self.parcels = df
+        #if no lpis_cent use parcel centroids - mainly to avoid errors
+        if self.lpis_cent is None:
+            self.lpis_cent = calculate_parcel_centroids(self.parcels)
+        return
+
     def simulate_data(self):
         """Artificial datasets using btbabm"""
 
@@ -1162,6 +1229,7 @@ class App(QMainWindow):
         if not hasattr(self, 'simapp'):
             self.simapp = simulate.SimulateApp()
         self.simapp.show()
+
         return
 
     def gdf_from_table(self, df, x='X_COORD',y='Y_COORD'):
@@ -1230,6 +1298,7 @@ class App(QMainWindow):
 
         ms = self.markersizew.value()
         colorcol = self.colorbyw.currentText()
+        colorparcelscol = self.colorparcelsbyw.currentText()
         cmap = self.cmapw.currentText()
         legend = self.legendb.isChecked()
         jitter = self.jitterb.isChecked()
@@ -1242,7 +1311,7 @@ class App(QMainWindow):
         if self.parcelsb.isChecked():
             herds = list(self.sub.HERD_NO)
             p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
-            self.plot_parcels(p, col=colorcol,cmap=cmap)
+            self.plot_parcels(p, col=colorparcelscol,cmap=cmap)
 
         #to be removed
         if jitter == True:
@@ -1274,6 +1343,9 @@ class App(QMainWindow):
         #tree
         if self.showtreeb.isChecked():
             self.show_tree()
+        #else:
+            #clear tree
+            #self.clear_tree()
         #mst
         if self.showmstb.isChecked():
             self.plot_mst()
@@ -1303,19 +1375,23 @@ class App(QMainWindow):
         #update folium map
         #if self.showfoliumb.isChecked():
         #    self.foliumview.plot(self.sub, self.parcels, colorcol=colorcol)
+        #    self.show_folium()
         return
 
     def show_folium(self):
         """Update folium map"""
 
         colorcol = self.colorbyw.currentText()
+        parcelscol = self.colorparcelsbyw.currentText()
         cmap = self.cmapw.currentText()
         if self.movesb.isChecked():
             mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
         else:
             mov = None
-        self.foliumview.plot(self.sub, self.parcels, moves=mov,
-                             lpis_cent=self.lpis_cent, colorcol=colorcol)
+        herds = list(self.sub.HERD_NO)
+        p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
+        self.foliumview.plot(self.sub, p, moves=mov,
+                             lpis_cent=self.lpis_cent, colorcol=colorcol, parcelscol=parcelscol)
         self.tabs.setCurrentIndex(1)
         return
 
@@ -1451,13 +1527,16 @@ class App(QMainWindow):
         #ax.set_ylim(ymin,ymax)
         return
 
-    def plot_parcels(self, parcels, col, cmap='Set1'):
+    def plot_parcels(self, parcels, col=None, cmap='Set1'):
         """Show selected land parcels"""
 
         if len(parcels) == 0 or parcels is None:
             return
         ax = self.plotview.ax
-        parcels.plot(column='SPH_HERD_N',alpha=0.6,lw=1,cmap=cmap,ax=ax)
+        if col == '' or col == None:
+            parcels.plot(color='none',alpha=0.6,lw=.5,ec='black',cmap=cmap,ax=ax)
+        else:
+            parcels.plot(column=col,alpha=0.6,lw=.5,cmap=cmap,ax=ax)
         return
 
     def plot_herd_selection(self, herd_no):
@@ -1508,15 +1587,22 @@ class App(QMainWindow):
         colorcol = self.colorbyw.currentText()
         cmap = self.cmapw.currentText()
         labelcol = self.labelsw.currentText()
-
-        from Bio.Align import MultipleSeqAlignment
-        import toyplot
-
         idx = list(self.sub.index)
-        seqs = [rec for rec in self.aln if rec.id in idx]
-        aln = MultipleSeqAlignment(seqs)
-        #print (aln)
-        treefile = trees.tree_from_aln(aln)
+        #print (idx)
+        if hasattr(self, 'aln'):
+            from Bio.Align import MultipleSeqAlignment
+            seqs = [rec for rec in self.aln if rec.id in idx]
+            aln = MultipleSeqAlignment(seqs)
+            treefile = trees.tree_from_aln(aln)
+        elif hasattr(self, 'snpdist'):
+            treefile = 'tree.newick'
+            M = self.snpdist.loc[idx,idx]
+            trees.tree_from_distmatrix(M, treefile)
+        else:
+            print ('no alignment or dist matrix')
+        if treefile == None:
+            return
+        import toyplot
         w = QWebEngineView()
         if labelcol == '':
             labelcol=None
