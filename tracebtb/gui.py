@@ -281,7 +281,7 @@ def jitter_points(r, scale=1):
     return Point(x,y)
 
 def apply_jitter(gdf, radius=100):
-    """Apply jitter to overlapping points"""
+    """Apply jitter to points on same farm"""
 
     def circular_jitter(centroid, points, radius):
         angles = np.linspace(0, 2 * np.pi, len(points), endpoint=False)
@@ -294,6 +294,7 @@ def apply_jitter(gdf, radius=100):
 
     #Group by 'HERD_NO' and apply jitter to overlapping points
     for herd, group in gdf.groupby('HERD_NO'):
+        #print (group)
         if len(group) <= 1: continue
         centroid = group['geometry'].iloc[0]
         if centroid == None or centroid.is_empty: continue
@@ -587,8 +588,8 @@ class App(QMainWindow):
         m.setLayout(l)
         b = widgets.createButton(m, None, self.update, 'refresh', core.ICONSIZE)
         l.addWidget(b)
-        self.showfoliumb = b = widgets.createButton(m, None, self.show_folium, 'folium', core.ICONSIZE, 'interactive view')
-        #b.setCheckable(True)
+        self.showfoliumb = b = widgets.createButton(m, None, self.update, 'folium', core.ICONSIZE, 'interactive view')
+        b.setCheckable(True)
         l.addWidget(b)
         self.multiaxesb= b = widgets.createButton(m, None, self.plot_farms, 'plot-grid', core.ICONSIZE, 'farm split view')
         l.addWidget(b)
@@ -613,9 +614,9 @@ class App(QMainWindow):
         self.colorcountiesb = b = widgets.createButton(m, None, self.update, 'counties', core.ICONSIZE, 'color counties')
         b.setCheckable(True)
         l.addWidget(b)
-        self.jitterb = b = widgets.createButton(m, None, self.update, 'jitter', core.ICONSIZE, 'jitter points')
-        b.setCheckable(True)
-        l.addWidget(b)
+        #self.jitterb = b = widgets.createButton(m, None, self.update, 'jitter', core.ICONSIZE, 'jitter points')
+        #b.setCheckable(True)
+        #l.addWidget(b)
         self.showneighboursb = b = widgets.createButton(m, None, self.update, 'neighbours', core.ICONSIZE, 'show neighbours')
         b.setCheckable(True)
         l.addWidget(b)
@@ -632,7 +633,7 @@ class App(QMainWindow):
         return m
 
     def update_clades(self):
-        """Update the clade tree widget"""
+        """Update the 'group by' widget"""
 
         level = self.cladelevelw.currentText()
         clades = self.cent[level].value_counts()
@@ -644,6 +645,22 @@ class App(QMainWindow):
             item = QTreeWidgetItem(t)
             item.setText(0, cl)
             item.setText(1, str(size))
+        return
+
+    def update_widgets(self):
+        """Update widgets when new table loaded"""
+
+        cols = ['']+list(self.cent.columns)
+        self.labelsw.clear()
+        self.labelsw.addItems(cols)
+        self.colorbyw.clear()
+        self.colorbyw.addItems(cols)
+        self.colorbyw.setCurrentText('')
+        self.colorparcelsbyw.clear()
+        if self.parcels is not None:
+            cols = ['']+list(self.parcels.columns)
+            self.colorparcelsbyw.addItems(cols)
+        self.colorparcelsbyw.setCurrentText('')
         return
 
     def setup_gui(self):
@@ -741,7 +758,6 @@ class App(QMainWindow):
         """Create the menu bar for the application. """
 
         self.file_menu = QMenu('File', self)
-        #self.file_menu.addAction('Load Folder', lambda: self.load_folder())
         self.file_menu.addAction('Load Samples', lambda: self.load_samples())
         icon = QIcon(os.path.join(iconpath,'shapefile.svg'))
         self.file_menu.addAction(icon,'Load Parcels', self.load_parcels)
@@ -751,6 +767,7 @@ class App(QMainWindow):
         icon = QIcon(os.path.join(iconpath,'snp-dist.svg'))
         self.file_menu.addAction(icon, 'Load SNP Distance Matrix', lambda: self.load_snp_dist())
         icon = QIcon(os.path.join(iconpath,'document-new.svg'))
+        self.file_menu.addAction('Load Simulated Data', lambda: self.load_folder())
         self.file_menu.addSeparator()
         self.file_menu.addAction(icon, 'New Project', lambda: self.new_project(ask=True))
         icon = QIcon(os.path.join(iconpath,'document-open.svg'))
@@ -782,11 +799,11 @@ class App(QMainWindow):
         self.tools_menu = QMenu('Tools', self)
         self.menuBar().addMenu(self.tools_menu)
         icon = QIcon(os.path.join(iconpath,'shapefile.svg'))
-        self.tools_menu.addAction(icon, 'Load LPIS file', self.set_lpis_file)
+        self.tools_menu.addAction(icon, 'Load Master Parcels file', self.set_lpis_file)
         icon = QIcon(os.path.join(iconpath,'parcels.svg'))
-        self.tools_menu.addAction(icon, 'Extract LPIS data', self.get_lpis_centroids)
+        self.tools_menu.addAction(icon, 'Extract Parcels/Centroids', self.get_lpis_centroids)
         icon = QIcon(os.path.join(iconpath,'neighbours.svg'))
-        self.tools_menu.addAction(icon,'Extract neighbouring parcels', self.get_neighbouring_parcels)
+        self.tools_menu.addAction(icon,'Extract Neighbouring Parcels', self.get_neighbouring_parcels)
 
         self.tools_menu.addSeparator()
         icon = QIcon(os.path.join(iconpath,'mbovis.svg'))
@@ -899,10 +916,12 @@ class App(QMainWindow):
         self.proj_file = None
         self.meta_table.setDataFrame(pd.DataFrame({'sample':[]}))
         self.plotview.clear()
+        self.foliumview.clear()
         self.cladew.clear()
         for i in self.opentables:
             w = self.opentables[i]
             w.setDataFrame()
+
         #if hasattr(self, 'treeview'):
         #    self.treeview.clear()
         return
@@ -921,14 +940,8 @@ class App(QMainWindow):
         t.setDataFrame(self.cent)
         self.table_widget.updateStatusBar()
         self.update_clades()
-        cols = ['']+list(self.cent.columns)
-        self.labelsw.addItems(cols)
-        self.colorbyw.addItems(cols)
-        self.colorbyw.setCurrentText('')
-        if hasattr(self, 'parcels'):
-            cols = ['']+list(self.parcels.columns)
-            self.colorparcelsbyw.addItems(cols)
-        self.colorparcelsbyw.setCurrentText('')
+        self.update_widgets()
+
         if 'widget_values' in data:
             #print (data['widget_values'])
             widgets.setWidgetValues(self.widgets, data['widget_values'])
@@ -973,12 +986,7 @@ class App(QMainWindow):
         for col in cladelevels:
             self.cent[col] = self.cent[col].astype(str)
         self.update_clades()
-        #print (self.cent[:5])
-
-        cols = ['']+list(self.cent.columns)
-        self.labelsw.addItems(cols)
-        self.colorbyw.addItems(cols)
-        self.colorbyw.setCurrentText('')
+        self.update_widgets()
         self.plot_selected_clade()
 
         #snps
@@ -1074,29 +1082,25 @@ class App(QMainWindow):
         df['geometry'] = [Point() if x is None else x for x in df.geometry]
 
         #jitter any points in same farm
-        #df = apply_jitter(df, radius=100)
+        print ('jittering points')
+        df = apply_jitter(df, radius=100)
         self.cent = df
         self.meta_table.setDataFrame(self.cent)
         return
 
-    def load_samples(self):
+    def load_samples(self, filename=None, index=None):
         """Load meta data"""
 
-        reply = QMessageBox.question(self, 'Continue?', "This will overwrite any current meta data. Are you sure?",
-                                        QMessageBox.Cancel | QMessageBox.Yes)
-        if reply == QMessageBox.Cancel:
-            return
-
-        filename, _ = QFileDialog.getOpenFileName(self, 'Open Meta Data', './',
-                                        filter="csv file(*.csv *.txt);;All Files(*.*)")
-        if not filename:
-            return
+        if filename == None:
+            reply = QMessageBox.question(self, 'Continue?', "This will overwrite any current meta data. Are you sure?",
+                                            QMessageBox.Cancel | QMessageBox.Yes)
+            if reply == QMessageBox.Cancel:
+                return
+            filename, _ = QFileDialog.getOpenFileName(self, 'Open Meta Data', './',
+                                            filter="csv file(*.csv *.txt);;All Files(*.*)")
+            if not filename:
+                return
         df = pd.read_csv(filename)
-        #get index column
-        cols = df.columns
-        item, ok = QInputDialog.getItem(self, 'Select Index field', 'Index field:', cols, 0, False)
-        df = df.set_index(item, drop=False)
-        df.index.name = 'index'
 
         for col in cladelevels:
             if col in df.columns:
@@ -1108,21 +1112,34 @@ class App(QMainWindow):
             x='X_COORD'
             y='Y_COORD'
             df = gpd.GeoDataFrame(df,geometry=gpd.points_from_xy(df[x], df[y])).set_crs('EPSG:29902')
+            #jitter the points
+            print ('jittering points')
+            df = apply_jitter(df, radius=100)
         else:
             print ('no coords found. you can still use parcels to determine locations')
+
+        #set the index column, should be animal ID
+        if index == None:
+            cols = df.columns
+            item, ok = QInputDialog.getItem(self, 'Select Index field', 'Index field:', cols, 0, False)
+            df = df.set_index(item, drop=False)
+            df.index.name = 'index'
+
         self.cent = df
         t = self.meta_table
         t.setDataFrame(self.cent)
         self.update_clades()
+        self.update_widgets()
         return
 
-    def load_moves(self):
+    def load_moves(self, filename=None):
         """Load movement data"""
 
-        filename, _ = QFileDialog.getOpenFileName(self, 'Open CSV file', './',
+        if filename == None:
+            filename, _ = QFileDialog.getOpenFileName(self, 'Open CSV file', './',
                                         filter="csv file(*.csv *.txt);;All Files(*.*)")
-        if not filename:
-            return
+            if not filename:
+                return
         df = pd.read_csv(filename)
         cols = df.columns
         item, ok = QInputDialog.getItem(self, 'Select tag field', 'tag field:', cols, 0, False)
@@ -1131,95 +1148,85 @@ class App(QMainWindow):
         print ('loaded %s rows' %len(self.moves))
         return
 
-    def load_alignment(self):
+    def load_alignment(self, filename=None):
         """Load sequence alignment"""
 
-        filename, _ = QFileDialog.getOpenFileName(self, 'Open Fasta', './',
+        if filename == None:
+            filename, _ = QFileDialog.getOpenFileName(self, 'Open Fasta', './',
                                         filter="fasta file(*.fa *.fasta);;All Files(*.*)")
-        if not filename:
-            return
+            if not filename:
+                return
         self.aln = AlignIO.read(filename, format='fasta')
         print ('loaded alignment with %s rows' %len(self.aln))
         return
 
-    def load_snp_dist(self):
+    def load_snp_dist(self, filename=None):
         """Load snp dist matrix"""
 
-        filename, _ = QFileDialog.getOpenFileName(self, 'Open Matrix', './',
+        if filename == None:
+            filename, _ = QFileDialog.getOpenFileName(self, 'Open Matrix', './',
                                         filter="csv file(*.csv *.txt);;All Files(*.*)")
-        if not filename:
-            return
+            if not filename:
+                return
         self.snpdist = pd.read_csv(filename,index_col=0)
         print ('loaded dist matrix with %s rows' %len(self.snpdist))
         return
 
-    def load_folder(self, path=None):
-        """Load files from a folder"""
-
-        if path == None:
-            options = QFileDialog.Options()
-            path = QFileDialog.getExistingDirectory(self,"Select folder",
-                                                os.getcwd(),
-                                                QFileDialog.ShowDirsOnly)
-        if not path:
-            return
-        meta_file = os.path.join(path, 'metadata.csv')
-        snp_file = os.path.join(path, 'snpdist.csv')
-        gdf_file = os.path.join(path, 'gdf.shp')
-        self.load_data(meta_file, snp_file, gdf_file)
-        return
-
-    def load_data(self, meta_file, snp_file, gdf_file=None, moves_file=None):
-        """Load datasets"""
-
-        df = pd.read_csv(meta_file)
-        index_col = 'id'
-        df.set_index(index_col,inplace=True)
-        t = self.meta_table
-        t.setDataFrame(df)
-        t.resizeColumns()
-
-        #try to make GeoDataFrame from input metadata
-        if gdf_file == None:
-            self.cent = self.gdf_from_table(df)
-        else:
-            gdf = gpd.read_file(gdf_file)
-            diffcols = df.columns.difference(gdf.columns)
-            self.cent = gdf.merge(df[diffcols], left_on='id', right_index=True)
-            self.cent = self.cent.set_index('id')
-            #print(self.cent)
-
-        for col in cladelevels:
-            self.cent[col] = self.cent[col].astype(str)
-        self.update_clades()
-        #snps
-        #self.coresnps = pd.read_csv(snp_file, sep=' ')
-        #self.snpdist = pd.read_csv(snp_file,index_col=0)
-        #movement
-        #self.moves= pd.read_csv(moves_file)
-        self.update()
-        return
-
-    def load_parcels(self):
+    def load_parcels(self, filename=None, herdcol=None, crs=None):
         """Import a parcels shapefile"""
 
-        filename, _ = QFileDialog.getOpenFileName(self, 'Open Shapefile', './',
+        if filename == None:
+            filename, _ = QFileDialog.getOpenFileName(self, 'Open Shapefile', './',
                                         filter="shapefile(*.shp);;All Files(*.*)")
         df = gpd.read_file(filename)
         #get herd_no column
         cols = df.columns
-        item, ok = QInputDialog.getItem(self, 'Select HERD_NO field', 'HERD_NO field:', cols, 0, False)
-        df = df.rename(columns={item: 'SPH_HERD_N'})
-        if df.crs is None:
+        if herdcol == None:
+            herdcol, ok = QInputDialog.getItem(self, 'Select HERD_NO field', 'HERD_NO field:', cols, 0, False)
+        df = df.rename(columns={herdcol: 'SPH_HERD_N'})
+        if df.crs is None and crs == None:
             codes = ['EPSG:29902','EPSG:29901','EPSG:27700','EPSG:4362','WGS84']
             crs, ok = QInputDialog.getItem(self, 'No CRS present', 'Select CRS:', codes, 0, False)
-            df.set_crs(crs)
+
+        df.set_crs(crs)
         #convert crs to default
         df = df.set_crs("EPSG:29902")
         self.parcels = df
+        print ('parcels loaded')
         #if no lpis_cent use parcel centroids - mainly to avoid errors
         if self.lpis_cent is None:
             self.lpis_cent = calculate_parcel_centroids(self.parcels)
+        return
+
+    def load_folder(self):
+        """Load files from a folder"""
+
+        options = QFileDialog.Options()
+        path = QFileDialog.getExistingDirectory(self,"Select folder",
+                                            os.getcwd(),
+                                            QFileDialog.ShowDirsOnly)
+        if not path:
+            return
+        self.load_sim_data(path)
+        return
+
+    def load_sim_data(self, path):
+        """Load a simulated dataset from a folder"""
+
+        meta_file = os.path.join(path, 'meta.csv')
+        snp_file = os.path.join(path, 'snpdist.csv')
+        gdf_file = os.path.join(path, 'parcels.shp')
+        moves_file = os.path.join(path, 'movement.csv')
+        #samples
+        self.load_samples(meta_file, index='id')
+        #parcels
+        self.load_parcels(gdf_file, herdcol='herd', crs='EPSG:29902')
+        #snp dist
+        self.snpdist = pd.read_csv(snp_file,index_col=0)
+        #movement
+        self.load_moves(moves_file)
+        self.update()
+        self.update_widgets()
         return
 
     def simulate_data(self):
@@ -1301,21 +1308,21 @@ class App(QMainWindow):
         colorparcelscol = self.colorparcelsbyw.currentText()
         cmap = self.cmapw.currentText()
         legend = self.legendb.isChecked()
-        jitter = self.jitterb.isChecked()
+        #jitter = self.jitterb.isChecked()
 
         if self.sub is None or len(self.sub) == 0:
             return
 
         self.plot_counties()
         #land parcels
-        if self.parcelsb.isChecked():
+        if self.parcelsb.isChecked() and self.parcels is not None:
             herds = list(self.sub.HERD_NO)
             p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
             self.plot_parcels(p, col=colorparcelscol,cmap=cmap)
 
         #to be removed
-        if jitter == True:
-            self.sub = apply_jitter(self.sub, radius=100)
+        #if jitter == True:
+        #    self.sub = apply_jitter(self.sub, radius=100)
 
         if self.showneighboursb.isChecked() and self.neighbours is not None:
             self.neighbours.plot(color='gray',alpha=0.4,ax=ax)
@@ -1373,9 +1380,9 @@ class App(QMainWindow):
         self.show_selected_table()
 
         #update folium map
-        #if self.showfoliumb.isChecked():
-        #    self.foliumview.plot(self.sub, self.parcels, colorcol=colorcol)
-        #    self.show_folium()
+        if self.showfoliumb.isChecked():
+            #self.foliumview.plot(self.sub, self.parcels, colorcol=colorcol)
+            self.show_folium()
         return
 
     def show_folium(self):
@@ -1390,8 +1397,9 @@ class App(QMainWindow):
             mov = None
         herds = list(self.sub.HERD_NO)
         p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
-        self.foliumview.plot(self.sub, p, moves=mov,
-                             lpis_cent=self.lpis_cent, colorcol=colorcol, parcelscol=parcelscol)
+        self.foliumview.plot(self.sub, p, moves=mov, lpis_cent=self.lpis_cent,
+                             colorcol=colorcol, parcelscol=parcelscol,
+                             cmap=cmap)
         self.tabs.setCurrentIndex(1)
         return
 

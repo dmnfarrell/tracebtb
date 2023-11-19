@@ -142,8 +142,10 @@ class FoliumViewer(QWidget):
         #self.test()
         return
 
-    def test(self):
-        code = '<html> HELLO </html>'
+    def clear(self):
+        """Clear"""
+
+        code = '<html>  </html>'
         self.main.setHtml(code)
         return
 
@@ -183,24 +185,24 @@ class FoliumViewer(QWidget):
         map = folium.Map(location=[c.y, c.x], crs='EPSG3857',tiles='openstreetmap',
                             width=1500, height=1200 ,max_bounds=True, control_scale = True)
 
-        basestyle = {'fillColor': 'blue', 'color': 'gray','weight':1}
-        def style_func(data):
-            feature = data['features']
+        basestyle = {'fillColor': 'blue', 'fillOpacity': 0.4, 'color': 'gray','weight':1}
+        def style_func(feature):
             return {
                 'fillColor': feature['properties']['color'],
                 'weight': 1,
-                'fillOpacity': 0.7,
+                'color': 'gray',
+                'fillOpacity': 0.5,
             }
         if parcels is not None:
-            '''if parcelscol not in [None, '']:
+            if parcelscol not in [None, '']:
                 labels = parcels[parcelscol].unique()
                 colors = plotting.gen_colors(cmap=cmap,n=len(labels))
                 lut = dict(zip(labels, colors))
                 parcels['color'] = parcels[parcelscol].map(lut)
-                style = style_func
-            else:'''
-            style = basestyle
-            p = folium.GeoJson(parcels.to_crs('EPSG:4326'),style_function=lambda x:style)
+                style = lambda x:style_func(x)
+            else:
+                style = basestyle
+            p = folium.GeoJson(parcels.to_crs('EPSG:4326'),style_function=style)
             p.add_to(map, name='parcels')
 
         #colors = plotting.random_colors(n=len(labels),seed=20)
@@ -243,5 +245,5 @@ class FoliumViewer(QWidget):
         tip = ''
         for i,val in x.items():
             if i in cols:
-                tip+='{}={}<br>'.format(i,val)
+                tip+='{}: {}<br>'.format(i,val)
         return tip

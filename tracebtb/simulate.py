@@ -46,7 +46,7 @@ borders = gpd.read_file(os.path.join(data_path,'counties.shp'))
 logoimg = os.path.join(iconpath, 'simulate.svg')
 bounds = [230000,230000,250000,250000]
 
-class SimulateApp(QWidget):
+class SimulateApp(QMainWindow):
     """Simulation dialog"""
 
     def __init__(self, parent=None):
@@ -56,18 +56,21 @@ class SimulateApp(QWidget):
         self.setGeometry(QtCore.QRect(300, 200, 680, 600))
         self.setWindowTitle("Herd ABM Simulation")
         self.setWindowModality(Qt.ApplicationModal)
+        self.create_menu()
         self.createWidgets()
         sizepolicy = QSizePolicy()
         self.setSizePolicy(QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding))
         self.setWindowIcon(QIcon(logoimg))
         self.path = None
-        self.threadpool = QtCore.QThreadPool()       
+        self.threadpool = QtCore.QThreadPool()
         return
 
     def createWidgets(self):
         """Create widgets. Plot on left and dock for tools on right."""
 
-        layout = QFormLayout(self)
+        self.main = QWidget()
+        self.setCentralWidget(self.main)
+        layout = QFormLayout(self.main)
 
         row = QWidget()
         layout.addRow(row)
@@ -134,7 +137,7 @@ class SimulateApp(QWidget):
         w.setValue(360)
         hbox.addWidget(w)
         lbl = QLabel('Empty Fraction:')
-        hbox.addWidget(lbl)   
+        hbox.addWidget(lbl)
         w = self.emptyw = QDoubleSpinBox()
         w.setRange(.01,.99)
         w.setValue(.5)
@@ -167,7 +170,7 @@ class SimulateApp(QWidget):
         self.progressbar.setAlignment(Qt.AlignRight)
         self.progressbar.setMaximum(100)
 
-        self.runbtn = button = QPushButton("Run")
+        self.runbtn = button = QPushButton("Start")
         button.clicked.connect(self.run)
         layout.addRow(button)
         self.stopbtn = button = QPushButton("Stop/Pause")
@@ -182,6 +185,43 @@ class SimulateApp(QWidget):
         w = self.statusbar = QLabel()
         layout.addRow(w)
         w.setText('')
+        return
+
+    def create_menu(self):
+        """Create the menu bar for the application. """
+
+        self.file_menu = QMenu('File', self)
+        self.file_menu.addAction('Load Model', lambda: self.load_model())
+        self.file_menu.addAction('Save Model', lambda: self.save_model())
+        self.file_menu.addAction('Quit', self.quit)
+        self.menuBar().addMenu(self.file_menu)
+        self.help_menu = QMenu('Help', self)
+        self.menuBar().addMenu(self.help_menu)
+        self.help_menu.addAction('&Help', self.online_documentation)
+        return
+
+    def load_model(self):
+
+        import btbabm
+        filename, _ = QFileDialog.getOpenFileName(self, 'Load Model', './',
+                                        filter="Project Files(*.model);;All Files(*.*)")
+        if not filename:
+            return
+        model = self.model = btbabm.load_model(filename)
+        ax = self.gridview.ax
+        ax.clear()
+        btbabm.plot_grid(model,ax=ax,pos=model.pos,colorby='strain',ns='num_infected')
+        self.processing_completed()
+        return
+
+    def save_model(self):
+
+        options = QFileDialog.Options()
+        filename, _ = QFileDialog.getSaveFileName(self,"Save Model",
+                                                  "","Model files (*.model);;All files (*.*)",
+                                                  options=options)
+        if filename:
+            self.model.save(filename)
         return
 
     def pick_folder(self, name):
@@ -246,14 +286,13 @@ class SimulateApp(QWidget):
                                                  bounds=bounds,crs='EPSG:29902',
                                                  seed=seed)
             parcels['loc_type'] = 'farm'
-            self.parcels = parcels
             Glp,pos,cent = btbabm.land_parcels_to_graph(parcels,dist=100,empty=.5)
             model = btbabm.FarmPathogenModel(graph=Glp,pos=pos,C=animals,
                                      seq_length=100,
                                      allow_moves=moves,
                                      mean_inf_time=inf_time,mean_stay_time=stay_time,
                                      mean_latency_time=120,infected_start=5)
-
+            model.parcels = parcels
             #parcels.plot(color=parcels.color,ec='.2',alpha=0.5,ax=self.parcelsview.ax)
             fig = btbabm.plot_parcels_graph(parcels, cent, Glp, pos, labels=True)
             #self.parcelsview.redraw()
@@ -302,7 +341,7 @@ class SimulateApp(QWidget):
         #alignment
         AlignIO.write(model.aln,os.path.join(self.path,'aln.fasta'),'fasta')
         #parcels
-        self.parcels.to_file(os.path.join(self.path, 'parcels.shp'))
+        model.parcels.to_file(os.path.join(self.path, 'parcels.shp'))
         #moves
         moves = model.get_moves()
         moves.to_csv(os.path.join(self.path,'movement.csv'),index=False)
@@ -344,10 +383,21 @@ class SimulateApp(QWidget):
         return
 
     def closeEvent(self, event):
-        
-        self.running = False        
+
+        self.running = False
         event.accept()
         return
+
+    def online_documentation(self,event=None):
+        """Open the online documentation"""
+
+        link='https://github.com/dmnfarrell/btbabm'
+        import webbrowser
+        webbrowser.open(link, new=2)
+        return
+
+    def quit(self):
+        self.close()
 
 def main():
     "Run the application"
