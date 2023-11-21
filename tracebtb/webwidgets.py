@@ -201,7 +201,7 @@ class FoliumViewer(QWidget):
                 parcels['color'] = parcels[parcelscol].map(lut)
                 style = lambda x:style_func(x)
             else:
-                style = basestyle
+                style = lambda x:basestyle
             p = folium.GeoJson(parcels.to_crs('EPSG:4326'),style_function=style)
             p.add_to(map, name='parcels')
 

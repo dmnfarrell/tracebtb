@@ -1601,6 +1601,8 @@ class App(QMainWindow):
             from Bio.Align import MultipleSeqAlignment
             seqs = [rec for rec in self.aln if rec.id in idx]
             aln = MultipleSeqAlignment(seqs)
+            if len(aln) == 0:
+                return
             treefile = trees.tree_from_aln(aln)
         elif hasattr(self, 'snpdist'):
             treefile = 'tree.newick'
@@ -1608,7 +1610,6 @@ class App(QMainWindow):
             trees.tree_from_distmatrix(M, treefile)
         else:
             print ('no alignment or dist matrix')
-        if treefile == None:
             return
         import toyplot
         w = QWebEngineView()
