@@ -132,9 +132,16 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
         ax.clear()
         ax.set_title('no locations available')
         return
+
     minx, miny, maxx, maxy = df.total_bounds
-    maxx+=10
-    maxy+=10
+    if len(df) == 1:
+        minx-=1000
+        miny-=1000
+        maxx+=1000
+        maxy+=1000
+    else:
+        maxx+=10
+        maxy+=10
 
     #df['color'] = df.Species.map({'Bovine':'blue','Badger':'orange'})
     #map color to col here properly?
@@ -463,6 +470,7 @@ class App(QMainWindow):
                  'Zoom out': {'action':self.zoom_out,'file':'zoom-out'},
                  'Zoom in': {'action':self.zoom_in,'file':'zoom-in'},
                  'Scratchpad': {'action':self.show_scratchpad,'file':'scratchpad'},
+                 'Filter': {'action':self.show_filter,'file':'filter'},
                  'Settings': {'action':self.preferences,'file':'settings'},
                  'Herd Summary':{'action':self.herd_summary,'file':'cow'},
                  'Cluster Report':{'action':self.cluster_report ,'file':'cluster_report'},
@@ -534,7 +542,7 @@ class App(QMainWindow):
 
         #zoom to county
         self.countyw =w = QComboBox(m)
-        w.addItems(counties)
+        w.addItems(['']+counties)
         l.addWidget(QLabel('County:'))
         l.addWidget(w)
         w.currentIndexChanged.connect(self.plot_county)
@@ -635,15 +643,15 @@ class App(QMainWindow):
     def update_clades(self):
         """Update the 'group by' widget"""
 
-        level = self.cladelevelw.currentText()
-        clades = self.cent[level].value_counts()
-        clades = clades[clades>1]
+        groupby = self.cladelevelw.currentText()
+        vals = self.cent[groupby].value_counts()
+        #clades = clades[clades>1]
         t = self.cladew
         t.clear()
 
-        for cl,size in clades.items():
+        for g,size in vals.items():
             item = QTreeWidgetItem(t)
-            item.setText(0, cl)
+            item.setText(0, g)
             item.setText(1, str(size))
         return
 
@@ -804,6 +812,10 @@ class App(QMainWindow):
         self.tools_menu.addAction(icon, 'Extract Parcels/Centroids', self.get_lpis_centroids)
         icon = QIcon(os.path.join(iconpath,'neighbours.svg'))
         self.tools_menu.addAction(icon,'Extract Neighbouring Parcels', self.get_neighbouring_parcels)
+        icon = QIcon(os.path.join(iconpath,'clusters.svg'))
+        self.tools_menu.addAction(icon, 'Get Clusters from SNPs', self.get_clusters)
+        icon = QIcon(os.path.join(iconpath,'cow.svg'))
+        self.tools_menu.addAction(icon, 'Count Animal Moves', self.count_animal_moves)
 
         self.tools_menu.addSeparator()
         icon = QIcon(os.path.join(iconpath,'mbovis.svg'))
@@ -1086,6 +1098,47 @@ class App(QMainWindow):
         df = apply_jitter(df, radius=100)
         self.cent = df
         self.meta_table.setDataFrame(self.cent)
+        return
+
+    def get_clusters(self):
+        """Get clades/clusters for samples"""
+
+        from . import clustering
+        def func(progress_callback):
+            if not hasattr(self, 'snpdist'):
+                if self.aln is not None:
+                    print ('calculating snp matrix. may take some time..')
+                    self.snpdist = tools.snp_dist_matrix(self.aln)
+                else:
+                    print ('no alignment or dist matrix found')
+                    return
+            clusts,members = clustering.get_cluster_levels(self.snpdist)
+
+        def completed():
+            print ()
+            self.processing_completed()
+        self.run_threaded_process(func, completed)
+        return
+
+    def count_animal_moves(self):
+        """Count animal moves from movement data"""
+
+        if self.moves is None:
+            return
+        #print(self.moves)
+        cols=['Animal_ID']+list(self.moves.columns)
+        df = self.cent.merge(self.moves,left_on='Animal_ID',right_on='tag',how='inner')[cols]
+        df = df[df.data_type=='F_to_F']
+        g = df.Animal_ID.value_counts()
+        g = df.groupby('Animal_ID').count()['id'].reset_index()
+        g = g.rename(columns={'id':'moves'})
+        print (g)
+        #put into main table
+
+        self.cent = self.cent.merge(g, on='Animal_ID', how='left')
+        self.cent['moves'] = self.cent.moves.fillna(0).astype(str)
+        self.meta_table.setDataFrame(self.cent)
+        self.update_widgets()
         return
 
     def load_samples(self, filename=None, index=None):
@@ -1637,6 +1690,13 @@ class App(QMainWindow):
         w = widgets.PlotWidget(self)
         tools.dist_matrix_to_mst(D,self.sub,colorcol, cmap=cmap,ax=w.ax)
         self.show_dock_object(w, 'mst')
+        return
+
+    def show_filter(self):
+        """Filter widget"""
+
+        w = widgets.FilterDialog(self, self.meta_table)
+        self.show_dock_object(w, 'filtering', side='top')
         return
 
     def show_scratchpad(self):
