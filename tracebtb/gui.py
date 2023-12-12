@@ -470,7 +470,7 @@ class App(QMainWindow):
                  'Zoom out': {'action':self.zoom_out,'file':'zoom-out'},
                  'Zoom in': {'action':self.zoom_in,'file':'zoom-in'},
                  'Scratchpad': {'action':self.show_scratchpad,'file':'scratchpad'},
-                 'Filter': {'action':self.show_filter,'file':'filter'},
+                 #'Filter': {'action':self.show_filter,'file':'filter'},
                  'Settings': {'action':self.preferences,'file':'settings'},
                  'Herd Summary':{'action':self.herd_summary,'file':'cow'},
                  'Cluster Report':{'action':self.cluster_report ,'file':'cluster_report'},
