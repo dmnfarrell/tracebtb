@@ -912,7 +912,7 @@ class MovesTable(DataFrameTable):
 
 class HerdTable(DataFrameTable):
     """
-    QTableView with pandas DataFrame as model.
+    QTableView for herd data.
     """
     def __init__(self, parent=None, app=None, dataframe=None, **kwargs):
         DataFrameTable.__init__(self, **kwargs)
@@ -941,7 +941,9 @@ class HerdTable(DataFrameTable):
         return
 
 class TableViewer(QDialog):
-    """View row of data in table"""
+    """
+    View row of data in table
+    """
     def __init__(self, parent=None, dataframe=None, **kwargs):
         super(TableViewer, self).__init__(parent)
         self.setGeometry(QtCore.QRect(200, 200, 600, 600))
@@ -955,4 +957,3 @@ class TableViewer(QDialog):
     def setDataFrame(self, dataframe):
         self.table.model.df = dataframe
         return
-

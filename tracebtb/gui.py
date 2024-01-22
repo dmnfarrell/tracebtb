@@ -37,6 +37,8 @@ from shapely.geometry import Point, LineString, Polygon, MultiPolygon
 from matplotlib_scalebar.scalebar import ScaleBar
 import contextily as cx
 
+#fix for browser display
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox"
 home = os.path.expanduser("~")
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
@@ -324,8 +326,8 @@ def get_moves_bytag(df, move_df, lpis_cent):
     if len(m)==0:
         return
     #add in source farms - is this needed?
-    x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
-    m = pd.concat([m,x])#.dropna(subset='Animal_ID')
+    #x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
+    #m = pd.concat([m,x])#.dropna(subset='Animal_ID')
     #print (m.iloc[0])
     m = m.sort_values(by=['Animal_ID','move_date'])
     m = gpd.GeoDataFrame(m)
@@ -633,9 +635,9 @@ class App(QMainWindow):
         b.setCheckable(True)
         l.addWidget(b)
         self.widgets['showtree'] = b
-        self.showmstb = b = widgets.createButton(m, None, self.update, 'mst', core.ICONSIZE, 'show MST')
-        b.setCheckable(True)
-        l.addWidget(b)
+        #self.showmstb = b = widgets.createButton(m, None, self.update, 'mst', core.ICONSIZE, 'show MST')
+        #b.setCheckable(True)
+        #l.addWidget(b)
         b = widgets.createButton(m, None, self.save_to_scratchpad, 'snapshot', core.ICONSIZE, 'take snapshot')
         l.addWidget(b)
         return m
@@ -1407,8 +1409,8 @@ class App(QMainWindow):
             #clear tree
             #self.clear_tree()
         #mst
-        if self.showmstb.isChecked():
-            self.plot_mst()
+        #if self.showmstb.isChecked():
+        #    self.plot_mst()
 
         if self.title != None:
             fig.suptitle(self.title)
@@ -1612,9 +1614,10 @@ class App(QMainWindow):
         return
 
     def set_bounds(self, gdf):
+        """Set bounds of plot using geodataframe"""
 
         margin=10
-        ax=self.plotview.ax
+        ax = self.plotview.ax
         minx, miny, maxx, maxy = gdf.total_bounds
         ax.set_xlim(minx-margin,maxx+margin)
         ax.set_ylim(miny-margin,maxy+margin)

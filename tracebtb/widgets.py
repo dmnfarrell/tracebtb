@@ -644,10 +644,11 @@ class FilterDialog(QWidget):
         self.table = table
         self.app = app
         self.setWindowTitle(title)
-        self.resize(400,200)
-        self.createWidgets()
+        self.resize(400,400)
+        self.createWidgets()        
         self.filters = []
         self.ignorecase = True
+        self.addFilter()
         #self.setMinimumHeight(200)
         #self.show()
         return
@@ -673,10 +674,10 @@ class FilterDialog(QWidget):
         cols = list(df.columns)
         self.layout = QVBoxLayout(self)
         self.setLayout(self.layout)
-        self.query_w = QLineEdit()
-        self.layout.addWidget(QLabel('String filter'))
-        self.layout.addWidget(self.query_w )
-        self.query_w.returnPressed.connect(self.apply)
+        #self.query_w = QLineEdit()
+        #self.layout.addWidget(QLabel('String filter'))
+        #self.layout.addWidget(self.query_w )
+        #self.query_w.returnPressed.connect(self.apply)
         w = self.column_w = QListWidget()
         w.setSelectionMode(QAbstractItemView.MultiSelection)
         #w.setFixedHeight(60)
