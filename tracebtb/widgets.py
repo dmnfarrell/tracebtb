@@ -634,6 +634,101 @@ class DynamicDialog(QDialog):
         kwds = self.opts.kwds
         return kwds
 
+class SimpleFilterWidget(QDockWidget):
+    """Simple filtering for tables"""
+
+    def __init__(self, parent, table, title=None):
+        super(SimpleFilterWidget, self).__init__(parent)
+        self.parent = parent
+        self.table = table
+        self.createWidgets()
+        self.setMaximumHeight(200)
+        return
+
+    def createWidgets(self):
+        """Create widgets"""
+
+        style = '''
+            QWidget {
+                font-size: 12px;
+            }
+            QPlainTextEdit {
+                max-height: 80px;
+            }
+            QScrollBar:vertical {
+                width: 15px;
+                margin: 1px 0 1px 0;
+            }
+            QScrollBar::handle:vertical {
+                min-height: 20px;
+            }
+            QComboBox {
+                combobox-popup: 0;
+                max-height: 30px;
+                max-width: 150px;
+            }
+            '''
+
+        dockstyle = '''          
+            QDockWidget::title {
+                background-color: #DEE1D6;
+            }
+            '''
+
+        df = self.table.model.df
+        cols = list(df.columns)
+        cols.insert(0,'Any')
+        
+        self.setFeatures(QDockWidget.DockWidgetClosable)    
+        self.setWindowTitle('Search')
+        self.main = QWidget()
+        self.setStyleSheet(dockstyle)
+        self.main.setStyleSheet(style)
+        self.main.setMaximumHeight(200)
+        self.setWidget(self.main)
+        l = self.layout = QVBoxLayout(self.main)
+        l.setContentsMargins(0, 0, 0, 0)
+        l.setSpacing(0)
+        w = self.queryedit = QLineEdit(self)
+        self.table.proxy.setFilterKeyColumn(-1)
+        #w.textChanged.connect(self.table.proxy.setFilterFixedString)
+        l.addWidget(QLabel("Query:"))
+        l.addWidget(w)
+        w = QWidget()
+        l.addWidget(w)
+        hb = QHBoxLayout(w)
+        hb.addWidget(QLabel('Column:'))
+        w = self.searchcolw = QComboBox()
+        w.addItems(cols)
+        hb.addWidget(w)
+
+        btn = QPushButton('Search')
+        btn.clicked.connect(self.apply)
+        l.addWidget(btn)
+        return
+
+    def closeEvent(self, ce):
+        self.clear()
+
+    def apply(self):
+        """Apply filters"""
+
+        df = self.table.model.df
+        proxy = self.table.proxy
+        searchcol = self.searchcolw.currentText()
+        text = self.queryedit.text()
+        if searchcol == 'Any':
+            proxy.setFilterKeyColumn(-1)
+        else:
+            c = df.columns.get_loc(searchcol)
+            proxy.setFilterKeyColumn(c)
+        proxy.setFilterCaseSensitivity(QtCore.Qt.CaseInsensitive)       
+        self.table.applyFilters(text)
+        return
+
+    def clear(self):
+        self.table.proxy.setFilterFixedString("")
+
 class FilterDialog(QWidget):
     """Qdialog for table query/filtering"""
     def __init__(self, parent, table, title=None, app=None):
@@ -645,11 +740,11 @@ class FilterDialog(QWidget):
         self.app = app
         self.setWindowTitle(title)
         self.resize(400,400)
-        self.createWidgets()        
+        self.createWidgets()
         self.filters = []
         self.ignorecase = True
         self.addFilter()
-        #self.setMinimumHeight(200)
+        #self.setMinimumHeight(300)
         #self.show()
         return
 
@@ -1423,7 +1518,7 @@ class CustomPlotViewer(PlotViewer):
         #c = plt.Circle([x,y], 600, color='g', alpha=.5)
         #self.ax.add_patch(c)
         self.canvas.draw()
-        df = self.app.cent
+        df = self.app.meta_table.model.df
         pad=500
         found = df.cx[x-pad:x+pad, y-pad:y+pad]
         if len(found)>0:
@@ -1464,7 +1559,7 @@ class BrowserViewer(QDialog):
         self.main = QWidget()
         vbox = QVBoxLayout(self.main)
         layout.addWidget(self.main)
-        from PySide2.QtWebEngineWidgets import QWebEngineView
+
         self.browser = QWebEngineView()
         vbox = QVBoxLayout()
         self.setLayout(vbox)
@@ -1795,7 +1890,6 @@ class PreferencesDialog(QDialog):
         self.updateWidgets()
         self.apply()
         return
-
 
 class Worker(QtCore.QRunnable):
     """Worker thread for running background tasks."""

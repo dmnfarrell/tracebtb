@@ -2,6 +2,13 @@
 CHANGES
 =======
 
+0.4.0
+-----
+
+* group by any ordinal column, not just clades
+* now use meta_table df directly, removed cent variable
+* added table filtering
+
 0.3.0
 -----
 

@@ -28,6 +28,27 @@ from .qt import *
 from . import core, widgets, plotting
 from pandas.api.types import is_datetime64_any_dtype as is_datetime
 
+style = '''
+    QWidget {    
+        font-size: 12px;    
+    }
+    QPlainTextEdit {
+        max-height: 80px;
+    }
+    QScrollBar:vertical {
+         width: 15px;
+         margin: 1px 0 1px 0;
+     }
+    QScrollBar::handle:vertical {
+         min-height: 20px;
+     }
+    QComboBox {
+        combobox-popup: 0;
+        max-height: 30px;
+        max-width: 150px;
+    } 
+    '''
+
 class ColumnHeader(QHeaderView):
     def __init__(self):
         super(QHeaderView, self).__init__()
@@ -35,7 +56,7 @@ class ColumnHeader(QHeaderView):
 
 class DataFrameWidget(QWidget):
     """Widget containing a tableview and statusbar"""
-    def __init__(self, parent=None, table=None, statusbar=True, toolbar=False, **kwargs):
+    def __init__(self, parent=None, table=None, statusbar=True, searchbar=False, toolbar=False, **kwargs):
         """
         Widget containing a dataframetable - allows us to pass any table subclass
         """
@@ -45,7 +66,7 @@ class DataFrameWidget(QWidget):
         l.setSpacing(2)
         self.setLayout(self.layout)
         #self.plotview = widgets.PlotViewer()
-        if table == None:
+        if table == None:            
             self.table = DataFrameTable(self, dataframe=pd.DataFrame())
         else:
             self.table = table
@@ -55,6 +76,8 @@ class DataFrameWidget(QWidget):
             self.createToolbar()
         if statusbar == True:
             self.statusBar()
+        if searchbar == True:
+            self.showSearchBar()
 
         self.table.model.dataChanged.connect(self.stateChanged)
         return
@@ -65,6 +88,28 @@ class DataFrameWidget(QWidget):
 
         if hasattr(self, 'pf') and self.pf is not None:
             self.pf.updateData()
+
+    def toggleSearchBar(self):
+
+        if not hasattr(self, 'searchbar'):
+            self.showSearchBar()
+        else:
+            self.searchbar.hide()
+        return
+
+    def showSearchBar(self):
+        """Search bar"""
+
+        df = self.table.model.df
+        cols = list(df.columns)
+        cols.insert(0,'Any')
+        if hasattr(self, 'searchbar'):
+            self.searchbar.show()
+        else:        
+            sb = self.searchbar = widgets.SimpleFilterWidget(self, self.table)
+            self.layout.addWidget(sb, 3, 1)
+            sb.setMaximumHeight(200)
+        return
 
     def statusBar(self):
         """Status bar at bottom"""
@@ -94,6 +139,7 @@ class DataFrameWidget(QWidget):
 
         self.setLayout(self.layout)
         items = {
+                 'filter':{'action':self.toggleSearchBar,'file':'filter'},
                  'bar': {'action':self.plot_bar,'file':'plot-bar'},
                  'barh': {'action':self.plot_barh,'file':'plot-barh'},
                  'hist': {'action':self.plot_hist,'file':'plot-hist'},
@@ -211,7 +257,7 @@ class DataFrameTable(QTableView):
 
         QTableView.__init__(self)
         self.parent = parent
-        self.clicked.connect(self.showSelection)
+        #self.clicked.connect(self.showSelection)
         #self.doubleClicked.connect(self.handleDoubleClick)
         #self.setSelectionBehavior(QTableView.SelectRows)
         #self.setSelectionBehavior(QTableView.SelectColumns)
@@ -247,8 +293,15 @@ class DataFrameTable(QTableView):
 
         self.updateFont()
         tm = DataFrameModel(dataframe)
-        self.setModel(tm)
+        #self.setModel(tm)
         self.model = tm
+
+        self.proxy = QtCore.QSortFilterProxyModel()
+        #self.proxy = CustomProxyModel()
+        self.proxy.setSourceModel(self.model)
+        self.setModel(self.proxy)
+        self.proxy.sort(0, Qt.AscendingOrder)
+
         self.setWordWrap(False)
         self.setCornerButtonEnabled(True)
         if plotter == None:
@@ -274,8 +327,14 @@ class DataFrameTable(QTableView):
         if df is None:
             df = pd.DataFrame()
         tm = DataFrameModel(df)
-        self.setModel(tm)
+        #self.setModel(tm)
         self.model = tm
+        #reset the proxy model too
+        self.proxy = QtCore.QSortFilterProxyModel()
+        #self.proxy = CustomProxyModel()
+        self.proxy.setSourceModel(self.model)
+        self.setModel(self.proxy)
+        self.proxy.sort(0, Qt.AscendingOrder)        
         return
 
     def getDataFrame(self):
@@ -332,16 +391,18 @@ class DataFrameTable(QTableView):
         td = dialogs.TextDialog(self, buf.getvalue(), 'Info')
         return
 
-    def showSelection(self, item):
+    '''def showSelection(self, item):
+        """Show the row selection"""
 
-        cellContent = item.data()
-        #print(cellContent)  # test
+        cellContent = item.data()        
         row = item.row()
         model = item.model()
-        columnsTotal= model.columnCount(None)
-        return
+        index = model.createIndex(row, 0)
+        columnsTotal = model.columnCount(index)
+        return'''
 
     def getSelectedRows(self):
+        """Get selected row indexes"""
 
         sm = self.selectionModel()
         rows = [(i.row()) for i in sm.selectedIndexes()]
@@ -597,6 +658,24 @@ class DataFrameTable(QTableView):
             self.model.sort(idx, ascending)
         return
 
+    def applyFilters(self, query):
+        """Apply filter to table"""
+
+        #print (query)
+        #regexp = QtCore.QRegExp(query, Qt.CaseInsensitive, QtCore.QRegExp.FixedString)
+        #regexp = f".*{query}.*"     
+        #self.proxy.setFilterRegExp(regexp)
+        self.proxy.setFilterFixedString(query)
+        #self.proxy.setFilterKeyColumn(-1)
+        #self.proxy.invalidateFilter()
+        return
+
+    def clearFilters(self):
+        """Clear filters"""
+
+        self.proxy.setFilterFixedString("")
+        return
+
     def transpose(self):
 
         self.model.df = self.model.df.T
@@ -676,6 +755,8 @@ class DataFrameModel(QtCore.QAbstractTableModel):
         return len(self.df.index)
 
     def columnCount(self, parent=QtCore.QModelIndex()):
+        #if parent.isValid():
+        #    return 0
         return len(self.df.columns.values)
 
     def data(self, index, role=QtCore.Qt.DisplayRole):
@@ -760,9 +841,9 @@ class DataFrameModel(QtCore.QAbstractTableModel):
         #self.dataChanged.emit()
         return True
 
-    def onDataChanged(self):
+    #def onDataChanged(self):
         #print (self.df)
-        return
+    #    return
 
     def setColumnColor(self, columnIndex, color):
         for i in range(self.rowCount()):
@@ -772,6 +853,25 @@ class DataFrameModel(QtCore.QAbstractTableModel):
     def flags(self, index):
             return Qt.ItemIsSelectable|Qt.ItemIsEnabled|Qt.ItemIsEditable
 
+class CustomProxyModel(QtCore.QSortFilterProxyModel):
+    def __init__(self):
+        super(CustomProxyModel, self).__init__()
+
+    def filterAcceptsRow(self, source_row, source_parent):
+
+        df = self.sourceModel().df
+        filter_text = self.filterRegExp().pattern()
+        print (filter_text)
+        if filter_text.isEmpty():
+            return True
+
+        for col in range(len(self.df.columns)):
+            data = df.iloc[source_row, col]
+            if filter_text in str(data):
+                return True
+
+        return False
+    
 class SampleTableModel(DataFrameModel):
     """Samples table model class"""
     def __init__(self, dataframe=None, *args):
@@ -791,6 +891,11 @@ class SampleTable(DataFrameTable):
         self.setWordWrap(False)
         tm = SampleTableModel(dataframe)
         self.setModel(tm)
+        self.proxy = QtCore.QSortFilterProxyModel()
+        #self.proxy = CustomProxyModel()
+        self.proxy.setSourceModel(self.model)
+        self.setModel(self.proxy)
+        self.proxy.sort(0, Qt.AscendingOrder)
         return
 
     def setDataFrame(self, df=None):
@@ -802,8 +907,13 @@ class SampleTable(DataFrameTable):
             df = df.set_index('sample', drop=False)
             df.index.name = 'index'
         tm = SampleTableModel(df)
-        self.setModel(tm)
+        #self.setModel(tm)
         self.model = tm
+        self.proxy = QtCore.QSortFilterProxyModel()
+        #self.proxy = CustomProxyModel()
+        self.proxy.setSourceModel(self.model)
+        self.setModel(self.proxy)
+        self.proxy.sort(0, Qt.AscendingOrder)        
         return
 
     def addActions(self, event, row):
@@ -857,7 +967,7 @@ class SampleTable(DataFrameTable):
         #also sync the geodataframe
         mask = ~self.app.cent.index.isin(idx)
         self.app.cent = self.app.cent[mask]
-        print (len(self.app.cent))
+        #print (len(self.app.cent))
         self.app.update_clades()
         self.refresh()
         return
@@ -872,7 +982,7 @@ class SampleTable(DataFrameTable):
             return
         self.model.df = self.model.df.drop(columns=cols)
         #also sync the geodataframe
-        self.app.cent = self.app.cent.drop(columns=cols)
+        #self.app.cent = self.app.cent.drop(columns=cols)
         self.refresh()
         return
 

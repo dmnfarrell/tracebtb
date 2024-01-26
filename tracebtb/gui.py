@@ -472,7 +472,7 @@ class App(QMainWindow):
                  'Zoom out': {'action':self.zoom_out,'file':'zoom-out'},
                  'Zoom in': {'action':self.zoom_in,'file':'zoom-in'},
                  'Scratchpad': {'action':self.show_scratchpad,'file':'scratchpad'},
-                 #'Filter': {'action':self.show_filter,'file':'filter'},
+                 'Filter': {'action':self.show_filter,'file':'filter'},
                  'Settings': {'action':self.preferences,'file':'settings'},
                  'Herd Summary':{'action':self.herd_summary,'file':'cow'},
                  'Cluster Report':{'action':self.cluster_report ,'file':'cluster_report'},
@@ -511,6 +511,7 @@ class App(QMainWindow):
     def create_option_widgets(self):
         """Set up map view options"""
 
+        df = self.meta_table.model.df
         self.widgets = {}
         m = QWidget()
         m.setStyleSheet(style)
@@ -520,15 +521,15 @@ class App(QMainWindow):
         l.setAlignment(QtCore.Qt.AlignTop)
         m.setLayout(l)
 
-        #select cluster level
-        self.cladelevelw = w = QComboBox(m)
-        w.addItems(cladelevels)
+        #select grouping column
+        self.groupbyw = w = QComboBox(m)
+        #w.addItems(cols)
         l.addWidget(QLabel('Group by:'))
         l.addWidget(w)
-        w.currentIndexChanged.connect(self.update_clades)
+        w.currentIndexChanged.connect(self.update_groups)
         self.widgets['cladelevel'] = w
         #select clade/cluster
-        l.addWidget(QLabel('Clade:'))
+        l.addWidget(QLabel('Group:'))
         t = self.cladew = QTreeWidget()
         t.setHeaderItem(CustomTreeWidgetItem(["name","size"]))
         t.setColumnWidth(0, 50)
@@ -537,8 +538,8 @@ class App(QMainWindow):
         t.setMinimumHeight(30)
         #t.setSelectionMode(QAbstractItemView.ExtendedSelection)
         #t.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        #t.customContextMenuRequested.connect(self.update_clades)
-        t.itemSelectionChanged.connect(self.plot_selected_clade)
+        #t.customContextMenuRequested.connect(self.update_groups)
+        t.itemSelectionChanged.connect(self.plot_selected_group)
         l.addWidget(t)
         self.widgets['clade'] = t
 
@@ -642,11 +643,15 @@ class App(QMainWindow):
         l.addWidget(b)
         return m
 
-    def update_clades(self):
+    def update_groups(self):
         """Update the 'group by' widget"""
 
-        groupby = self.cladelevelw.currentText()
-        vals = self.cent[groupby].value_counts()
+        df = self.meta_table.model.df
+        groupby = self.groupbyw.currentText()
+        if groupby not in df.columns:
+            return
+        vals = df[groupby].value_counts()
+        #print (vals)
         #clades = clades[clades>1]
         t = self.cladew
         t.clear()
@@ -657,10 +662,28 @@ class App(QMainWindow):
             item.setText(1, str(size))
         return
 
+    def get_ordinal_columns(self):
+
+        ignore = ['sample','Aliquot','geometry','Animal_ID','X_COORD','Y_COORD']
+        df = self.meta_table.model.df
+        ocols = []
+        for col in df.columns:
+            count = df[col].nunique()
+            #print (col, count, len(df[col]))
+            if count==len(df[col]) or col in ignore:
+                continue
+            ocols.append(col)
+        return ocols
+
     def update_widgets(self):
         """Update widgets when new table loaded"""
 
-        cols = ['']+list(self.cent.columns)
+        df = self.meta_table.model.df
+        cols = ['']+list(df.columns)        
+        ocols = self.get_ordinal_columns()
+
+        self.groupbyw.clear()
+        self.groupbyw.addItems(ocols)
         self.labelsw.clear()
         self.labelsw.addItems(cols)
         self.colorbyw.clear()
@@ -689,6 +712,7 @@ class App(QMainWindow):
                                            font=core.FONT, fontsize=core.FONTSIZE, app=self)
         t = self.table_widget = tables.DataFrameWidget(parent=self, table=self.meta_table,
                                         toolbar=False)
+
         self.add_dock(self.table_widget, 'meta data', scrollarea=False)
         self.add_dock_item('meta data')
         #self.m.addWidget(self.table_widget)
@@ -885,7 +909,8 @@ class App(QMainWindow):
 
         filename = self.proj_file
         data={}
-        keys = ['cent','sub','moves','parcels','lpis_cent','neighbours','aln','snpdist']
+        data['meta'] = self.meta_table.model.df
+        keys = ['sub','moves','parcels','lpis_cent','neighbours','aln','snpdist']
         for k in keys:
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
@@ -928,7 +953,8 @@ class App(QMainWindow):
 
         self.outputdir = None
         self.proj_file = None
-        self.meta_table.setDataFrame(pd.DataFrame({'sample':[]}))
+        #self.meta_table.setDataFrame(pd.DataFrame({'sample':[]}))
+
         self.plotview.clear()
         self.foliumview.clear()
         self.cladew.clear()
@@ -945,15 +971,17 @@ class App(QMainWindow):
 
         self.new_project()
         data = pickle.load(open(filename,'rb'))
-        keys = ['cent','sub','moves','parcels','lpis_cent','neighbours','aln','snpdist']
+        keys = ['sub','moves','parcels','lpis_cent','neighbours','aln','snpdist']
         for k in keys:
             if k in data:
                 self.__dict__[k] = data[k]
 
+        #load main table
         t = self.meta_table
-        t.setDataFrame(self.cent)
+        #t.setDataFrame(self.cent)
+        t.setDataFrame(data['meta'])
         self.table_widget.updateStatusBar()
-        self.update_clades()
+        self.update_groups()
         self.update_widgets()
 
         if 'widget_values' in data:
@@ -970,7 +998,8 @@ class App(QMainWindow):
         #t = self.cladew
         #t.setCurrentIndex(t.model().index(0, 4))
         #print (t.selectedIndexes())
-        #self.cent = self.cent.set_index('sample')
+        #self.cent = self.cent.set_index('sample',drop=False)
+        #self.cent = self.cent.reset_index()
         return
 
     def load_project_dialog(self):
@@ -999,9 +1028,9 @@ class App(QMainWindow):
 
         for col in cladelevels:
             self.cent[col] = self.cent[col].astype(str)
-        self.update_clades()
+        self.update_groups()
         self.update_widgets()
-        self.plot_selected_clade()
+        self.plot_selected_group()
 
         #snps
         #self.coresnps = pd.read_csv('testing/core_snps_mbovis.txt', sep=' ')
@@ -1036,9 +1065,10 @@ class App(QMainWindow):
         def completed():
             #add locations to meta data
             print ('updating table..')
+            df = self.meta_table.model.df
             self.set_locations()
             x = self.lpis_master
-            self.parcels = x[x.SPH_HERD_N.isin(self.cent.HERD_NO)]
+            self.parcels = x[x.SPH_HERD_N.isin(df.HERD_NO)]
             self.processing_completed()
             return
 
@@ -1052,6 +1082,7 @@ class App(QMainWindow):
         """Find all neighbouring parcels from LPIS.
         Requires the LPIS master file."""
 
+        df = self.meta_table.model.df
         if self.lpis_master is None:
             print ('LPIS master file not loaded')
             return
@@ -1066,7 +1097,7 @@ class App(QMainWindow):
             d=800
             found = []
             lpis = self.lpis_master
-            for x in self.cent.geometry:
+            for x in df.geometry:
                 dists = self.lpis_cent.distance(x)
                 points = self.lpis_cent[(dists<=d) & (dists>10)]
                 found.append(points)
@@ -1085,9 +1116,13 @@ class App(QMainWindow):
         if self.lpis_cent is None:
             print ('no centroids')
             return
-        df = self.cent
-        #remove previous geometry if any
+        df = self.meta_table.model.df
+        #remove previous geometry? - ask user
         if type(df) is gpd.GeoDataFrame:
+            reply = QMessageBox.question(self, 'Replace?', "Locations already present. Replace?",
+                                            QMessageBox.No | QMessageBox.Yes, QMessageBox.No)
+            if reply == QMessageBox.No:
+                return
             df = pd.DataFrame(df)
             df.drop(columns=['geometry'], inplace=True)
 
@@ -1097,9 +1132,8 @@ class App(QMainWindow):
 
         #jitter any points in same farm
         print ('jittering points')
-        df = apply_jitter(df, radius=100)
-        self.cent = df
-        self.meta_table.setDataFrame(self.cent)
+        df = apply_jitter(df, radius=100)     
+        self.meta_table.setDataFrame(df)
         return
 
     def get_clusters(self):
@@ -1127,9 +1161,10 @@ class App(QMainWindow):
 
         if self.moves is None:
             return
-        #print(self.moves)
+        
+        gdf = self.meta_table.model.df
         cols=['Animal_ID']+list(self.moves.columns)
-        df = self.cent.merge(self.moves,left_on='Animal_ID',right_on='tag',how='inner')[cols]
+        df = gdf.merge(self.moves,left_on='Animal_ID',right_on='tag',how='inner')[cols]
         df = df[df.data_type=='F_to_F']
         g = df.Animal_ID.value_counts()
         g = df.groupby('Animal_ID').count()['id'].reset_index()
@@ -1137,9 +1172,9 @@ class App(QMainWindow):
         print (g)
         #put into main table
 
-        self.cent = self.cent.merge(g, on='Animal_ID', how='left')
-        self.cent['moves'] = self.cent.moves.fillna(0).astype(str)
-        self.meta_table.setDataFrame(self.cent)
+        gdf = gdf.merge(g, on='Animal_ID', how='left')
+        gdf['moves'] = gdf.moves.fillna(0).astype(str)
+        self.meta_table.setDataFrame(gdf)
         self.update_widgets()
         return
 
@@ -1180,10 +1215,9 @@ class App(QMainWindow):
             df = df.set_index(item, drop=False)
             df.index.name = 'index'
 
-        self.cent = df
         t = self.meta_table
-        t.setDataFrame(self.cent)
-        self.update_clades()
+        t.setDataFrame(df)
+        self.update_groups()
         self.update_widgets()
         return
 
@@ -1451,7 +1485,11 @@ class App(QMainWindow):
         else:
             mov = None
         herds = list(self.sub.HERD_NO)
-        p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
+        if self.parcels is not None:
+            p = self.parcels[self.parcels.HERD_NO.isin(herds)]
+        else:
+            print ('no parcels found')
+            p = None
         self.foliumview.plot(self.sub, p, moves=mov, lpis_cent=self.lpis_cent,
                              colorcol=colorcol, parcelscol=parcelscol,
                              cmap=cmap)
@@ -1466,7 +1504,7 @@ class App(QMainWindow):
         source = providers[self.contextw.currentText()]
 
         herds = list(self.sub.HERD_NO)
-        p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
+        p = self.parcels[self.parcels.HERD_NO.isin(herds)]
 
         if not hasattr(self, 'gridview'):
             self.gridview = widgets.CustomPlotViewer(self, controls=False, app=self)
@@ -1485,6 +1523,7 @@ class App(QMainWindow):
     def cluster_report(self):
         """Make pdf report"""
 
+        df = self.meta_table.model.df
         options = QFileDialog.Options()
         filename, _ = QFileDialog.getSaveFileName(self,"Save Report",
                                                   "","pdf files (*.pdf);;All files (*.*)",
@@ -1499,7 +1538,7 @@ class App(QMainWindow):
 
         def func(progress_callback):
             from . import reports
-            reports.cluster_report(self.cent, self.parcels, self.lpis_cent, moves=self.moves,
+            reports.cluster_report(df, self.parcels, self.lpis_cent, moves=self.moves,
                                     alignment=self.aln,
                                     level='snp3', clades=clades, cmap=cmap,
                                     labelcol='Animal_ID', outfile=filename)
@@ -1517,16 +1556,16 @@ class App(QMainWindow):
         self.plotview.redraw()
         return
 
-    def plot_selected_clade(self):
+    def plot_selected_group(self):
         """Plot points from cluster menu selection"""
 
-        cent = self.cent
-        level = self.cladelevelw.currentText()
+        gdf = self.meta_table.model.df
+        level = self.groupbyw.currentText()
         clades = [item.text(0) for item in self.cladew.selectedItems()]
 
         if len(clades) == 0:
             return
-        self.sub = cent[cent[level].isin(clades)].copy()
+        self.sub = gdf[gdf[level].isin(clades)].copy()
         cl= ','.join(clades)
         self.title = '%s=%s n=%s' %(level,cl,len(self.sub))
         self.plotview.lims = None
@@ -1555,9 +1594,10 @@ class App(QMainWindow):
     def plot_county(self):
         """Plot all points in a county"""
 
-        cent = self.cent
+        gdf = self.meta_table.model.df
+        #cent = self.cent
         county = self.countyw.currentText()
-        self.sub = cent[cent.County==county]
+        self.sub = gdf[gdf.County==county]
         self.plotview.lims = None
         self.title = county
         self.update()
@@ -1566,12 +1606,15 @@ class App(QMainWindow):
     def plot_table_selection(self):
         """Plot points from table selection"""
 
+        #needs to be fixed so that cent is the model df
         df = self.meta_table.model.df
-        rows = self.meta_table.getSelectedRows()
-        idx = df.index[rows]
-        mask = self.cent.index.isin(idx)
-        self.sub = self.cent[mask]
-        #self.sub = self.cent.loc[idx]
+        #rows = self.meta_table.getSelectedRows()
+        self.sub = self.meta_table.getSelectedDataFrame()
+        #print (s)
+        #idx = df.index[rows]       
+        #mask = self.cent.index.isin(idx)
+        #self.sub = self.cent.loc[s.index]
+        print (self.sub)
         self.title = '(table selection) n=%s' %len(self.sub)
         self.plotview.lims = None
         self.update()
@@ -1581,7 +1624,7 @@ class App(QMainWindow):
         """Show all points in the visible region of plot"""
 
         xmin,xmax,ymin,ymax = self.plotview.get_plot_lims()
-        df = self.cent
+        df = self.meta_table.model.df
         self.sub = df.cx[xmin:xmax, ymin:ymax]
         self.title = ('selected region n=%s' %len(self.sub))
         self.update()
@@ -1605,7 +1648,8 @@ class App(QMainWindow):
     def plot_herd_selection(self, herd_no):
         """Plot farm(s)"""
 
-        self.sub = self.cent[self.cent.HERD_NO.isin(herd_no)]
+        df = self.meta_table.model.df
+        self.sub = df[df.HERD_NO.isin(herd_no)]
         self.title = '(herd selection) %s' %' '.join(list(herd_no))
         self.parcelsb.setChecked(True)
         self.update()
@@ -1698,8 +1742,9 @@ class App(QMainWindow):
     def show_filter(self):
         """Filter widget"""
 
-        w = widgets.FilterDialog(self, self.meta_table)
-        self.show_dock_object(w, 'filtering', side='top')
+        #w = widgets.SimpleFilterWidget(self, self.meta_table)
+        #self.show_dock_object(w, 'filtering', side='left')
+        self.table_widget.showSearchBar()
         return
 
     def show_scratchpad(self):
@@ -1787,8 +1832,10 @@ class App(QMainWindow):
 
         if df is None:
             df = pd.DataFrame()
-        w = tables.MovesTable(self, dataframe=df,
+
+        t = tables.MovesTable(self, dataframe=df,
                             font=core.FONT, fontsize=core.FONTSIZE, app=self)
+        w = tables.DataFrameWidget(parent=self, table=t, toolbar=False)
         self.show_dock_object(w, 'moves')
         return
 
