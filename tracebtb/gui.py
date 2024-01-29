@@ -370,9 +370,10 @@ class App(QMainWindow):
 
         self.load_base_data()
         self.recent_files = ['']
-
         self.scratch_items = {}
+        self.selections = {}
         self.opentables = {}
+
         self.lpis_master = None
         self.lpis_cent = None
         self.parcels = None
@@ -386,6 +387,7 @@ class App(QMainWindow):
         self.load_settings()
         self.setup_gui()
         self.show_recent_files()
+        self.update_selections_menu()
 
         self.new_project()
         self.running = False
@@ -530,10 +532,10 @@ class App(QMainWindow):
         self.widgets['cladelevel'] = w
         #select clade/cluster
         l.addWidget(QLabel('Group:'))
-        t = self.cladew = QTreeWidget()
+        t = self.groupw = QTreeWidget()
         t.setHeaderItem(CustomTreeWidgetItem(["name","size"]))
-        t.setColumnWidth(0, 50)
-        t.setColumnWidth(1, 30)
+        t.setColumnWidth(0, 60)
+        t.setColumnWidth(1, 20)
         t.setSortingEnabled(True)
         t.setMinimumHeight(30)
         #t.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -544,11 +546,11 @@ class App(QMainWindow):
         self.widgets['clade'] = t
 
         #zoom to county
-        self.countyw =w = QComboBox(m)
-        w.addItems(['']+counties)
-        l.addWidget(QLabel('County:'))
-        l.addWidget(w)
-        w.currentIndexChanged.connect(self.plot_county)
+        #self.countyw =w = QComboBox(m)
+        #w.addItems(['']+counties)
+        #l.addWidget(QLabel('County:'))
+        #l.addWidget(w)
+        #w.currentIndexChanged.connect(self.plot_county)
         #labels
         self.labelsw = w = QComboBox(m)
         l.addWidget(QLabel('Labels:'))
@@ -592,8 +594,8 @@ class App(QMainWindow):
         """Create map buttons"""
 
         m = QWidget()
-        m.setMaximumWidth(60)
-        m.setMinimumWidth(60)
+        m.setMaximumWidth(65)
+        m.setMinimumWidth(65)
         l = QVBoxLayout()
         l.setAlignment(QtCore.Qt.AlignTop)
         m.setLayout(l)
@@ -644,7 +646,7 @@ class App(QMainWindow):
         return m
 
     def update_groups(self):
-        """Update the 'group by' widget"""
+        """Update the 'groups' widget. Called when grouping column is changed."""
 
         df = self.meta_table.model.df
         groupby = self.groupbyw.currentText()
@@ -652,17 +654,18 @@ class App(QMainWindow):
             return
         vals = df[groupby].value_counts()
         #print (vals)
-        #clades = clades[clades>1]
-        t = self.cladew
+        t = self.groupw
         t.clear()
-
         for g,size in vals.items():
-            item = QTreeWidgetItem(t)
+            item = CustomTreeWidgetItem(t)
+            item.setTextAlignment(0, QtCore.Qt.AlignLeft)
             item.setText(0, g)
             item.setText(1, str(size))
+        t.sortItems(0, QtCore.Qt.SortOrder(0))
         return
 
     def get_ordinal_columns(self):
+        """Try to get ordinal columns from table"""
 
         ignore = ['sample','Aliquot','geometry','Animal_ID','X_COORD','Y_COORD']
         df = self.meta_table.model.df
@@ -679,7 +682,7 @@ class App(QMainWindow):
         """Update widgets when new table loaded"""
 
         df = self.meta_table.model.df
-        cols = ['']+list(df.columns)        
+        cols = ['']+list(df.columns)
         ocols = self.get_ordinal_columns()
 
         self.groupbyw.clear()
@@ -860,6 +863,12 @@ class App(QMainWindow):
         icon = QIcon(os.path.join(iconpath,'snapshot.svg'))
         self.scratch_menu.addAction(icon,'Plot to Scratchpad', lambda: self.save_to_scratchpad())
 
+        self.selections_menu = QMenu('Selections', self)
+        self.menuBar().addMenu(self.selections_menu)
+        self.selections_menu.addAction('Save Selection', lambda: self.save_selection())
+        self.selections_menu.addAction('Clear Selections', lambda: self.clear_selections(ask=True))
+        self.selections_menu.addSeparator()
+
         self.dock_menu = QMenu('Docks', self)
         self.menuBar().addMenu(self.dock_menu)
 
@@ -910,7 +919,7 @@ class App(QMainWindow):
         filename = self.proj_file
         data={}
         data['meta'] = self.meta_table.model.df
-        keys = ['sub','moves','parcels','lpis_cent','neighbours','aln','snpdist']
+        keys = ['sub','moves','parcels','lpis_cent','neighbours','aln','snpdist','selections']
         for k in keys:
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
@@ -957,7 +966,7 @@ class App(QMainWindow):
 
         self.plotview.clear()
         self.foliumview.clear()
-        self.cladew.clear()
+        self.groupw.clear()
         for i in self.opentables:
             w = self.opentables[i]
             w.setDataFrame()
@@ -971,14 +980,13 @@ class App(QMainWindow):
 
         self.new_project()
         data = pickle.load(open(filename,'rb'))
-        keys = ['sub','moves','parcels','lpis_cent','neighbours','aln','snpdist']
+        keys = ['sub','moves','parcels','lpis_cent','neighbours','aln','snpdist','selections']
         for k in keys:
             if k in data:
                 self.__dict__[k] = data[k]
 
         #load main table
         t = self.meta_table
-        #t.setDataFrame(self.cent)
         t.setDataFrame(data['meta'])
         self.table_widget.updateStatusBar()
         self.update_groups()
@@ -992,14 +1000,14 @@ class App(QMainWindow):
         if 'scratch_items' in data:
             self.scratch_items = data['scratch_items']
         self.add_recent_file(filename)
+        self.update_selections_menu()
         self.update()
         if 'dock_items' in data:
             self.update_dock_items(data['dock_items'])
-        #t = self.cladew
+        #t = self.groupw
         #t.setCurrentIndex(t.model().index(0, 4))
         #print (t.selectedIndexes())
-        #self.cent = self.cent.set_index('sample',drop=False)
-        #self.cent = self.cent.reset_index()
+        #self.parcels['HERD_NO'] = self.parcels.SPH_HERD_N
         return
 
     def load_project_dialog(self):
@@ -1021,13 +1029,12 @@ class App(QMainWindow):
         df = pd.read_csv('testing/metadata.csv')
         #index_col = 'sample'
         #df.set_index(index_col,inplace=True)
-        self.cent = df
+
+        for col in cladelevels:
+            df[col] = df[col].astype(str)
         t = self.meta_table
         t.setDataFrame(df)
         t.resizeColumns()
-
-        for col in cladelevels:
-            self.cent[col] = self.cent[col].astype(str)
         self.update_groups()
         self.update_widgets()
         self.plot_selected_group()
@@ -1132,7 +1139,7 @@ class App(QMainWindow):
 
         #jitter any points in same farm
         print ('jittering points')
-        df = apply_jitter(df, radius=100)     
+        df = apply_jitter(df, radius=100)
         self.meta_table.setDataFrame(df)
         return
 
@@ -1161,7 +1168,7 @@ class App(QMainWindow):
 
         if self.moves is None:
             return
-        
+
         gdf = self.meta_table.model.df
         cols=['Animal_ID']+list(self.moves.columns)
         df = gdf.merge(self.moves,left_on='Animal_ID',right_on='tag',how='inner')[cols]
@@ -1531,7 +1538,7 @@ class App(QMainWindow):
         if not filename:
             return
 
-        clades = [item.text(0) for item in self.cladew.selectedItems()]
+        clades = [item.text(0) for item in self.groupw.selectedItems()]
         colorcol = self.colorbyw.currentText()
         cmap = self.cmapw.currentText()
         legend = self.legendb.isChecked()
@@ -1557,16 +1564,16 @@ class App(QMainWindow):
         return
 
     def plot_selected_group(self):
-        """Plot points from cluster menu selection"""
+        """Plot points from selected groupby menu selection"""
 
         gdf = self.meta_table.model.df
         level = self.groupbyw.currentText()
-        clades = [item.text(0) for item in self.cladew.selectedItems()]
+        groups = [item.text(0) for item in self.groupw.selectedItems()]
 
-        if len(clades) == 0:
+        if len(groups) == 0:
             return
-        self.sub = gdf[gdf[level].isin(clades)].copy()
-        cl= ','.join(clades)
+        self.sub = gdf[gdf[level].isin(groups)].copy()
+        cl = ','.join(groups)
         self.title = '%s=%s n=%s' %(level,cl,len(self.sub))
         self.plotview.lims = None
         self.update()
@@ -1591,32 +1598,25 @@ class App(QMainWindow):
                 ax.text(x, y, label, fontsize = 12)
         return
 
-    def plot_county(self):
-        """Plot all points in a county"""
+    def selection_from_table(self):
+        """Plot points from table selection"""
 
-        gdf = self.meta_table.model.df
-        #cent = self.cent
-        county = self.countyw.currentText()
-        self.sub = gdf[gdf.County==county]
+        df = self.meta_table.model.df
+        idx = self.meta_table.getSelectedIndexes()
+        self.sub = df.loc[idx]
+        #print (self.sub.iloc[:,:2])
+        self.title = '(table selection) n=%s' %len(self.sub)
         self.plotview.lims = None
-        self.title = county
         self.update()
         return
 
-    def plot_table_selection(self):
-        """Plot points from table selection"""
+    def add_to_selection(self):
+        """Add selected rows to current selection (self.sub)"""
 
-        #needs to be fixed so that cent is the model df
         df = self.meta_table.model.df
-        #rows = self.meta_table.getSelectedRows()
-        self.sub = self.meta_table.getSelectedDataFrame()
-        #print (s)
-        #idx = df.index[rows]       
-        #mask = self.cent.index.isin(idx)
-        #self.sub = self.cent.loc[s.index]
-        print (self.sub)
-        self.title = '(table selection) n=%s' %len(self.sub)
-        self.plotview.lims = None
+        idx = self.meta_table.getSelectedIndexes()
+        new = df.loc[idx]
+        self.sub = pd.concat([self.sub,new])
         self.update()
         return
 
@@ -1671,10 +1671,11 @@ class App(QMainWindow):
     def add_context_map(self, source=None):
         """Contextily background map"""
 
+        gdf = self.meta_table.model.df
         if source == None:
             return
         ax = self.plotview.ax
-        cx.add_basemap(ax, crs=self.cent.crs, #zoom=18,
+        cx.add_basemap(ax, crs=gdf.crs, #zoom=18,
                 attribution=False, source=source)
         return
 
@@ -1768,19 +1769,84 @@ class App(QMainWindow):
         if label == None or label is False:
             t = time.strftime("%H:%M:%S")
             label = name+'-'+t
-        #get the current figure and make a copy of it by using pickle
 
-        fig = self.plotview.fig
-        p = pickle.dumps(fig)
-        fig = pickle.loads(p)
-
-        self.scratch_items[label] = fig
-        if hasattr(self, 'scratchpad'):
-            self.scratchpad.update(self.scratch_items)
+        idx = self.tabs.currentIndex()
+        if idx == 0:
+            #get the current figure and make a copy of it by using pickle
+            fig = self.plotview.fig
+            p = pickle.dumps(fig)
+            fig = pickle.loads(p)
+            self.scratch_items[label] = fig
+            if hasattr(self, 'scratchpad'):
+                self.scratchpad.update(self.scratch_items)
+        elif idx == 1:
+            #save the image directly
+            filename, _ = QFileDialog.getSaveFileName(self,"Save Screen Capture",
+                                                    "","png files (*.png);;All files (*.*)"
+                                                    )
+            if filename:
+                img = self.foliumview.screen_capture(filename)
         return
 
-    def get_selected(self):
-        """Get selected rows of fastq table"""
+    def save_selection(self):
+        """Save a selection as a shortcut"""
+
+        idx = self.sub.index
+        #print (idx)
+        #get name
+        label, ok = QInputDialog.getText(self, 'Name Selection', 'Enter a label:')
+        if ok:
+            self.selections[label] = {}
+            self.selections[label]['indexes'] = idx
+        self.update_selections_menu()
+        return
+
+    def clear_selections(self, ask=False):
+        """Clear saved selections"""
+
+        if ask == True:
+            reply = QMessageBox.question(self, 'Confirm',
+                                    "This will clear all saved selections.\nAre you sure?",
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.No:
+                return
+        self.selections = {}
+        self.clear_selections_menu()
+        return
+
+    def clear_selections_menu(self):
+        """Clear selections and menu items"""
+
+        menu = self.selections_menu
+        items = menu.actions()
+        for action in items[3:]:
+            menu.removeAction(action)
+            action.deleteLater()
+        return
+
+    def update_selections_menu(self):
+        """Update menu for selections"""
+
+        from functools import partial
+        menu = self.selections_menu
+        self.clear_selections_menu()
+
+        for name in self.selections:
+            #print (name)
+            def func(name):
+                df = self.meta_table.model.df
+                idx = self.selections[name]['indexes']
+                #print (idx)
+                self.sub = df.loc[idx]
+                self.update()
+                return
+
+            menu.addAction(name, partial(func, name))
+
+        return
+
+    '''def get_selected(self):
+        """Get selected rows of main table"""
 
         df = self.meta_table.model.df
         rows = self.meta_table.getSelectedRows()
@@ -1788,17 +1854,18 @@ class App(QMainWindow):
             print ('no samples selected')
             return
         data = df.iloc[rows]
-        return data
+        return data'''
 
     def herd_summary(self):
         """Summary by herd"""
 
         res=[]
-        for herd, df in self.cent.groupby('HERD_NO'):
+        df = self.meta_table.model.df
+        for herd, sdf in df.groupby('HERD_NO'):
             #print (herd)
-            clades = len(df.snp3.unique())
+            clades = len(sdf.snp3.unique())
             m = self.moves[self.moves.move_to == herd]
-            res.append([herd,len(df),clades,len(m)])
+            res.append([herd,len(sdf),clades,len(m)])
         res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves'])
         res = res.sort_values('strains',ascending=False)
         w = tables.HerdTable(self, dataframe=res,
@@ -1822,8 +1889,8 @@ class App(QMainWindow):
     def show_selected_table(self):
         """Show selected samples in separate table"""
 
-        w = tables.SampleTable(self, dataframe=self.sub,
-                font=core.FONT, fontsize=core.FONTSIZE, app=self)
+        w = tables.DataFrameTable(self, dataframe=self.sub,
+                font=core.FONT, fontsize=core.FONTSIZE)
         self.show_dock_object(w, 'selected', 'left')
         return
 

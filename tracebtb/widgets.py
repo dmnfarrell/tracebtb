@@ -634,7 +634,7 @@ class DynamicDialog(QDialog):
         kwds = self.opts.kwds
         return kwds
 
-class SimpleFilterWidget(QDockWidget):
+class SimpleFilterWidget(QWidget):
     """Simple filtering for tables"""
 
     def __init__(self, parent, table, title=None):
@@ -657,7 +657,7 @@ class SimpleFilterWidget(QDockWidget):
             }
             QScrollBar:vertical {
                 width: 15px;
-                margin: 1px 0 1px 0;
+                margin: 2px 0 2px 0;
             }
             QScrollBar::handle:vertical {
                 min-height: 20px;
@@ -669,29 +669,31 @@ class SimpleFilterWidget(QDockWidget):
             }
             '''
 
-        dockstyle = '''          
+        dockstyle = '''
             QDockWidget::title {
-                background-color: #DEE1D6;
+                background-color: #E9CECA;
             }
             '''
 
         df = self.table.model.df
         cols = list(df.columns)
         cols.insert(0,'Any')
-        
-        self.setFeatures(QDockWidget.DockWidgetClosable)    
+
+        #self.setFeatures(QDockWidget.DockWidgetClosable)
         self.setWindowTitle('Search')
-        self.main = QWidget()
-        self.setStyleSheet(dockstyle)
-        self.main.setStyleSheet(style)
-        self.main.setMaximumHeight(200)
-        self.setWidget(self.main)
-        l = self.layout = QVBoxLayout(self.main)
+        #self.main = QWidget()
+        #self.setStyleSheet(dockstyle)
+        self.setStyleSheet(style)
+        #self.main.setMaximumHeight(200)
+        
+        #self.setWidget(self.main)
+        l = self.layout = QVBoxLayout(self)
         l.setContentsMargins(0, 0, 0, 0)
         l.setSpacing(0)
         w = self.queryedit = QLineEdit(self)
         self.table.proxy.setFilterKeyColumn(-1)
-        #w.textChanged.connect(self.table.proxy.setFilterFixedString)
+        w.returnPressed.connect(self.apply)
+
         l.addWidget(QLabel("Query:"))
         l.addWidget(w)
         w = QWidget()
@@ -705,7 +707,15 @@ class SimpleFilterWidget(QDockWidget):
         btn = QPushButton('Search')
         btn.clicked.connect(self.apply)
         l.addWidget(btn)
+        btn = QPushButton('Close')
+        btn.clicked.connect(self.close)
+        l.addWidget(btn)
+
         return
+
+    def close(self):
+        self.clear()
+        self.hide()
 
     def closeEvent(self, ce):
         self.clear()
@@ -722,7 +732,7 @@ class SimpleFilterWidget(QDockWidget):
         else:
             c = df.columns.get_loc(searchcol)
             proxy.setFilterKeyColumn(c)
-        proxy.setFilterCaseSensitivity(QtCore.Qt.CaseInsensitive)       
+        proxy.setFilterCaseSensitivity(QtCore.Qt.CaseInsensitive)
         self.table.applyFilters(text)
         return
 

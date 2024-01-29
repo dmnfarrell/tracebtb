@@ -247,3 +247,15 @@ class FoliumViewer(QWidget):
             if i in cols:
                 tip+='{}: {}<br>'.format(i,val)
         return tip
+
+    def screen_capture(self, filename=None):
+        """Capture map"""
+
+        if filename is None:
+            filename = 'capture.png'
+        size = self.main.contentsRect()
+        img = QPixmap(size.width(), size.height())
+        self.main.render(img)
+        img.save(filename)
+        #browser.close()
+        return filename

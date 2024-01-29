@@ -29,8 +29,8 @@ from . import core, widgets, plotting
 from pandas.api.types import is_datetime64_any_dtype as is_datetime
 
 style = '''
-    QWidget {    
-        font-size: 12px;    
+    QWidget {
+        font-size: 12px;
     }
     QPlainTextEdit {
         max-height: 80px;
@@ -46,7 +46,7 @@ style = '''
         combobox-popup: 0;
         max-height: 30px;
         max-width: 150px;
-    } 
+    }
     '''
 
 class ColumnHeader(QHeaderView):
@@ -66,7 +66,7 @@ class DataFrameWidget(QWidget):
         l.setSpacing(2)
         self.setLayout(self.layout)
         #self.plotview = widgets.PlotViewer()
-        if table == None:            
+        if table == None:
             self.table = DataFrameTable(self, dataframe=pd.DataFrame())
         else:
             self.table = table
@@ -105,10 +105,9 @@ class DataFrameWidget(QWidget):
         cols.insert(0,'Any')
         if hasattr(self, 'searchbar'):
             self.searchbar.show()
-        else:        
+        else:
             sb = self.searchbar = widgets.SimpleFilterWidget(self, self.table)
-            self.layout.addWidget(sb, 3, 1)
-            sb.setMaximumHeight(200)
+            self.layout.addWidget(sb, 3, 1)            
         return
 
     def statusBar(self):
@@ -334,7 +333,7 @@ class DataFrameTable(QTableView):
         #self.proxy = CustomProxyModel()
         self.proxy.setSourceModel(self.model)
         self.setModel(self.proxy)
-        self.proxy.sort(0, Qt.AscendingOrder)        
+        self.proxy.sort(0, Qt.AscendingOrder)
         return
 
     def getDataFrame(self):
@@ -394,20 +393,39 @@ class DataFrameTable(QTableView):
     '''def showSelection(self, item):
         """Show the row selection"""
 
-        cellContent = item.data()        
+        cellContent = item.data()
         row = item.row()
         model = item.model()
         index = model.createIndex(row, 0)
         columnsTotal = model.columnCount(index)
         return'''
 
-    def getSelectedRows(self):
-        """Get selected row indexes"""
+    '''def getSelectedRows(self):
+        """Get selected rows"""
 
         sm = self.selectionModel()
         rows = [(i.row()) for i in sm.selectedIndexes()]
         rows = list(dict.fromkeys(rows).keys())
+        return rows'''
+
+    def getSelectedRows(self):
+        """Get selected rows. Uses proxy index."""
+
+        sm = self.selectionModel()
+        rows = []
+        for proxy_index in sm.selectedIndexes():
+            source_index = self.proxy.mapToSource(proxy_index)
+            rows.append(source_index.row())
+        # Remove duplicates and return unique rows
+        rows = list(set(rows))
         return rows
+
+    def getSelectedIndexes(self):
+        """Get selected row indexes"""
+
+        rows = self.getSelectedRows()
+        idx = self.model.df.index[rows]
+        return idx
 
     def getSelectedColumns(self):
         """Get selected column indexes"""
@@ -422,10 +440,12 @@ class DataFrameTable(QTableView):
 
         df = self.model.df
         sm = self.selectionModel()
-        rows = [(i.row()) for i in sm.selectedIndexes()]
+
+        rows = self.getSelectedRows()
+        #rows = [(i.row()) for i in sm.selectedIndexes()]
         cols = [(i.column()) for i in sm.selectedIndexes()]
         #get unique rows/cols keeping order
-        rows = list(dict.fromkeys(rows).keys())
+        #rows = list(dict.fromkeys(rows).keys())
         cols = list(dict.fromkeys(cols).keys())
         return df.iloc[rows,cols]
 
@@ -494,6 +514,26 @@ class DataFrameTable(QTableView):
     def editCell(self, item):
         return
 
+    def setColumnType(self, column=None):
+        """Change the column dtype"""
+
+        idx = self.getSelectedColumns()
+        if len(idx)>0:
+            cols = self.model.df.columns[idx]
+        else:
+            cols = [column]
+        types = ['float','int','str','object','datetime64[ns]']
+        newtype, ok = QInputDialog().getItem(self, "New Column Type",
+                                             "Type:", types, 0, False)
+        if not ok:
+            return
+        self.storeCurrent()
+        df = self.model.df
+        for c in cols:
+            df[c] = df[c].astype(newtype)
+        self.refresh()
+        return
+
     def setRowColor(self, rowIndex, color):
         for j in range(self.columnCount()):
             self.item(rowIndex, j).setBackground(color)
@@ -509,7 +549,8 @@ class DataFrameTable(QTableView):
         deleteColumnAction = menu.addAction("Delete Column")
         renameColumnAction = menu.addAction("Rename Column")
         addColumnAction = menu.addAction("Add Column")
-        plotAction = menu.addAction("Histogram")
+        setTypeAction = menu.addAction("Set Data Type")
+        #plotAction = menu.addAction("Histogram")
         colorbyAction = menu.addAction("Color By Column")
 
         action = menu.exec_(self.mapToGlobal(pos))
@@ -523,8 +564,10 @@ class DataFrameTable(QTableView):
             self.renameColumn(column)
         elif action == addColumnAction:
             self.addColumn()
-        elif action == plotAction:
-            self.plotHist(column)
+        elif action == setTypeAction:
+            self.setColumnType(column)
+        #elif action == plotAction:
+        #    self.plotHist(column)
         elif action == colorbyAction:
             self.colorByColumn(column)
         return
@@ -663,7 +706,7 @@ class DataFrameTable(QTableView):
 
         #print (query)
         #regexp = QtCore.QRegExp(query, Qt.CaseInsensitive, QtCore.QRegExp.FixedString)
-        #regexp = f".*{query}.*"     
+        #regexp = f".*{query}.*"
         #self.proxy.setFilterRegExp(regexp)
         self.proxy.setFilterFixedString(query)
         #self.proxy.setFilterKeyColumn(-1)
@@ -755,8 +798,6 @@ class DataFrameModel(QtCore.QAbstractTableModel):
         return len(self.df.index)
 
     def columnCount(self, parent=QtCore.QModelIndex()):
-        #if parent.isValid():
-        #    return 0
         return len(self.df.columns.values)
 
     def data(self, index, role=QtCore.Qt.DisplayRole):
@@ -824,6 +865,8 @@ class DataFrameModel(QtCore.QAbstractTableModel):
         """Sort table by given column number """
 
         self.layoutAboutToBeChanged.emit()
+        if len(self.df.columns) == 0:
+            return
         col = self.df.columns[idx]
         self.df = self.df.sort_values(col, ascending=ascending)
         self.layoutChanged.emit()
@@ -857,7 +900,17 @@ class CustomProxyModel(QtCore.QSortFilterProxyModel):
     def __init__(self):
         super(CustomProxyModel, self).__init__()
 
-    def filterAcceptsRow(self, source_row, source_parent):
+    def sort(self, column, order=Qt.AscendingOrder):
+        """Perform the sort operation on the source model"""
+
+        self.sourceModel().sort(column, order)
+        # Notify that the data has changed (necessary for the view to update)
+        self.sortColumn = column
+        self.sortOrder = order
+        self.invalidate()
+        return
+
+    '''def filterAcceptsRow(self, source_row, source_parent):
 
         df = self.sourceModel().df
         filter_text = self.filterRegExp().pattern()
@@ -869,9 +922,8 @@ class CustomProxyModel(QtCore.QSortFilterProxyModel):
             data = df.iloc[source_row, col]
             if filter_text in str(data):
                 return True
+        return False'''
 
-        return False
-    
 class SampleTableModel(DataFrameModel):
     """Samples table model class"""
     def __init__(self, dataframe=None, *args):
@@ -891,8 +943,8 @@ class SampleTable(DataFrameTable):
         self.setWordWrap(False)
         tm = SampleTableModel(dataframe)
         self.setModel(tm)
-        self.proxy = QtCore.QSortFilterProxyModel()
-        #self.proxy = CustomProxyModel()
+        #self.proxy = QtCore.QSortFilterProxyModel()
+        self.proxy = CustomProxyModel()
         self.proxy.setSourceModel(self.model)
         self.setModel(self.proxy)
         self.proxy.sort(0, Qt.AscendingOrder)
@@ -913,30 +965,32 @@ class SampleTable(DataFrameTable):
         #self.proxy = CustomProxyModel()
         self.proxy.setSourceModel(self.model)
         self.setModel(self.proxy)
-        self.proxy.sort(0, Qt.AscendingOrder)        
+        self.proxy.sort(0, Qt.AscendingOrder)
         return
 
     def addActions(self, event, row):
+        """Right click menu"""
 
         menu = self.menu
         detailsAction = menu.addAction("Sample Details")
+        selectAction = menu.addAction("Select Samples")
+        addSelectionAction = menu.addAction("Add to Selection")
         removeAction = menu.addAction("Delete Selected")
         exportAction = menu.addAction("Export Table")
-        plotpointsAction = menu.addAction("Plot Samples")
-        #colorbyAction = menu.addAction("Color By Column")
         action = menu.exec_(self.mapToGlobal(event.pos()))
-        # Map the logical row index to a real index for the source model
-        #model = self.model
+
         rows = self.getSelectedRows()
-        df = self.model.df.iloc[row]
+        df = self.model.df.iloc[rows[0]]
         if action == detailsAction:
             self.app.sample_details(df)
         elif action == removeAction:
             self.deleteRows(rows)
         elif action == exportAction:
             self.exportTable()
-        elif action == plotpointsAction:
-            self.app.plot_table_selection()
+        elif action == selectAction:
+            self.app.selection_from_table()
+        elif action == addSelectionAction:
+            self.app.add_to_selection()
         return
 
     def edit(self, index, trigger, event):

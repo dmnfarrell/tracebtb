@@ -8,6 +8,11 @@ CHANGES
 * group by any ordinal column, not just clades
 * now use meta_table df directly, removed cent variable
 * added table filtering
+* fixed treewidget sort numbers
+* can save folium scr shot
+* save selections
+* fixed table selection
+* set dtype
 
 0.3.0
 -----
