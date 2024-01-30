@@ -244,6 +244,9 @@ def plot_moves_timeline(df, ax=None):
 
     df['move_date'] = pd.to_datetime(df.move_date)
     groups = df.groupby('Animal_ID')
+    if (len(groups))>25:
+        print ('too many moves to plot, reduce selection')
+        return
     if ax == None:
         fig,ax=plt.subplots(1,1,figsize=(10,4))
     i=.1
@@ -627,6 +630,7 @@ class App(QMainWindow):
         self.colorcountiesb = b = widgets.createButton(m, None, self.update, 'counties', core.ICONSIZE, 'color counties')
         b.setCheckable(True)
         l.addWidget(b)
+        self.widgets['colorcounties'] = b
         #self.jitterb = b = widgets.createButton(m, None, self.update, 'jitter', core.ICONSIZE, 'jitter points')
         #b.setCheckable(True)
         #l.addWidget(b)
@@ -1683,7 +1687,6 @@ class App(QMainWindow):
         """Show moves timeline plot"""
 
         fig,ax = plt.subplots(1,1)
-        #w = widgets.CustomPlotViewer(self, controls=False, app=self)
         w = widgets.PlotWidget(self)
         plot_moves_timeline(df,w.ax)
         #w.redraw()
@@ -1789,15 +1792,19 @@ class App(QMainWindow):
         return
 
     def save_selection(self):
-        """Save a selection as a shortcut"""
+        """Save current selection as a shortcut"""
 
         idx = self.sub.index
-        #print (idx)
         #get name
         label, ok = QInputDialog.getText(self, 'Name Selection', 'Enter a label:')
-        if ok:
-            self.selections[label] = {}
-            self.selections[label]['indexes'] = idx
+        if not ok:
+            return
+
+        d = self.selections[label] = {}
+        d['indexes'] = idx
+        #get widget settings
+        d['options'] = widgets.getWidgetValues(self.widgets)
+        #print (d)
         self.update_selections_menu()
         return
 
@@ -1835,26 +1842,19 @@ class App(QMainWindow):
             #print (name)
             def func(name):
                 df = self.meta_table.model.df
-                idx = self.selections[name]['indexes']
-                #print (idx)
+                d = self.selections[name]
+                idx = d['indexes']
                 self.sub = df.loc[idx]
+                #restore saved widget values
+                #print (d['options'])
+                if 'options' in d:
+                    widgets.setWidgetValues(self.widgets, d['options'])
+
                 self.update()
                 return
-
             menu.addAction(name, partial(func, name))
 
         return
-
-    '''def get_selected(self):
-        """Get selected rows of main table"""
-
-        df = self.meta_table.model.df
-        rows = self.meta_table.getSelectedRows()
-        if len(rows) == 0:
-            print ('no samples selected')
-            return
-        data = df.iloc[rows]
-        return data'''
 
     def herd_summary(self):
         """Summary by herd"""
