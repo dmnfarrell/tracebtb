@@ -107,7 +107,7 @@ class DataFrameWidget(QWidget):
             self.searchbar.show()
         else:
             sb = self.searchbar = widgets.SimpleFilterWidget(self, self.table)
-            self.layout.addWidget(sb, 3, 1)            
+            self.layout.addWidget(sb, 3, 1)
         return
 
     def statusBar(self):
@@ -300,6 +300,7 @@ class DataFrameTable(QTableView):
         self.proxy.setSourceModel(self.model)
         self.setModel(self.proxy)
         self.proxy.sort(0, Qt.AscendingOrder)
+        self.setSortingEnabled(True)
 
         self.setWordWrap(False)
         self.setCornerButtonEnabled(True)
@@ -903,11 +904,7 @@ class CustomProxyModel(QtCore.QSortFilterProxyModel):
     def sort(self, column, order=Qt.AscendingOrder):
         """Perform the sort operation on the source model"""
 
-        self.sourceModel().sort(column, order)
-        # Notify that the data has changed (necessary for the view to update)
-        self.sortColumn = column
-        self.sortOrder = order
-        self.invalidate()
+        super(CustomProxyModel, self).sort(column, order)
         return
 
     '''def filterAcceptsRow(self, source_row, source_parent):
@@ -961,11 +958,12 @@ class SampleTable(DataFrameTable):
         tm = SampleTableModel(df)
         #self.setModel(tm)
         self.model = tm
-        self.proxy = QtCore.QSortFilterProxyModel()
-        #self.proxy = CustomProxyModel()
+        #self.proxy = QtCore.QSortFilterProxyModel()
+        self.proxy = CustomProxyModel()
         self.proxy.setSourceModel(self.model)
         self.setModel(self.proxy)
         self.proxy.sort(0, Qt.AscendingOrder)
+        self.setSortingEnabled(True)
         return
 
     def addActions(self, event, row):
@@ -975,6 +973,7 @@ class SampleTable(DataFrameTable):
         detailsAction = menu.addAction("Sample Details")
         selectAction = menu.addAction("Select Samples")
         addSelectionAction = menu.addAction("Add to Selection")
+        findRelatedAction = menu.addAction("Related Samples")
         removeAction = menu.addAction("Delete Selected")
         exportAction = menu.addAction("Export Table")
         action = menu.exec_(self.mapToGlobal(event.pos()))
@@ -991,6 +990,8 @@ class SampleTable(DataFrameTable):
             self.app.selection_from_table()
         elif action == addSelectionAction:
             self.app.add_to_selection()
+        elif action == findRelatedAction:
+            self.app.select_related()
         return
 
     def edit(self, index, trigger, event):

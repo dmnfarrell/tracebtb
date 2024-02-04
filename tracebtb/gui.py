@@ -464,8 +464,9 @@ class App(QMainWindow):
         return
 
     def load_base_data(self):
-        #reference map of counties
-        self.counties = counties_gdf#gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:29902")
+        """Set reference map of counties"""
+
+        self.counties = counties_gdf
         return
 
     def create_tool_bar(self):
@@ -479,6 +480,7 @@ class App(QMainWindow):
                  'Scratchpad': {'action':self.show_scratchpad,'file':'scratchpad'},
                  'Filter': {'action':self.show_filter,'file':'filter'},
                  'Settings': {'action':self.preferences,'file':'settings'},
+                 'Build Tree': {'action':self.show_tree,'file':'tree'},
                  'Herd Summary':{'action':self.herd_summary,'file':'cow'},
                  'Cluster Report':{'action':self.cluster_report ,'file':'cluster_report'},
                  'Make Simulated Data':{'action':self.simulate_data ,'file':'simulate'},
@@ -638,10 +640,10 @@ class App(QMainWindow):
         b.setCheckable(True)
         l.addWidget(b)
         self.widgets['showneighbours'] = b
-        self.showtreeb = b = widgets.createButton(m, None, self.update, 'tree', core.ICONSIZE, 'show tree')
-        b.setCheckable(True)
-        l.addWidget(b)
-        self.widgets['showtree'] = b
+        #self.showtreeb = b = widgets.createButton(m, None, self.update, 'tree', core.ICONSIZE, 'show tree')
+        #b.setCheckable(True)
+        #l.addWidget(b)
+        #self.widgets['showtree'] = b
         #self.showmstb = b = widgets.createButton(m, None, self.update, 'mst', core.ICONSIZE, 'show MST')
         #b.setCheckable(True)
         #l.addWidget(b)
@@ -799,18 +801,8 @@ class App(QMainWindow):
         """Create the menu bar for the application. """
 
         self.file_menu = QMenu('File', self)
-        self.file_menu.addAction('Load Samples', lambda: self.load_samples())
-        icon = QIcon(os.path.join(iconpath,'shapefile.svg'))
-        self.file_menu.addAction(icon,'Load Parcels', self.load_parcels)
-        icon = QIcon(os.path.join(iconpath,'plot-moves.svg'))
-        self.file_menu.addAction(icon, 'Load Moves', lambda: self.load_moves())
-        self.file_menu.addAction('Load Alignment', lambda: self.load_alignment())
-        icon = QIcon(os.path.join(iconpath,'snp-dist.svg'))
-        self.file_menu.addAction(icon, 'Load SNP Distance Matrix', lambda: self.load_snp_dist())
         icon = QIcon(os.path.join(iconpath,'document-new.svg'))
-        self.file_menu.addAction('Load Simulated Data', lambda: self.load_folder())
-        self.file_menu.addSeparator()
-        self.file_menu.addAction(icon, 'New Project', lambda: self.new_project(ask=True))
+        self.file_menu.addAction('New Project', lambda: self.new_project(ask=True))
         icon = QIcon(os.path.join(iconpath,'document-open.svg'))
         self.file_menu.addAction(icon, 'Open Project', self.load_project_dialog)
         self.recent_files_menu = QMenu("Recent Projects", self.file_menu)
@@ -837,20 +829,34 @@ class App(QMainWindow):
         self.view_menu.addAction(icon, 'Zoom Out', self.zoom_out,
                 QtCore.Qt.CTRL + QtCore.Qt.Key_Minus)
 
+        self.data_menu = QMenu('Data', self)
+        self.menuBar().addMenu(self.data_menu)
+        self.data_menu.addAction('Load Samples', lambda: self.load_samples())
+        icon = QIcon(os.path.join(iconpath,'shapefile.svg'))
+        self.data_menu.addAction(icon,'Load Parcels', self.load_parcels)
+        icon = QIcon(os.path.join(iconpath,'plot-moves.svg'))
+        self.data_menu.addAction(icon, 'Load Moves', lambda: self.load_moves())
+        self.data_menu.addAction('Load Alignment', lambda: self.load_alignment())
+        icon = QIcon(os.path.join(iconpath,'snp-dist.svg'))
+        self.data_menu.addAction(icon, 'Load SNP Distance Matrix', lambda: self.load_snp_dist())
+        self.data_menu.addAction('Load Simulated Data', lambda: self.load_folder())
+        self.data_menu.addSeparator()
+        icon = QIcon(os.path.join(iconpath,'shapefile.svg'))
+        self.data_menu.addAction(icon, 'Load Master Parcels file', self.set_lpis_file)
+        icon = QIcon(os.path.join(iconpath,'parcels.svg'))
+        self.data_menu.addAction(icon, 'Extract Parcels/Centroids', self.get_lpis_centroids)
+        icon = QIcon(os.path.join(iconpath,'neighbours.svg'))
+        self.data_menu.addAction(icon,'Extract Neighbouring Parcels', self.get_neighbouring_parcels)
+        icon = QIcon(os.path.join(iconpath,'clusters.svg'))
+        self.data_menu.addAction(icon, 'Get Clusters from SNPs', self.get_clusters)
+        icon = QIcon(os.path.join(iconpath,'cow.svg'))
+        self.data_menu.addAction(icon, 'Count Animal Moves', self.count_animal_moves)
+        self.data_menu.addSeparator()
+
         self.tools_menu = QMenu('Tools', self)
         self.menuBar().addMenu(self.tools_menu)
-        icon = QIcon(os.path.join(iconpath,'shapefile.svg'))
-        self.tools_menu.addAction(icon, 'Load Master Parcels file', self.set_lpis_file)
-        icon = QIcon(os.path.join(iconpath,'parcels.svg'))
-        self.tools_menu.addAction(icon, 'Extract Parcels/Centroids', self.get_lpis_centroids)
-        icon = QIcon(os.path.join(iconpath,'neighbours.svg'))
-        self.tools_menu.addAction(icon,'Extract Neighbouring Parcels', self.get_neighbouring_parcels)
-        icon = QIcon(os.path.join(iconpath,'clusters.svg'))
-        self.tools_menu.addAction(icon, 'Get Clusters from SNPs', self.get_clusters)
-        icon = QIcon(os.path.join(iconpath,'cow.svg'))
-        self.tools_menu.addAction(icon, 'Count Animal Moves', self.count_animal_moves)
-
-        self.tools_menu.addSeparator()
+        icon = QIcon(os.path.join(iconpath,'tree.svg'))
+        self.tools_menu.addAction(icon, 'Build Tree', self.show_tree)
         icon = QIcon(os.path.join(iconpath,'mbovis.svg'))
         self.tools_menu.addAction(icon, 'Strain Typing', self.strain_typing)
         icon = QIcon(os.path.join(iconpath,'cow.svg'))
@@ -1448,8 +1454,8 @@ class App(QMainWindow):
                 self.show_moves_timeline(mov)
 
         #tree
-        if self.showtreeb.isChecked():
-            self.show_tree()
+        #if self.showtreeb.isChecked():
+        #    self.show_tree()
         #else:
             #clear tree
             #self.clear_tree()
@@ -1470,6 +1476,9 @@ class App(QMainWindow):
             ax.set_xlim(lims[0],lims[1])
             ax.set_ylim(lims[2],lims[3])
 
+        self.set_equal_axes()
+
+        #fig.tight_layout()
         #context map
         cxsource = self.contextw.currentText()
         self.add_context_map(providers[cxsource])
@@ -1624,6 +1633,23 @@ class App(QMainWindow):
         self.update()
         return
 
+    def select_related(self):
+        """Find related samples to selected e.g. within n snps"""
+
+        df = self.meta_table.model.df
+        idx = self.meta_table.getSelectedIndexes()[0]
+        s = df.loc[idx]
+
+        cols = ['snp3','snp7','snp12']
+        col, ok = QInputDialog.getItem(self, 'Select cluster level', 'Cluster level:', cols, 0, False)
+        if not col: return
+        cl = s[col]
+        self.sub = df[df[col]==cl]
+        self.title = '(table selection) n=%s' %len(self.sub)
+        self.plotview.lims = None
+        self.update()
+        return
+
     def plot_in_region(self):
         """Show all points in the visible region of plot"""
 
@@ -1672,6 +1698,24 @@ class App(QMainWindow):
         self.plotview.redraw()
         return
 
+    def set_equal_axes(self):
+        """Set axes to be equal regardless of selection"""
+
+        ax = self.plotview.ax
+        x1,x2 = ax.get_xlim()
+        y1,y2 = ax.get_ylim()
+        w=x2-x1
+        h=y2-y1
+        aspect = w/h
+        #print (x1,x2,aspect)
+        if aspect >1.1:
+            c = y1+h/2
+            ax.set_ylim(c-w/2,c+w/2)
+        elif aspect<0.9:
+            c = x1+w/2
+            ax.set_xlim(c-h/2,c+h/2)
+        return
+
     def add_context_map(self, source=None):
         """Contextily background map"""
 
@@ -1679,7 +1723,7 @@ class App(QMainWindow):
         if source == None:
             return
         ax = self.plotview.ax
-        cx.add_basemap(ax, crs=gdf.crs, #zoom=18,
+        cx.add_basemap(ax, crs=gdf.crs, zoom=9,
                 attribution=False, source=source)
         return
 
