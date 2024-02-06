@@ -169,7 +169,8 @@ class FoliumViewer(QWidget):
         self.main.setHtml(data.getvalue().decode())
         return
 
-    def plot(self, sub, parcels, moves=None, lpis_cent=None, colorcol=None, parcelscol=None, cmap='Set1'):
+    def plot(self, sub, parcels, neighbours=None, moves=None, lpis_cent=None,
+             colorcol=None, parcelscol=None, cmap='Set1'):
         """Plot selected"""
 
         import folium
@@ -191,7 +192,7 @@ class FoliumViewer(QWidget):
                 'fillColor': feature['properties']['color'],
                 'weight': 1,
                 'color': 'gray',
-                'fillOpacity': 0.5,
+                'fillOpacity': 0.4,
             }
         if parcels is not None:
             if parcelscol not in [None, '']:
@@ -204,6 +205,10 @@ class FoliumViewer(QWidget):
                 style = lambda x:basestyle
             p = folium.GeoJson(parcels.to_crs('EPSG:4326'),style_function=style)
             p.add_to(map, name='parcels')
+
+        if neighbours is not None:
+            p = folium.GeoJson(neighbours.to_crs('EPSG:4326'),style_function=style)
+            p.add_to(map, name='neighbours')
 
         #colors = plotting.random_colors(n=len(labels),seed=20)
         if colorcol == None or colorcol == '':
@@ -242,6 +247,15 @@ class FoliumViewer(QWidget):
         """Tooltip"""
 
         cols = ['Animal_ID','Species','Aliquot','HERD_NO','snp3','strain_name']
+        tip = ''
+        for i,val in x.items():
+            if i in cols:
+                tip+='{}: {}<br>'.format(i,val)
+        return tip
+
+    def get_parcel_tooltip(self, x):
+
+        cols = ['SPH_HERD_N']
         tip = ''
         for i,val in x.items():
             if i in cols:

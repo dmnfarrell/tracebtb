@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="512mm"
+   height="512mm"
+   viewBox="0 0 512 512"
+   version="1.1"
+   id="svg5"
+   inkscape:version="1.1.2 (0a00cf5339, 2022-02-04)"
+   sodipodi:docname="parcels-master.svg"
+   inkscape:export-filename="/home/farrell/gitprojects/snipgenie/svg/bar.png"
+   inkscape:export-xdpi="25.4"
+   inkscape:export-ydpi="25.4"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview7"
+     pagecolor="#ffffff"
+     bordercolor="#999999"
+     borderopacity="1"
+     inkscape:pageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:document-units="mm"
+     showgrid="false"
+     width="209mm"
+     inkscape:zoom="0.20115686"
+     inkscape:cx="961.93587"
+     inkscape:cy="1163.2713"
+     inkscape:window-width="2500"
+     inkscape:window-height="1305"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs2">
+    <inkscape:path-effect
+       effect="simplify"
+       id="path-effect1348"
+       is_visible="true"
+       lpeversion="1"
+       steps="1"
+       threshold="0.000408163"
+       smooth_angles="360"
+       helper_size="0"
+       simplify_individual_paths="false"
+       simplify_just_coalesce="false" />
+    <inkscape:path-effect
+       effect="simplify"
+       id="path-effect1700"
+       is_visible="true"
+       lpeversion="1"
+       steps="1"
+       threshold="0.000408163"
+       smooth_angles="360"
+       helper_size="0"
+       simplify_individual_paths="false"
+       simplify_just_coalesce="false" />
+    <inkscape:path-effect
+       effect="simplify"
+       id="path-effect1696"
+       is_visible="true"
+       lpeversion="1"
+       steps="1"
+       threshold="0.000408163"
+       smooth_angles="360"
+       helper_size="0"
+       simplify_individual_paths="false"
+       simplify_just_coalesce="false" />
+    <inkscape:path-effect
+       effect="simplify"
+       id="path-effect1348-6"
+       is_visible="true"
+       lpeversion="1"
+       steps="1"
+       threshold="0.000408163"
+       smooth_angles="360"
+       helper_size="0"
+       simplify_individual_paths="false"
+       simplify_just_coalesce="false" />
+  </defs>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <g
+       inkscape:label="Layer 1"
+       id="layer1-2"
+       transform="matrix(1.2000732,0,0,1.1771946,-513.26541,-285.99129)">
+      <path
+         style="fill:#4e9c4e;fill-opacity:1;stroke:#000000;stroke-width:16.342;stroke-linecap:round;stroke-linejoin:bevel;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+         d="m 636.0051,370.02281 -99.6943,-15.79175 -19.01682,43.28107 32.57674,8.63377 -14.71246,31.72291 16.1355,38.01716 40.91499,3.50927 -65.6945,73.10992 30.54218,8.18831 -66.84704,36.84739 46.10141,64.92162 146.94824,-53.22402 84.71133,-19.30102 28.23711,-85.97727 -29.38963,-102.93876 51.28782,-52.05427 -1.53547,-24.63649 -15.17629,-7.53187 -17.28803,-60.24265 -53.01663,14.62198 -27.08458,-15.79174 -81.82999,38.60204 -5.76268,34.50795 19.5931,41.52645"
+         id="path1928"
+         sodipodi:nodetypes="cccccccccccccccccccccccc" />
+      <path
+         id="path3129-0-5"
+         style="fill:#ed9c37;fill-opacity:1;stroke:#110d0d;stroke-width:13.2416;stroke-linecap:round;stroke-linejoin:bevel;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+         inkscape:transform-center-x="-13.252633"
+         inkscape:transform-center-y="10.523585"
+         d="m 816.5702,324.33065 1.53547,24.63649 -51.28782,52.05427 -23.10465,-27.7726 -45.67806,9.26634 -18.44055,-7.60345 -17.81959,-44.47362 42.22967,-75.05171 27.08458,15.79174 53.01663,-14.62198 z"
+         sodipodi:nodetypes="ccccccccccc" />
+    </g>
+  </g>
+</svg>

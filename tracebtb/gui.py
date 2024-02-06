@@ -378,6 +378,7 @@ class App(QMainWindow):
         self.opentables = {}
 
         self.lpis_master = None
+        self.lpis_master_file = None
         self.lpis_cent = None
         self.parcels = None
         self.neighbours = None
@@ -636,10 +637,14 @@ class App(QMainWindow):
         #self.jitterb = b = widgets.createButton(m, None, self.update, 'jitter', core.ICONSIZE, 'jitter points')
         #b.setCheckable(True)
         #l.addWidget(b)
-        self.showneighboursb = b = widgets.createButton(m, None, self.update, 'neighbours', core.ICONSIZE, 'show neighbours')
-        b.setCheckable(True)
+        self.showneighboursb = b = widgets.createButton(m, None, self.get_neighbouring_parcels,
+                                                        'neighbours', core.ICONSIZE, 'show neighbours')
+        #b.setCheckable(True)
         l.addWidget(b)
-        self.widgets['showneighbours'] = b
+        #self.widgets['showneighbours'] = b
+        b = widgets.createButton(m, None, self.get_neighbours_in_region, 'parcels-region',
+                                 core.ICONSIZE, 'show all parcels in region')
+        l.addWidget(b)
         #self.showtreeb = b = widgets.createButton(m, None, self.update, 'tree', core.ICONSIZE, 'show tree')
         #b.setCheckable(True)
         #l.addWidget(b)
@@ -762,6 +767,9 @@ class App(QMainWindow):
         self.projectlabel.setAlignment(Qt.AlignLeft)
         self.statusBar.addWidget(self.projectlabel, 1)
 
+        w = self.data_statusbar()
+        self.statusBar.addWidget(w)
+
         self.progressbar = QProgressBar()
         self.progressbar.setRange(0,1)
         self.statusBar.addWidget(self.progressbar, 3)
@@ -778,6 +786,38 @@ class App(QMainWindow):
             action = self.docks[name].toggleViewAction()
             self.dock_menu.addAction(action)
             action.setCheckable(True)
+        return
+
+    def data_statusbar(self):
+        """Add a widget to show if specific data is present"""
+
+        w = QWidget()
+        layout = QHBoxLayout(w)
+        values = {'lpis_master':'parcels-master','snpdist':'snp-dist','aln':'alignment'}
+        S = self.status_icons = {}
+
+        for name, filename in values.items():
+            icon = QLabel()
+            #set the icon based on the status
+            iconfile = os.path.join(iconpath,filename)
+            pixmap = QPixmap(iconfile).scaled(20,20, Qt.KeepAspectRatio, mode=Qt.SmoothTransformation)
+            icon.setPixmap(pixmap)
+            icon.setAlignment(Qt.AlignCenter)
+            icon.setEnabled(False)
+            layout.addWidget(icon)
+            S[name] = icon
+        return w
+
+    def update_data_status(self):
+        """Update icons that show staus of loaded data"""
+
+        S = self.status_icons
+        for name in S:
+            icon = S[name]
+            if not hasattr(self, name) or self.__dict__[name] is None:
+                icon.setEnabled(False)
+            else:
+                icon.setEnabled(True)
         return
 
     def add_dock_item(self, name):
@@ -841,12 +881,14 @@ class App(QMainWindow):
         self.data_menu.addAction(icon, 'Load SNP Distance Matrix', lambda: self.load_snp_dist())
         self.data_menu.addAction('Load Simulated Data', lambda: self.load_folder())
         self.data_menu.addSeparator()
+        icon = QIcon(os.path.join(iconpath,'parcels-master.svg'))
+        self.data_menu.addAction(icon, 'Set Master Parcels file', self.set_lpis_file)
         icon = QIcon(os.path.join(iconpath,'shapefile.svg'))
-        self.data_menu.addAction(icon, 'Load Master Parcels file', self.set_lpis_file)
+        self.data_menu.addAction(icon, 'Load Master Parcels', self.load_lpis_master)
         icon = QIcon(os.path.join(iconpath,'parcels.svg'))
         self.data_menu.addAction(icon, 'Extract Parcels/Centroids', self.get_lpis_centroids)
-        icon = QIcon(os.path.join(iconpath,'neighbours.svg'))
-        self.data_menu.addAction(icon,'Extract Neighbouring Parcels', self.get_neighbouring_parcels)
+        #icon = QIcon(os.path.join(iconpath,'neighbours.svg'))
+        #self.data_menu.addAction(icon,'Extract Neighbouring Parcels', self.get_neighbouring_parcels)
         icon = QIcon(os.path.join(iconpath,'clusters.svg'))
         self.data_menu.addAction(icon, 'Get Clusters from SNPs', self.get_clusters)
         icon = QIcon(os.path.join(iconpath,'cow.svg'))
@@ -929,7 +971,7 @@ class App(QMainWindow):
         filename = self.proj_file
         data={}
         data['meta'] = self.meta_table.model.df
-        keys = ['sub','moves','parcels','lpis_cent','neighbours','aln','snpdist','selections']
+        keys = ['sub','moves','parcels','lpis_cent','aln','snpdist','selections','lpis_master_file']
         for k in keys:
             if hasattr(self, k):
                 data[k] = self.__dict__[k]
@@ -990,7 +1032,7 @@ class App(QMainWindow):
 
         self.new_project()
         data = pickle.load(open(filename,'rb'))
-        keys = ['sub','moves','parcels','lpis_cent','neighbours','aln','snpdist','selections']
+        keys = ['sub','moves','parcels','lpis_cent','aln','snpdist','selections','lpis_master_file']
         for k in keys:
             if k in data:
                 self.__dict__[k] = data[k]
@@ -1014,6 +1056,7 @@ class App(QMainWindow):
         self.update()
         if 'dock_items' in data:
             self.update_dock_items(data['dock_items'])
+        self.update_data_status()
         #t = self.groupw
         #t.setCurrentIndex(t.model().index(0, 4))
         #print (t.selectedIndexes())
@@ -1062,10 +1105,24 @@ class App(QMainWindow):
                                         filter="Shapefiles(*.shp);;All Files(*.*)")
         if not filename:
             return
+        print ('setting LPIS file to %s' %filename)
+        self.lpis_master_file = filename
+        return
+
+    def load_lpis_master(self):
+        """Load the master parcels file"""
+
+        if self.lpis_master_file == None:
+            print ('no master file set')
+            return
         print ('reading LPIS file..')
+        def completed():
+            self.processing_completed()
+            self.update_data_status()
+
         def func(progress_callback):
-            self.lpis_master = gpd.read_file(filename).set_crs('EPSG:29902')
-        self.run_threaded_process(func, self.processing_completed)
+            self.lpis_master = gpd.read_file(self.lpis_master_file).set_crs('EPSG:29902')
+        self.run_threaded_process(func, completed)
         return
 
     def get_lpis_centroids(self):
@@ -1096,12 +1153,15 @@ class App(QMainWindow):
         return
 
     def get_neighbouring_parcels(self):
-        """Find all neighbouring parcels from LPIS.
-        Requires the LPIS master file."""
+        """
+        Find all neighbouring parcels from LPIS.
+        Requires the LPIS master file.
+        """
 
-        df = self.meta_table.model.df
+        #df = self.meta_table.model.df
+        df = self.sub
         if self.lpis_master is None:
-            print ('LPIS master file not loaded')
+            print ('LPIS master file is not loaded.')
             return
 
         def completed():
@@ -1111,7 +1171,7 @@ class App(QMainWindow):
             return
 
         def func(progress_callback):
-            d=800
+            d=2000
             found = []
             lpis = self.lpis_master
             for x in df.geometry:
@@ -1121,10 +1181,27 @@ class App(QMainWindow):
 
             found = pd.concat(found).drop_duplicates()
             p = lpis[lpis.SPH_HERD_N.isin(found.SPH_HERD_N)]
+            p['color'] = p.apply(tools.random_grayscale_color, 1)
             self.neighbours = p
 
         print ('getting parcels..')
         self.run_threaded_process(func, completed)
+        return
+
+    def get_neighbours_in_region(self):
+        """Get all parcels in region from lpis"""
+
+        if self.lpis_master is None:
+            print ('LPIS master file is not loaded.')
+            return
+
+        xmin,xmax,ymin,ymax = self.plotview.get_plot_lims()
+        lpis = self.lpis_master
+        p = lpis.cx[xmin:xmax, ymin:ymax]
+        p = p[~p.SPH_HERD_N.isin(self.sub.HERD_NO)]
+        p['color'] = p.apply(tools.random_grayscale_color, 1)
+        self.neighbours = p
+        self.update()
         return
 
     def set_locations(self):
@@ -1430,8 +1507,11 @@ class App(QMainWindow):
         #if jitter == True:
         #    self.sub = apply_jitter(self.sub, radius=100)
 
-        if self.showneighboursb.isChecked() and self.neighbours is not None:
-            self.neighbours.plot(color='gray',alpha=0.4,ax=ax)
+        #if self.showneighboursb.isChecked():
+        #    self.get_neighbouring_parcels()
+        if self.neighbours is not None and self.parcelsb.isChecked():
+            #self.neighbours.plot(color='gray',alpha=0.4,ax=ax)
+            self.neighbours.plot(column='color',cmap='gray',alpha=0.4,ax=ax)
 
         plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
 
@@ -1439,8 +1519,9 @@ class App(QMainWindow):
         if labelcol != '':
             show_labels(self.sub, labelcol, ax)
 
-        #leg = ax.get_legend()
-        #leg.set_bbox_to_anchor((0., 0., 1.2, 0.9))
+        leg = ax.get_legend()
+        if leg != None:
+            leg.set_bbox_to_anchor((0., 0., 1.2, 0.9))
 
         #moves
         if self.movesb.isChecked():
@@ -1476,7 +1557,7 @@ class App(QMainWindow):
             ax.set_xlim(lims[0],lims[1])
             ax.set_ylim(lims[2],lims[3])
 
-        self.set_equal_axes()
+        self.set_equal_aspect()
 
         #fig.tight_layout()
         #context map
@@ -1505,15 +1586,19 @@ class App(QMainWindow):
         else:
             mov = None
         herds = list(self.sub.HERD_NO)
-        if self.parcels is not None:
-            p = self.parcels[self.parcels.HERD_NO.isin(herds)]
-        else:
-            print ('no parcels found')
-            p = None
-        self.foliumview.plot(self.sub, p, moves=mov, lpis_cent=self.lpis_cent,
+        p = None
+        np = None
+        if self.parcelsb.isChecked():
+            if self.parcels is not None:
+                p = self.parcels[self.parcels.HERD_NO.isin(herds)]
+            else:
+                print ('no parcels found')
+            if self.neighbours is not None:
+                np = self.neighbours
+        self.foliumview.plot(self.sub, p, np, moves=mov, lpis_cent=self.lpis_cent,
                              colorcol=colorcol, parcelscol=parcelscol,
                              cmap=cmap)
-        self.tabs.setCurrentIndex(1)
+        #self.tabs.setCurrentIndex(1)
         return
 
     def plot_farms(self):
@@ -1598,17 +1683,27 @@ class App(QMainWindow):
         ax = self.plotview.ax
         if self.colorcountiesb.isChecked():
             cty = 'NAME_TAG'
-            clr=None
+            clr = None
         else:
+            ax.set_facecolor('lightblue')
             cty = None
             clr='none'
-        self.counties.plot(edgecolor='gray',column=cty,color=clr,cmap='tab20',alpha=0.4,ax=ax)
+        #legend format
+        lfmt = {'fontsize':'small','title':'col'}
+        self.counties.plot(edgecolor='gray',column=cty,color=clr,
+                           cmap='tab20',lw=0.6,alpha=0.7,legend_kwds=lfmt,
+                           ax=ax)
+
         #labels
         if self.colorcountiesb.isChecked():
+            #from adjustText import adjust_text
             c = self.counties
+            #texts=[]
             c['cent'] = c.geometry.centroid
             for x, y, label in zip(c.cent.x, c.cent.y, c["NAME_TAG"]):
                 ax.text(x, y, label, fontsize = 12)
+                #texts.append(ax.text(x, y, label, fontsize = 12))
+            #adjust_text(texts, ax=ax, arrowprops=dict(arrowstyle='->', color='red'))
         return
 
     def selection_from_table(self):
@@ -1670,9 +1765,9 @@ class App(QMainWindow):
             return
         ax = self.plotview.ax
         if col == '' or col == None:
-            parcels.plot(color='none',alpha=0.6,lw=.5,ec='black',cmap=cmap,ax=ax)
+            parcels.plot(color='none',lw=.5,ec='black',cmap=cmap,ax=ax)
         else:
-            parcels.plot(column=col,alpha=0.6,lw=.5,cmap=cmap,ax=ax)
+            parcels.plot(column=col,alpha=0.6,lw=.3,ec='black',cmap=cmap,ax=ax)
         return
 
     def plot_herd_selection(self, herd_no):
@@ -1698,7 +1793,7 @@ class App(QMainWindow):
         self.plotview.redraw()
         return
 
-    def set_equal_axes(self):
+    def set_equal_aspect(self):
         """Set axes to be equal regardless of selection"""
 
         ax = self.plotview.ax
