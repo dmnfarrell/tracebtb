@@ -309,7 +309,8 @@ def addToolBarItems(toolbar, parent, items):
         btn.triggered.connect(items[i]['action'])
         if 'shortcut' in items[i]:
             btn.setShortcut(QKeySequence(items[i]['shortcut']))
-        #btn.setCheckable(True)
+        if 'checkable' in items[i]:
+            btn.setCheckable(items[i]['checkable'])
         toolbar.addAction(btn)
     return toolbar
 
@@ -641,9 +642,27 @@ class SimpleFilterWidget(QWidget):
         super(SimpleFilterWidget, self).__init__(parent)
         self.parent = parent
         self.table = table
+        self.casesensitive = False
         self.createWidgets()
         self.setMaximumHeight(200)
         return
+
+    def togglecase(self):
+
+        sender = self.sender()
+        self.casesensitive = sender.isChecked()
+        return
+
+    def createToolBar(self, parent):
+
+        items = {'Search': {'action':self.apply,'file':'search'},
+                 'Case-Sensitive': {'action':self.togglecase,'file':'case-sensitive','checkable':True},
+                 'Close': {'action':self.close,'file':'close'}
+                 }
+        toolbar = QToolBar("Toolbar")
+        toolbar.setOrientation(QtCore.Qt.Horizontal)
+        addToolBarItems(toolbar, self, items)
+        return toolbar
 
     def createWidgets(self):
         """Create widgets"""
@@ -685,7 +704,7 @@ class SimpleFilterWidget(QWidget):
         #self.setStyleSheet(dockstyle)
         self.setStyleSheet(style)
         #self.main.setMaximumHeight(200)
-        
+
         #self.setWidget(self.main)
         l = self.layout = QVBoxLayout(self)
         l.setContentsMargins(0, 0, 0, 0)
@@ -704,13 +723,9 @@ class SimpleFilterWidget(QWidget):
         w.addItems(cols)
         hb.addWidget(w)
 
-        btn = QPushButton('Search')
-        btn.clicked.connect(self.apply)
-        l.addWidget(btn)
-        btn = QPushButton('Close')
-        btn.clicked.connect(self.close)
-        l.addWidget(btn)
-
+        #bw = self.createButtons()
+        tb = self.createToolBar(self)
+        l.addWidget(tb)
         return
 
     def close(self):
@@ -732,7 +747,11 @@ class SimpleFilterWidget(QWidget):
         else:
             c = df.columns.get_loc(searchcol)
             proxy.setFilterKeyColumn(c)
-        proxy.setFilterCaseSensitivity(QtCore.Qt.CaseInsensitive)
+
+        if self.casesensitive is True:
+            proxy.setFilterCaseSensitivity(QtCore.Qt.CaseSensitive)
+        else:
+            proxy.setFilterCaseSensitivity(QtCore.Qt.CaseInsensitive)
         self.table.applyFilters(text)
         return
 

@@ -12,7 +12,9 @@ CHANGES
 * can save folium scr shot
 * save selections
 * fixed table selection
-* set dtype
+* set dtype in tables
+* added data status icons
+* calculate neighbour parcels dynamically
 
 0.3.0
 -----

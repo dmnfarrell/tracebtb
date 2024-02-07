@@ -206,9 +206,9 @@ class FoliumViewer(QWidget):
             p = folium.GeoJson(parcels.to_crs('EPSG:4326'),style_function=style)
             p.add_to(map, name='parcels')
 
-        if neighbours is not None:
-            p = folium.GeoJson(neighbours.to_crs('EPSG:4326'),style_function=style)
-            p.add_to(map, name='neighbours')
+        #if neighbours is not None:
+        #    p = folium.GeoJson(neighbours.to_crs('EPSG:4326'),style_function=style)
+        #    p.add_to(map, name='neighbours')
 
         #colors = plotting.random_colors(n=len(labels),seed=20)
         if colorcol == None or colorcol == '':

@@ -244,3 +244,10 @@ def get_coords_data(df):
     df['P2'] = df.geometry.shift(-1)
     coords = df[:-1].apply(lambda x: LineString([x.geometry,x.P2]),1)
     return coords
+
+def get_dataframe_memory(df):
+    """get dataframe memory in MB"""
+
+    m = df.memory_usage(deep=True).sum()
+    m = round(m/1048576,2)
+    return m

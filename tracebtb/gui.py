@@ -1685,7 +1685,7 @@ class App(QMainWindow):
             cty = 'NAME_TAG'
             clr = None
         else:
-            ax.set_facecolor('lightblue')
+            #ax.set_facecolor('lightblue')
             cty = None
             clr='none'
         #legend format
@@ -1885,8 +1885,6 @@ class App(QMainWindow):
     def show_filter(self):
         """Filter widget"""
 
-        #w = widgets.SimpleFilterWidget(self, self.meta_table)
-        #self.show_dock_object(w, 'filtering', side='left')
         self.table_widget.showSearchBar()
         return
 
@@ -1943,6 +1941,12 @@ class App(QMainWindow):
         d['indexes'] = idx
         #get widget settings
         d['options'] = widgets.getWidgetValues(self.widgets)
+        #plot zoom
+        d['zoom'] = self.plotview.get_plot_lims()
+        #neighbours
+        d['neighbours'] = self.neighbours
+        m = tools.get_dataframe_memory(self.neighbours)
+        print (m)
         #print (d)
         self.update_selections_menu()
         return
@@ -1980,19 +1984,22 @@ class App(QMainWindow):
         for name in self.selections:
             #print (name)
             def func(name):
+                #show saved selection
                 df = self.meta_table.model.df
                 d = self.selections[name]
                 idx = d['indexes']
                 self.sub = df.loc[idx]
+                self.plotview.lims = None
                 #restore saved widget values
-                #print (d['options'])
                 if 'options' in d:
                     widgets.setWidgetValues(self.widgets, d['options'])
-
+                #any other objects?
+                for k in ['neighbours']:
+                    if k in d:
+                        self.__dict__[k] = d[k]
                 self.update()
                 return
             menu.addAction(name, partial(func, name))
-
         return
 
     def herd_summary(self):
