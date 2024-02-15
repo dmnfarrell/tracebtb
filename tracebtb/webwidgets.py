@@ -203,13 +203,19 @@ class FoliumViewer(QWidget):
                 style = lambda x:style_func(x)
             else:
                 style = lambda x:basestyle
-            p = folium.GeoJson(parcels.to_crs('EPSG:4326'),style_function=style)
-            p.add_to(map, name='parcels')
+            tooltip = folium.features.GeoJsonTooltip(fields=['SPH_HERD_N'], aliases=['Herd No.'])
+            p = folium.GeoJson(parcels.to_crs('EPSG:4326'),style_function=style,
+                            tooltip=tooltip, name='parcels')
+            p.add_to(map)
 
-        #if neighbours is not None:
-        #    p = folium.GeoJson(neighbours.to_crs('EPSG:4326'),style_function=style)
-        #    p.add_to(map, name='neighbours')
-
+        if neighbours is not None:
+            try:
+                tooltip = folium.features.GeoJsonTooltip(fields=['SPH_HERD_N'], aliases=['Herd No.'])
+                p = folium.GeoJson(neighbours.to_crs('EPSG:4326'),style_function=style,
+                                tooltip=tooltip, name='neighbours')
+                p.add_to(map)
+            except Exception as e:
+                print (e)
         #colors = plotting.random_colors(n=len(labels),seed=20)
         if colorcol == None or colorcol == '':
             df['color'] = df.Species.map({'Bovine':'blue','Badger':'orange'})

@@ -92,6 +92,13 @@ def random_grayscale_color(_):
     gray_value = np.random.randint(0, 256)
     return f'#{gray_value:02X}{gray_value:02X}{gray_value:02X}'
 
+def random_colormap_colors(cmap_name, n):
+    """
+    Get n random colors from a Matplotlib colormap.
+    """
+    clrs = colormap_colors(cmap_name, n)
+    return random.sample(clrs,len(clrs))
+
 def gen_colors(cmap,n,reverse=False):
     '''Generates n distinct color from a given colormap.
     Args:

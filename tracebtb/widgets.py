@@ -1549,6 +1549,8 @@ class CustomPlotViewer(PlotViewer):
         self.canvas.draw()
         df = self.app.meta_table.model.df
         pad=500
+        if x is None:
+            return
         found = df.cx[x-pad:x+pad, y-pad:y+pad]
         if len(found)>0:
             self.app.sample_details(found.iloc[0])

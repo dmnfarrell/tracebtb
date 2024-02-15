@@ -148,11 +148,16 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
     #df['color'] = df.Species.map({'Bovine':'blue','Badger':'orange'})
     #map color to col here properly?
     df['color'] = 'blue'
-
+    ncols = 1
+    if len(df.groupby(col).groups)>15:
+        ncols=2
+    legfmt = {'title':col,'fontsize':'small','frameon':False,'draggable':True,'ncol':ncols}
     if col == None or col == '':
-        df.plot(color=df.color,ax=ax,alpha=0.6,markersize=ms,linewidth=.5,label='farm/badger',legend=legend)
+        df.plot(color=df.color,ax=ax,alpha=0.6,markersize=ms,linewidth=.5,
+                legend=legend,legend_kwds=legfmt)
     else:
-        df.plot(column=col,ax=ax,alpha=0.6,markersize=ms,linewidth=.5,label='farm/badger',cmap=cmap,legend=legend)
+        df.plot(column=col,ax=ax,alpha=0.6,markersize=ms,linewidth=.5,cmap=cmap,
+                legend=legend,legend_kwds=legfmt)
     cow = df[df.Species=='Bovine']
     badger = df[df.Species=='Badger']
     #cow.plot(column=col,ax=ax,alpha=0.6,markersize=ms,linewidth=1,ec='black',cmap=cmap,legend=legend)
@@ -166,7 +171,7 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
     ax.set_xlim(minx-margin,maxx+margin)
     ax.set_ylim(miny-margin,maxy+margin)
     ax.add_artist(ScaleBar(dx=1,location=3))
-    #ax.legend(fontsize=12)
+
     return
 
 def calculate_grid_dimensions(n):
@@ -1115,7 +1120,7 @@ class App(QMainWindow):
         if self.lpis_master_file == None:
             print ('no master file set')
             return
-        print ('reading LPIS file..')
+        print ('reading master shapefile..')
         def completed():
             self.processing_completed()
             self.update_data_status()
@@ -1200,6 +1205,7 @@ class App(QMainWindow):
         p = lpis.cx[xmin:xmax, ymin:ymax]
         p = p[~p.SPH_HERD_N.isin(self.sub.HERD_NO)]
         p['color'] = p.apply(tools.random_grayscale_color, 1)
+        #p['color'] = tools.random_colormap_colors('GnBu',len(p))
         self.neighbours = p
         self.update()
         return
@@ -1688,10 +1694,8 @@ class App(QMainWindow):
             #ax.set_facecolor('lightblue')
             cty = None
             clr='none'
-        #legend format
-        lfmt = {'fontsize':'small','title':'col'}
         self.counties.plot(edgecolor='gray',column=cty,color=clr,
-                           cmap='tab20',lw=0.6,alpha=0.7,legend_kwds=lfmt,
+                           cmap='tab20',lw=0.6,alpha=0.7,
                            ax=ax)
 
         #labels
@@ -2164,7 +2168,7 @@ class App(QMainWindow):
         pandasver = pd.__version__
         pythonver = platform.python_version()
         mplver = matplotlib.__version__
-
+        gpdver = gpd.__version__
         text='TracebTB\n'\
             +'version '+__version__+'\n'\
             +'Copyright (C) Damien Farrell 2022-\n'\
@@ -2174,7 +2178,8 @@ class App(QMainWindow):
             +'version 3 of the License, or (at your option) any '\
             +'later version.\n'\
             +'Using Python v%s, %s\n' %(pythonver, pyqtver)\
-            +'pandas v%s, matplotlib v%s' %(pandasver,mplver)
+            +'pandas v%s, matplotlib v%s' %(pandasver,mplver)\
+            +'geopandas v%s' %gpdver
 
         msg = QMessageBox.about(self, "About", text)
         return
