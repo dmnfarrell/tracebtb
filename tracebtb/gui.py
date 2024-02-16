@@ -805,7 +805,8 @@ class App(QMainWindow):
             icon = QLabel()
             #set the icon based on the status
             iconfile = os.path.join(iconpath,filename)
-            pixmap = QPixmap(iconfile).scaled(20,20, Qt.KeepAspectRatio, mode=Qt.SmoothTransformation)
+            pixmap = QPixmap(iconfile).scaled(QtCore.QSize(20,20), 
+                                              Qt.KeepAspectRatio, Qt.SmoothTransformation)
             icon.setPixmap(pixmap)
             icon.setAlignment(Qt.AlignCenter)
             icon.setEnabled(False)
