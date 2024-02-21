@@ -240,6 +240,17 @@ def plot_moves(moves, lpis_cent, ax):
                 i+=1
     return
 
+def plot_parcels(parcels, ax, col=None, cmap='Set1'):
+    """Show selected land parcels"""
+
+    if len(parcels) == 0 or parcels is None:
+        return
+    if col == '' or col == None:
+        parcels.plot(color='none',lw=.5,ec='black',cmap=cmap,ax=ax)
+    else:
+        parcels.plot(column=col,alpha=0.6,lw=.3,ec='black',cmap=cmap,ax=ax)
+    return
+
 def plot_moves_timeline(df, ax=None):
     """Timeline from moves"""
 
@@ -615,8 +626,8 @@ class App(QMainWindow):
         self.showfoliumb = b = widgets.createButton(m, None, self.update, 'folium', core.ICONSIZE, 'interactive view')
         b.setCheckable(True)
         l.addWidget(b)
-        self.multiaxesb= b = widgets.createButton(m, None, self.plot_farms, 'plot-grid', core.ICONSIZE, 'farm split view')
-        l.addWidget(b)
+        #self.multiaxesb= b = widgets.createButton(m, None, self.plot_farms, 'plot-grid', core.ICONSIZE, 'farm split view')
+        #l.addWidget(b)
         b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', core.ICONSIZE, 'show all in region')
         l.addWidget(b)
         self.parcelsb = b = widgets.createButton(m, None, self.update, 'parcels', core.ICONSIZE, 'show parcels')
@@ -805,7 +816,7 @@ class App(QMainWindow):
             icon = QLabel()
             #set the icon based on the status
             iconfile = os.path.join(iconpath,filename)
-            pixmap = QPixmap(iconfile).scaled(QtCore.QSize(20,20), 
+            pixmap = QPixmap(iconfile).scaled(QtCore.QSize(20,20),
                                               Qt.KeepAspectRatio, Qt.SmoothTransformation)
             icon.setPixmap(pixmap)
             icon.setAlignment(Qt.AlignCenter)
@@ -1164,11 +1175,17 @@ class App(QMainWindow):
         Requires the LPIS master file.
         """
 
-        #df = self.meta_table.model.df
         df = self.sub
         if self.lpis_master is None:
             print ('LPIS master file is not loaded.')
             return
+
+        lpis = self.lpis_master
+        #add farms that are in current moves data aswell
+        mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
+        m = lpis[lpis.SPH_HERD_N.isin(mov.SPH_HERD_N)]
+        #combine both
+        df = pd.concat([df,m])
 
         def completed():
             self.processing_completed()
@@ -1177,9 +1194,8 @@ class App(QMainWindow):
             return
 
         def func(progress_callback):
-            d=2000
+            d=1200
             found = []
-            lpis = self.lpis_master
             for x in df.geometry:
                 dists = self.lpis_cent.distance(x)
                 points = self.lpis_cent[(dists<=d) & (dists>10)]
@@ -1508,7 +1524,7 @@ class App(QMainWindow):
         if self.parcelsb.isChecked() and self.parcels is not None:
             herds = list(self.sub.HERD_NO)
             p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
-            self.plot_parcels(p, col=colorparcelscol,cmap=cmap)
+            plot_parcels(p, col=colorparcelscol, cmap=cmap, ax=ax)
 
         #to be removed
         #if jitter == True:
@@ -1602,10 +1618,10 @@ class App(QMainWindow):
                 print ('no parcels found')
             if self.neighbours is not None:
                 np = self.neighbours
-        self.foliumview.plot(self.sub, p, np, moves=mov, lpis_cent=self.lpis_cent,
+        self.foliumview.plot(sub=self.sub, parcels=p, neighbours=np, moves=mov,
+                             lpis_cent=self.lpis_cent,
                              colorcol=colorcol, parcelscol=parcelscol,
                              cmap=cmap)
-        #self.tabs.setCurrentIndex(1)
         return
 
     def plot_farms(self):
@@ -1681,6 +1697,8 @@ class App(QMainWindow):
         cl = ','.join(groups)
         self.title = '%s=%s n=%s' %(level,cl,len(self.sub))
         self.plotview.lims = None
+        #reset neighbours
+        self.neighbours = None
         self.update()
         return
 
@@ -1761,18 +1779,6 @@ class App(QMainWindow):
         #ax = self.plotview.ax
         #ax.set_xlim(xmin,xmax)
         #ax.set_ylim(ymin,ymax)
-        return
-
-    def plot_parcels(self, parcels, col=None, cmap='Set1'):
-        """Show selected land parcels"""
-
-        if len(parcels) == 0 or parcels is None:
-            return
-        ax = self.plotview.ax
-        if col == '' or col == None:
-            parcels.plot(color='none',lw=.5,ec='black',cmap=cmap,ax=ax)
-        else:
-            parcels.plot(column=col,alpha=0.6,lw=.3,ec='black',cmap=cmap,ax=ax)
         return
 
     def plot_herd_selection(self, herd_no):
