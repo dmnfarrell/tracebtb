@@ -167,41 +167,55 @@ def alignment_from_snps(df):
     aln = Align.MultipleSeqAlignment(seqs)
     return aln
 
-def snp_dist_matrix(aln):
+def compute_snp_count(args):
+    i, j, seq1, seq2 = args
+    return i, j, np.sum(np.fromiter((c1 != c2 for c1, c2 in zip(seq1, seq2)), dtype=int))
+
+def snp_dist_matrix(aln, threads=4):
     """
     Compute the number of Single Nucleotide Polymorphisms (SNPs)
     between sequences in a Biopython alignment.
     Args:
         aln:
             Biopython multiple sequence alignment object.
-    returns:
-        a matrix as pandas dataframe
+    Returns:
+        A matrix as pandas dataframe.
     """
 
-    names=[s.id for s in aln]
+    from multiprocessing import Pool
+    names = [s.id for s in aln]
     num_sequences = len(aln)
-    matrix = np.zeros((num_sequences, num_sequences))
+    matrix = np.zeros((num_sequences, num_sequences), dtype=int)
+    sequences = [str(s.seq) for s in aln]
 
+    args_list = []
     for i in range(num_sequences):
-        seq1 = str(aln[i].seq)
+        seq1 = sequences[i]
         for j in range(i + 1, num_sequences):
-            seq2 = str(aln[j].seq)
-            # Calculate the number of SNPs
-            snp_count = sum(c1 != c2 for c1, c2 in zip(seq1, seq2))
-            matrix[i, j] = snp_count
-            matrix[j, i] = snp_count
+            seq2 = sequences[j]
+            args_list.append((i, j, seq1, seq2))
 
-    m = pd.DataFrame(matrix,index=names,columns=names).astype(int)
+    with Pool(processes=threads) as pool:
+        results = pool.map(compute_snp_count, args_list)
+
+    for i, j, snp_count in results:
+        matrix[i, j] = snp_count
+        matrix[j, i] = snp_count
+
+    m = pd.DataFrame(matrix, index=names, columns=names)
     return m
 
-def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, cmap='Set1', ax=None):
+def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, colormap=None,
+                       cmap='Set1', node_size=4, font_size=6, with_labels=False, ax=None):
     """Dist matrix to minimum spanning tree"""
 
+    from . import plotting
+    import pylab as plt
     if ax == None:
         fig,ax=plt.subplots()
     import networkx as nx
     from networkx.drawing.nx_agraph import graphviz_layout
-    import pylab as plt
+
     G = nx.Graph()
 
     for i, row in distance_matrix.iterrows():
@@ -212,31 +226,44 @@ def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, cmap='Set1', ax=
     # Compute edge lengths based on distances
     edge_lengths = [T[u][v]['weight'] for u, v in T.edges()]
     # Plot the minimum spanning tree with edge lengths proportional to distances
-    #pos = nx.spring_layout(T)#, weight='weight', scale=10, seed=42)
     pos = graphviz_layout(T)
     labels = nx.get_edge_attributes(T, 'weight')
     if df is not None:
-        c,cmap = get_color_mapping(df, colorcol, cmap)
-        colors = dict(zip(df.index, c))
-        node_colors = [colors[node] for node in T.nodes()]
-        p=make_legend(ax.figure, cmap, loc=(1, .9), title=colorcol,fontsize=9)
+        l = [label for label in T.nodes if label in df.index]
+        df = df.loc[l]
+        if colormap is None:
+            colors,cmap = get_color_mapping(df, colorcol, cmap)
+        else:
+            #custom colormap if provided
+            colors = [colormap[i] if i in colormap else 'black' for i in df[colorcol]]
+            cmap = colormap
+        #print (cmap)
+        C = dict(zip(df.index, colors))
+        node_colors = [C[node] if node in C else 'Black' for node in T.nodes()]
+        cmap = check_keys(cmap, df[colorcol].unique())
+        p = plotting.make_legend(ax.figure, cmap, loc=(1, .7), title=colorcol,fontsize=9)
+
     else:
-        node_colors = 'lightblue'
-    nx.draw_networkx(T, pos, node_color=node_colors,node_size=40,font_size=6, ax=ax)
-    nx.draw_networkx_edge_labels(T, pos, edge_labels=labels, font_size=6, ax=ax)
-    #nx.draw_networkx_edges(T, pos, width=edge_lengths)
+        node_colors = 'black'
+    nx.draw_networkx(T, pos, node_color=node_colors, node_size=node_size,
+                     font_size=font_size, with_labels=with_labels, ax=ax)
+    nx.draw_networkx_edge_labels(T, pos, edge_labels=labels, font_size=font_size, ax=ax)
+
+    if labelcol not in ['',None]:
+        node_labels = {node:df.loc[node][labelcol] if node in df.index else '' for node in T.nodes()}
+        #print (node_labels)
+        nx.draw_networkx_labels(T, pos, labels=node_labels, font_size=font_size, horizontalalignment='right')
     ax.axis('off')
-    return
+    return T, pos
 
-def make_legend(fig, colormap, loc=(1.05, .6), title='',fontsize=12):
-    """Make a figure legend wth provided color mapping"""
+def check_keys(d, vals):
+    """Remove keys not in vals"""
 
-    import matplotlib.patches as mpatches
-    pts=[]
-    for c in colormap:
-        pts.append(mpatches.Patch(color=colormap[c],label=c))
-    fig.legend(handles=pts,bbox_to_anchor=loc,fontsize=fontsize,title=title)
-    return pts
+    keys=list(d.keys())
+    for key in keys:
+        if not key in vals:
+            d.pop(key, None)
+    return d
 
 def subset_alignment(aln, names):
     """Subset of a multpleseqalignment object"""
@@ -255,6 +282,8 @@ def get_coords_data(df):
 def get_dataframe_memory(df):
     """get dataframe memory in MB"""
 
+    if df is None:
+        return
     m = df.memory_usage(deep=True).sum()
     m = round(m/1048576,2)
     return m

@@ -1531,7 +1531,6 @@ class CustomPlotViewer(PlotViewer):
 
     def motion_hover(self, event):
 
-
         return
 
     def onrelease(self, event):
@@ -1846,7 +1845,7 @@ class PreferencesDialog(QDialog):
                 '%Y-%m-%d %H:%M:%S','%Y-%m-%d %H:%M',
                 '%d-%m-%Y %H:%M:%S','%d-%m-%Y %H:%M',
                 '%Y','%m','%d','%b']
-
+        cpus=os.cpu_count()
         self.opts = {
                 'FONT':{'type':'font','default':options['FONT'],'label':'Font'},
                 'FONTSIZE':{'type':'spinbox','default':options['FONTSIZE'],'range':(5,40),
@@ -1856,8 +1855,10 @@ class PreferencesDialog(QDialog):
                 'DPI':{'type':'entry','default':options['DPI'],
                         'label':'Plot DPI'},
                 'ICONSIZE':{'type':'spinbox','default':options['ICONSIZE'],'range':(16,64), 'label':'Icon Size'},
+                'THREADS':{'type':'spinbox','default':options['THREADS'],'range':(1,cpus), 'label':'Threads'}
                 }
-        sections = {'formats':['FONT','FONTSIZE','TIMEFORMAT','ICONSIZE','DPI']
+        sections = {'formats':['FONT','FONTSIZE','TIMEFORMAT','ICONSIZE','DPI'],
+                    'other':['THREADS']
                     }
 
         dialog, self.widgets = dialogFromOptions(self, self.opts, sections)
@@ -1892,6 +1893,7 @@ class PreferencesDialog(QDialog):
         core.TIMEFORMAT = kwds['TIMEFORMAT']
         core.DPI = kwds['DPI']
         core.ICONSIZE = kwds['ICONSIZE']
+        core.THREADS = kwds['THREADS']
 
         self.parent.refresh()
         self.parent.apply_settings()

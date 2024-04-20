@@ -34,7 +34,8 @@ defaults = {
             'FONTSIZE' : 10,
             'TIMEFORMAT' :'%m/%d/%Y',
             'ICONSIZE' : 28,
-            'DPI' : 100
+            'DPI' : 100,
+            'THREADS': 4
          }
 #populate current class variable
 for k in defaults:

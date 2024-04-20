@@ -149,7 +149,7 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
     #map color to col here properly?
     df['color'] = 'blue'
     ncols = 1
-    if len(df.groupby(col).groups)>15:
+    if col in df.columns and len(df.groupby(col).groups)>15:
         ncols=2
     legfmt = {'title':col,'fontsize':'small','frameon':False,'draggable':True,'ncol':ncols}
     if col == None or col == '':
@@ -219,7 +219,7 @@ def plot_grid(gdf, parcels=None, moves=None, fig=None, source=None):
     plt.tight_layout()
     return ax
 
-def plot_moves(moves, lpis_cent, ax):
+def plot_moves(moves, lpis_cent, ax, ms=80):
     """Show moves as lines on plot"""
 
     colors = plotting.random_colors(250, seed=12)
@@ -236,7 +236,7 @@ def plot_moves(moves, lpis_cent, ax):
                 mlines = gpd.GeoDataFrame(geometry=coords)
                 mlines.plot(color='black',linewidth=.5,ax=ax)
                 moved.plot(color='none',ec='black',marker='s',
-                            markersize=80,linewidth=.8,alpha=0.5,ax=ax)
+                            markersize=ms,linewidth=.8,alpha=0.5,ax=ax)
                 i+=1
     return
 
@@ -439,6 +439,7 @@ class App(QMainWindow):
                 core.FONT = s.value("font")
                 core.FONTSIZE = int(s.value("fontsize"))
                 core.DPI = int(s.value("dpi"))
+                core.THREADS = int(s.value('threads'))
                 import matplotlib as mpl
                 mpl.rcParams['savefig.dpi'] = int(core.DPI)
                 core.ICONSIZE = int(s.value("iconsize"))
@@ -475,6 +476,7 @@ class App(QMainWindow):
         self.settings.setValue('font', core.FONT)
         self.settings.setValue('fontsize', core.FONTSIZE)
         self.settings.setValue('dpi', core.DPI)
+        self.settings.setValue('threads', core.THREADS)
         self.settings.setValue('recent_files',','.join(self.recent_files))
         #print (self.settings)
         self.settings.sync()
@@ -498,6 +500,7 @@ class App(QMainWindow):
                  'Filter': {'action':self.show_filter,'file':'filter'},
                  'Settings': {'action':self.preferences,'file':'settings'},
                  'Build Tree': {'action':self.show_tree,'file':'tree'},
+                 'Show MST': {'action':self.plot_mst,'file':'mst'},
                  'Herd Summary':{'action':self.herd_summary,'file':'cow'},
                  'Cluster Report':{'action':self.cluster_report ,'file':'cluster_report'},
                  'Make Simulated Data':{'action':self.simulate_data ,'file':'simulate'},
@@ -686,7 +689,7 @@ class App(QMainWindow):
         for g,size in vals.items():
             item = CustomTreeWidgetItem(t)
             item.setTextAlignment(0, QtCore.Qt.AlignLeft)
-            item.setText(0, g)
+            item.setText(0, str(g))
             item.setText(1, str(size))
         t.sortItems(0, QtCore.Qt.SortOrder(0))
         return
@@ -916,6 +919,8 @@ class App(QMainWindow):
         self.menuBar().addMenu(self.tools_menu)
         icon = QIcon(os.path.join(iconpath,'tree.svg'))
         self.tools_menu.addAction(icon, 'Build Tree', self.show_tree)
+        icon = QIcon(os.path.join(iconpath,'mst.svg'))
+        self.tools_menu.addAction(icon, 'Show MST', self.plot_mst)
         icon = QIcon(os.path.join(iconpath,'mbovis.svg'))
         self.tools_menu.addAction(icon, 'Strain Typing', self.strain_typing)
         icon = QIcon(os.path.join(iconpath,'cow.svg'))
@@ -1160,6 +1165,7 @@ class App(QMainWindow):
             self.set_locations()
             x = self.lpis_master
             self.parcels = x[x.SPH_HERD_N.isin(df.HERD_NO)]
+            print ('found %s parcels' %len(self.parcels))
             self.processing_completed()
             return
 
@@ -1228,7 +1234,7 @@ class App(QMainWindow):
         return
 
     def set_locations(self):
-        """Add locations to meta data from lpis_cent."""
+        """Add locations to meta data from lpis_cent. Overwrites any geometry present."""
 
         if self.lpis_cent is None:
             print ('no centroids')
@@ -1313,18 +1319,12 @@ class App(QMainWindow):
             if col in df.columns:
                 df[col] = df[col].astype(str)
 
-        #try to convert to geodataframe if has coords - (move to sep function)
-        if 'X_COORD' in df.columns:
-            print('found geometry column')
-            x='X_COORD'
-            y='Y_COORD'
-            df = gpd.GeoDataFrame(df,geometry=gpd.points_from_xy(df[x], df[y])).set_crs('EPSG:29902')
-            #jitter the points
-            print ('jittering points')
-            df = apply_jitter(df, radius=100)
-        else:
+        #try to convert to geodataframe if has coords
+        result = self.extract_coords(df)
+        if result is None:
             print ('no coords found. you can still use parcels to determine locations')
-
+        else:
+            df = result
         #set the index column, should be animal ID
         if index == None:
             cols = df.columns
@@ -1337,6 +1337,26 @@ class App(QMainWindow):
         self.update_groups()
         self.update_widgets()
         return
+
+    def extract_coords(self, df):
+        """Try to convert coords from X-Y columns"""
+
+        opts = {'X':{'type':'combobox','default':'X','items':['X','X_COORD']},
+                'Y':{'type':'combobox','default':'Y','items':['Y','Y_COORD']}
+                }
+        dlg = widgets.MultipleInputDialog(self, opts, title='Select X-Y columns',
+                            width=250,height=150)
+        dlg.exec_()
+        if not dlg.accepted:
+            return
+        kwds = dlg.values
+        x=kwds['X']
+        y=kwds['Y']
+        gdf = gpd.GeoDataFrame(df,geometry=gpd.points_from_xy(df[x], df[y])).set_crs('EPSG:29902')
+        #jitter the points
+        print ('jittering points')
+        gdf = apply_jitter(gdf, radius=100)
+        return gdf
 
     def load_moves(self, filename=None):
         """Load movement data"""
@@ -1364,6 +1384,12 @@ class App(QMainWindow):
                 return
         self.aln = AlignIO.read(filename, format='fasta')
         print ('loaded alignment with %s rows' %len(self.aln))
+        reply = QMessageBox.question(self, 'Calculate DM?',
+                                "Calculate distance matrix?",
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.dist_matrix_from_alignment()
+        self.update_data_status()
         return
 
     def load_snp_dist(self, filename=None):
@@ -1376,6 +1402,7 @@ class App(QMainWindow):
                 return
         self.snpdist = pd.read_csv(filename,index_col=0)
         print ('loaded dist matrix with %s rows' %len(self.snpdist))
+        self.update_data_status()
         return
 
     def load_parcels(self, filename=None, herdcol=None, crs=None):
@@ -1851,17 +1878,19 @@ class App(QMainWindow):
         labelcol = self.labelsw.currentText()
         idx = list(self.sub.index)
         #print (idx)
-        if hasattr(self, 'aln'):
+
+        if hasattr(self, 'snpdist'):
+            treefile = 'tree.newick'
+            M = self.snpdist.loc[idx,idx]
+            #print (M)
+            trees.tree_from_distmatrix(M, treefile)
+        elif hasattr(self, 'aln'):
             from Bio.Align import MultipleSeqAlignment
             seqs = [rec for rec in self.aln if rec.id in idx]
             aln = MultipleSeqAlignment(seqs)
             if len(aln) == 0:
                 return
             treefile = trees.tree_from_aln(aln)
-        elif hasattr(self, 'snpdist'):
-            treefile = 'tree.newick'
-            M = self.snpdist.loc[idx,idx]
-            trees.tree_from_distmatrix(M, treefile)
         else:
             print ('no alignment or dist matrix')
             return
@@ -1882,15 +1911,33 @@ class App(QMainWindow):
 
         cmap = self.cmapw.currentText()
         colorcol = self.colorbyw.currentText()
+        labelcol = self.labelsw.currentText()
 
-        from Bio.Align import MultipleSeqAlignment
+        if not hasattr(self, 'snpdist'):
+            print ('no distance matrix')
+            return
+
         idx = list(self.sub.index)
-        seqs = [rec for rec in self.aln if rec.id in idx]
-        aln = MultipleSeqAlignment(seqs)
-        D = tools.snp_dist_matrix(aln)
+        M = self.snpdist.loc[idx,idx]
         w = widgets.PlotWidget(self)
-        tools.dist_matrix_to_mst(D,self.sub,colorcol, cmap=cmap,ax=w.ax)
+        tools.dist_matrix_to_mst(M, self.sub, colorcol, node_size=100, labelcol=labelcol,
+                                  cmap=cmap, ax=w.ax)
         self.show_dock_object(w, 'mst')
+        return
+
+    def dist_matrix_from_alignment(self):
+        """Calculate snp dist matrix from alignment"""
+
+        if self.aln is None:
+            print ('no alignment loaded')
+            return
+        from Bio.Align import MultipleSeqAlignment
+        aln = MultipleSeqAlignment(self.aln)
+        print ('calculating distance matrix for %s sequences..' %len(aln))
+
+        def func(progress_callback):
+            self.snpdist = tools.snp_dist_matrix(aln, threads=core.THREADS)
+        self.run_threaded_process(func, self.processing_completed)
         return
 
     def show_filter(self):
@@ -1956,8 +2003,9 @@ class App(QMainWindow):
         d['zoom'] = self.plotview.get_plot_lims()
         #neighbours
         d['neighbours'] = self.neighbours
-        m = tools.get_dataframe_memory(self.neighbours)
-        print (m)
+        if self.neighbours is not None:
+            m = tools.get_dataframe_memory(self.neighbours)
+            print (m)
         #print (d)
         self.update_selections_menu()
         return
