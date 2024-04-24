@@ -1162,9 +1162,14 @@ class App(QMainWindow):
             #add locations to meta data
             print ('updating table..')
             df = self.meta_table.model.df
+            #herds to find
+            herds = list(df.HERD_NO)
+            #also get intermediate herds from moves if present
+            if self.moves is not None:
+                herds.extend(self.moves.move_to)
             self.set_locations()
             x = self.lpis_master
-            self.parcels = x[x.SPH_HERD_N.isin(df.HERD_NO)]
+            self.parcels = x[x.SPH_HERD_N.isin(herds)]
             print ('found %s parcels' %len(self.parcels))
             self.processing_completed()
             return
@@ -1545,11 +1550,16 @@ class App(QMainWindow):
 
         if self.sub is None or len(self.sub) == 0:
             return
+        #get moves here
+        mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
 
         self.plot_counties()
         #land parcels
         if self.parcelsb.isChecked() and self.parcels is not None:
             herds = list(self.sub.HERD_NO)
+            #add parcels for intermediate herds if we have moves
+            if self.moves is not None:
+                herds.extend(mov.move_to)
             p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
             plot_parcels(p, col=colorparcelscol, cmap=cmap, ax=ax)
 
@@ -1578,7 +1588,7 @@ class App(QMainWindow):
             if self.moves is None:
                 print ('no moves loaded')
                 return
-            mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
+
             plot_moves(mov, self.lpis_cent, ax=ax)
             self.show_moves_table(mov)
             if self.timelineb.isChecked():
@@ -1638,9 +1648,15 @@ class App(QMainWindow):
         herds = list(self.sub.HERD_NO)
         p = None
         np = None
+        if 'HERD_NO' in self.parcels.columns:
+            key = 'HERD_NO'
+        else:
+            key = 'SPH_HERD_N'
         if self.parcelsb.isChecked():
             if self.parcels is not None:
-                p = self.parcels[self.parcels.HERD_NO.isin(herds)]
+                if mov is not None:
+                    herds.extend(mov.move_to)
+                p = self.parcels[self.parcels[key].isin(herds)]
             else:
                 print ('no parcels found')
             if self.neighbours is not None:
@@ -1782,14 +1798,14 @@ class App(QMainWindow):
         """Find related samples to selected e.g. within n snps"""
 
         df = self.meta_table.model.df
-        idx = self.meta_table.getSelectedIndexes()[0]
+        idx = self.meta_table.getSelectedIndexes()
         s = df.loc[idx]
 
         cols = ['snp3','snp7','snp12']
         col, ok = QInputDialog.getItem(self, 'Select cluster level', 'Cluster level:', cols, 0, False)
         if not col: return
-        cl = s[col]
-        self.sub = df[df[col]==cl]
+        clusters = s[col]
+        self.sub = df[df[col].isin(clusters)]
         self.title = '(table selection) n=%s' %len(self.sub)
         self.plotview.lims = None
         self.update()

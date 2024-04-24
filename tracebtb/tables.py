@@ -707,11 +707,19 @@ class DataFrameTable(QTableView):
 
         #print (query)
         #regexp = QtCore.QRegExp(query, Qt.CaseInsensitive, QtCore.QRegExp.FixedString)
-        #regexp = f".*{query}.*"
-        #self.proxy.setFilterRegExp(regexp)
-        self.proxy.setFilterFixedString(query)
+        regexp = f".*{query}.*"
+        self.proxy.setFilterRegExp(regexp)
+        #self.proxy.setFilterFixedString(query)
         #self.proxy.setFilterKeyColumn(-1)
         #self.proxy.invalidateFilter()
+        return
+
+    def searchListFilter(self, items):
+        """Apply multiple queries and return them all"""
+
+        for query in items:
+            regexp = f".*{query}.*"
+        self.proxy.setFilterRegExp(regexp)
         return
 
     def clearFilters(self):
