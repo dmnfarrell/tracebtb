@@ -616,8 +616,13 @@ class DataFrameTable(QTableView):
         return
 
     def copy(self):
+        """Copy selected cells"""
 
-        self.model.df
+        df = self.getSelectedDataFrame()
+        if len(df.columns==1):
+            df.to_clipboard(index=False, header=False)
+        else:
+            df.to_clipboard(index=False)
         return
 
     def refresh(self):
@@ -982,6 +987,7 @@ class SampleTable(DataFrameTable):
         selectAction = menu.addAction("Select Samples")
         addSelectionAction = menu.addAction("Add to Selection")
         findRelatedAction = menu.addAction("Related Samples")
+        copyAction = menu.addAction("Copy")
         removeAction = menu.addAction("Delete Selected")
         exportAction = menu.addAction("Export Table")
         action = menu.exec_(self.mapToGlobal(event.pos()))
@@ -992,6 +998,8 @@ class SampleTable(DataFrameTable):
             self.app.sample_details(df)
         elif action == removeAction:
             self.deleteRows(rows)
+        elif action == copyAction:
+            self.copy()
         elif action == exportAction:
             self.exportTable()
         elif action == selectAction:

@@ -656,6 +656,7 @@ class SimpleFilterWidget(QWidget):
     def createToolBar(self, parent):
 
         items = {'Search': {'action':self.apply,'file':'search'},
+                 'Search From List': {'action':self.search_list,'file':'search-list'},
                  'Case-Sensitive': {'action':self.togglecase,'file':'case-sensitive','checkable':True},
                  'Close': {'action':self.close,'file':'close'}
                  }
@@ -758,273 +759,45 @@ class SimpleFilterWidget(QWidget):
     def clear(self):
         self.table.proxy.setFilterFixedString("")
 
-class FilterDialog(QWidget):
-    """Qdialog for table query/filtering"""
-    def __init__(self, parent, table, title=None, app=None):
+    def search_list(self):
+        """Allow list of items to be searched"""
 
-        super(FilterDialog, self).__init__(parent)
-        self.parent = parent
-        #self.app = self.parent.app
-        self.table = table
-        self.app = app
-        self.setWindowTitle(title)
-        self.resize(400,400)
-        self.createWidgets()
-        self.filters = []
-        self.ignorecase = True
-        self.addFilter()
-        #self.setMinimumHeight(300)
-        #self.show()
+        #popup text widget to get text items
+        dialog = MultiLineTextDialog()
+        if dialog.exec_() == QDialog.Accepted:
+            slist = dialog.text_edit.toPlainText().strip().split('\n')
+            text = '|'.join(slist)
+            self.queryedit.setText(text)
+            self.apply()
+            #self.table.applyFilters(text)
         return
 
-    def createToolBar(self, parent):
+class MultiLineTextDialog(QDialog):
+    """A multi line text dialog"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Enter Text")
 
-        items = {'Apply': {'action':self.apply,'file':'filter'},
-                 'Add': {'action':self.addFilter,'file':'add'},
-                 'Reset': {'action':self.refresh,'file':'table-refresh'},
-                 'Copy to New Table': {'action':self.copyResult,'file':'subtable'},
-                 'Subtract': {'action':self.removeFiltered,'file':'table-remove'},
-                 'Ignore Case': {'action':self.togglecase,'file':'lowercase','checkable':True}
-                 }
-        toolbar = QToolBar("Toolbar")
-        toolbar.setOrientation(QtCore.Qt.Horizontal)
-        addToolBarItems(toolbar, self, items)
-        return toolbar
+        # Main layout for the dialog
+        layout = QVBoxLayout()
 
-    def createWidgets(self):
-        """Create widgets"""
+        self.text_edit = QTextEdit(self)
+        layout.addWidget(self.text_edit)
+        # Horizontal layout for buttons
+        button_layout = QHBoxLayout()
 
-        df = self.table.model.df
-        cols = list(df.columns)
-        self.layout = QVBoxLayout(self)
-        self.setLayout(self.layout)
-        #self.query_w = QLineEdit()
-        #self.layout.addWidget(QLabel('String filter'))
-        #self.layout.addWidget(self.query_w )
-        #self.query_w.returnPressed.connect(self.apply)
-        w = self.column_w = QListWidget()
-        w.setSelectionMode(QAbstractItemView.MultiSelection)
-        #w.setFixedHeight(60)
-        w.addItems(cols)
-        #self.layout.addWidget(QLabel('Display Columns'))
-        #self.layout.addWidget(self.column_w)
-        tb = self.createToolBar(self)
-        self.layout.addWidget(tb)
-        self.adjustSize()
+        self.ok_button = QPushButton("OK")
+        self.ok_button.clicked.connect(self.accept)
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.reject)
+
+        button_layout.addWidget(self.ok_button)
+        button_layout.addWidget(self.cancel_button)
+        # Add the button layout to the main layzut
+        layout.addLayout(button_layout)
+        # Set the dialog's layout
+        self.setLayout(layout)
         return
-
-    def refresh(self):
-        """Reset the table"""
-
-        table = self.table
-        if table.filtered == True and hasattr(table, 'dataframe'):
-            table.model.df = table.dataframe
-            table.filtered = False
-            table.refresh()
-        return
-
-    def update(self):
-        """Update the column widgets if table has changed"""
-
-        df = self.table.model.df
-        cols = list(df.columns)
-        #self.column_w.clear()
-        self.column_w.addItems(cols)
-        return
-
-    def togglecase(self):
-
-        sender = self.sender()
-        self.ignorecase = sender.isChecked()
-        return
-
-    def copyResult(self):
-
-        table = self.table
-        if table.filtered == False:
-            return
-        df = table.model.df
-        self.app.addSheet(None, df)
-        return
-
-    def addFilter(self):
-        """Add a filter using widgets"""
-
-        df = self.table.model.df
-        fb = FilterBar(self, self.table)
-        self.layout.insertWidget(4,fb)
-        self.filters.append(fb)
-        return
-
-    def apply(self):
-        """Apply filters"""
-
-        table = self.table
-        if table.filtered == True and hasattr(table, 'dataframe'):
-            table.model.df = table.dataframe
-        df = table.model.df
-        mask = None
-
-        s = self.query_w.text()
-        cols = [i.text() for i in self.column_w.selectedItems()]
-        if len(cols)>0:
-            df = df[cols]
-        if s!='':
-            try:
-                mask = df.eval(s)
-            except:
-                mask = df.eval(s, engine='python')
-
-        #add widget based filters
-        if len(self.filters)>0:
-            mask = self.applyWidgetFilters(df, mask)
-        #apply mask
-        if mask is not None:
-            df = df[mask]
-        self.filtdf = df
-        table.dataframe = table.model.df.copy()
-        table.filtered = True
-        table.model.df = df
-        table.model.layoutChanged.emit()
-        table.refresh()
-        return
-
-    def applyWidgetFilters(self, df, mask=None):
-        """Apply the widget based filters, returns a boolean mask"""
-
-        if mask is None:
-            mask = df.index==df.index
-
-        for f in self.filters:
-            col, val, op, b = f.getFilter()
-            try:
-                val = float(val)
-            except:
-                pass
-            #print (col, val, op, b)
-            print (self.ignorecase)
-            if self.ignorecase == True:
-                strval = "(?i)"+str(val).lower()
-            else:
-                strval = str(val)
-
-            if op == 'contains':
-                m = df[col].astype(str).str.contains(strval)
-            elif op == 'equals':
-                m = df[col]==val
-            elif op == 'not equals':
-                m = df[col]!=val
-            elif op == '>':
-                m = df[col]>val
-            elif op == '<':
-                m = df[col]<val
-            elif op == 'is empty':
-                m = df[col].isnull()
-            elif op == 'not empty':
-                m = ~df[col].isnull()
-            elif op == 'excludes':
-                m = -df[col].str.contains(strval)
-            elif op == 'starts with':
-                m = df[col].str.startswith(strval)
-            elif op == 'ends with':
-                m = df[col].str.endswith(strval)
-            elif op == 'has length':
-                m = df[col].str.len()>val
-            elif op == 'is number':
-                m = df[col].astype('object').str.isnumeric()
-            elif op == 'is lowercase':
-                m = df[col].astype('object').str.islower()
-            elif op == 'is uppercase':
-                m = df[col].astype('object').str.isupper()
-            else:
-                continue
-            if b == 'AND':
-                mask = mask & m
-            elif b == 'OR':
-                mask = mask | m
-            elif b == 'NOT':
-                mask = mask ^ m
-        return mask
-
-    def removeFiltered(self):
-        """Subtract current filtered result from original table"""
-
-        reply = QMessageBox.question(self, 'Perform Action?',
-                             'This will overwrite the current table. Are you sure?',
-                              QMessageBox.Yes, QMessageBox.No)
-        if reply == QMessageBox.No:
-            return
-        table = self.table
-        if table.filtered == False:
-            return
-        idx = list(self.filtdf.index)
-        df = table.dataframe
-        table.dataframe = None
-        table.filtered = False
-        table.model.df = df.loc[~df.index.isin(idx)]
-        table.model.layoutChanged.emit()
-        table.refresh()
-        return
-
-    def onClose(self):
-
-        self.table.showAll()
-        self.close()
-
-class FilterBar(QWidget):
-    """Single Widget based filter"""
-    def __init__(self, parent, table):
-        super(FilterBar, self).__init__(parent)
-        self.parent = parent
-        #self.app = self.parent.app
-        self.table = table
-        self.createWidgets()
-
-    def createWidgets(self):
-        """Create widgets"""
-
-        operators = ['contains','excludes','equals','not equals','>','<','is empty','not empty',
-                     'starts with','ends with','has length','is number','is lowercase','is uppercase']
-        booleanops = ['AND','OR','NOT']
-        df = self.table.model.df
-        cols = list(df.columns)
-        l = self.layout = QHBoxLayout(self)
-        self.setLayout(self.layout)
-        w = self.boolean_w = QComboBox()
-        w.addItems(booleanops)
-        l.addWidget(self.boolean_w)
-        w = self.column_w = QComboBox()
-        w.setMaximumWidth(300)
-        w.addItems(cols)
-        #l.addWidget(QLabel('Column:'))
-        l.addWidget(self.column_w)
-        w = self.operator_w = QComboBox()
-        w.addItems(operators)
-        l.addWidget(self.operator_w)
-
-        self.term_w = QLineEdit()
-        self.term_w.returnPressed.connect(self.parent.apply)
-        l.addWidget(self.term_w )
-        icon = QIcon(os.path.join(iconpath,'remove.png'))
-        btn = QPushButton()
-        btn.setIcon(icon)
-        btn.setMaximumWidth(30)
-        btn.clicked.connect(self.onClose)
-        l.addWidget(btn)
-        return
-
-    def getFilter(self):
-        """Get filter values for this instance"""
-
-        col = self.column_w.currentText()
-        val = self.term_w.text()
-        op = self.operator_w.currentText()
-        booleanop = self.boolean_w.currentText()
-        return col, val, op, booleanop
-
-    def onClose(self, ce):
-        self.parent.filters.remove(self)
-        self.close()
 
 class Editor(QTextEdit):
     def __init__(self, parent=None, fontsize=12, **kwargs):
@@ -1922,6 +1695,78 @@ class PreferencesDialog(QDialog):
         self.setDefaults()
         self.updateWidgets()
         self.apply()
+        return
+
+class ManageSelectionsDialog(QDialog):
+    """Qdialog for managing selections in main app"""
+    def __init__(self, parent, app, title='Manage Selections'):
+
+        QDialog.__init__(self, parent)
+        self.parent = parent
+        self.app = app
+        self.setGeometry(QtCore.QRect(400, 300, 500, 500))
+        self.setWindowTitle(title)
+        self.createWidgets()
+        self.show()
+        return
+
+    def createWidgets(self):
+        """Create widgets"""
+
+        items = list(self.app.selections.keys())
+        vbox = QHBoxLayout(self)
+        main = QWidget(self)
+        main.setMaximumWidth(250)
+        vbox.addWidget(main)
+        w = self.cols_w = QListWidget()
+        w.setDragDropMode(QAbstractItemView.InternalMove)
+        w.setSelectionMode(QAbstractItemView.MultiSelection)
+
+        w.addItems(items)
+        vbox.addWidget(w)
+        bf = self.createButtons(self)
+        vbox.addWidget(bf)
+        return
+
+    def createButtons(self, parent):
+
+        bw = self.button_widget = QWidget(parent)
+        vbox = QVBoxLayout(bw)
+        vbox.setAlignment(QtCore.Qt.AlignTop)
+        button = QPushButton("Delete Selected")
+        button.clicked.connect(self.delete)
+        vbox.addWidget(button)
+        button = QPushButton("Clear")
+        button.clicked.connect(self.clear)
+        vbox.addWidget(button)
+        button = QPushButton("Close")
+        button.clicked.connect(self.close)
+        vbox.addWidget(button)
+        return bw
+
+    def update(self):
+        """Update list"""
+
+        self.cols_w.clear()
+        self.cols_w.addItems(list(self.app.selections.keys()))
+        return
+
+    def delete(self):
+        """Delete selections"""
+
+        selections = self.app.selections
+        keys = [i.text() for i in self.cols_w.selectedItems()]
+        for k in keys:
+            if k in selections:
+                del selections[k]
+        self.update()
+        self.app.update_selections_menu()
+        return
+
+    def clear(self):
+
+        self.app.clear_selections(ask=True)
+        self.update()
         return
 
 class Worker(QtCore.QRunnable):

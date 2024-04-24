@@ -940,7 +940,8 @@ class App(QMainWindow):
         self.selections_menu = QMenu('Selections', self)
         self.menuBar().addMenu(self.selections_menu)
         self.selections_menu.addAction('Save Selection', lambda: self.save_selection())
-        self.selections_menu.addAction('Clear Selections', lambda: self.clear_selections(ask=True))
+        self.selections_menu.addAction('Manage Selections', lambda: self.manage_selections())
+        #self.selections_menu.addAction('Clear Selections', lambda: self.clear_selections(ask=True))
         self.selections_menu.addSeparator()
 
         self.dock_menu = QMenu('Docks', self)
@@ -2047,6 +2048,16 @@ class App(QMainWindow):
         for action in items[3:]:
             menu.removeAction(action)
             action.deleteLater()
+        return
+
+    def manage_selections(self):
+        """Manage selections"""
+
+        menu = self.selections_menu
+        dlg = widgets.ManageSelectionsDialog(self.main, self)
+        dlg.exec_()
+        if not dlg.accepted:
+            return
         return
 
     def update_selections_menu(self):
