@@ -35,7 +35,8 @@ defaults = {
             'TIMEFORMAT' :'%m/%d/%Y',
             'ICONSIZE' : 28,
             'DPI' : 100,
-            'THREADS': 4
+            'THREADS': 4,
+            'FACECOLOR': '#FAFAF6'
          }
 #populate current class variable
 for k in defaults:

@@ -444,6 +444,7 @@ class App(QMainWindow):
                 mpl.rcParams['savefig.dpi'] = int(core.DPI)
                 core.ICONSIZE = int(s.value("iconsize"))
                 self.setIconSize(QtCore.QSize(core.ICONSIZE, core.ICONSIZE))
+                core.FACECOLOR = s.value("facecolor")
                 r = s.value("recent_files")
                 if r != '':
                     rct = r.split(',')
@@ -465,6 +466,7 @@ class App(QMainWindow):
             table.refresh()
         import matplotlib as mpl
         mpl.rcParams['savefig.dpi'] = core.DPI
+        self.set_background(core.FACECOLOR)
         return
 
     def save_settings(self):
@@ -476,6 +478,7 @@ class App(QMainWindow):
         self.settings.setValue('font', core.FONT)
         self.settings.setValue('fontsize', core.FONTSIZE)
         self.settings.setValue('dpi', core.DPI)
+        self.settings.setValue('facecolor', core.FACECOLOR)
         self.settings.setValue('threads', core.THREADS)
         self.settings.setValue('recent_files',','.join(self.recent_files))
         #print (self.settings)
@@ -1535,12 +1538,22 @@ class App(QMainWindow):
         utils.convert_branch_lengths(treefile, treefile, ls)
         return
 
+    def set_background(self, color='lightgray'):
+        """Set color of plotting area"""
+
+        ax = self.plotview.ax
+        fig = self.plotview.fig
+        fig.patch.set_facecolor(color)
+        ax.set_facecolor(color)
+        return
+
     def update(self):
         """Update plot"""
 
         self.plotview.clear()
         ax = self.plotview.ax
         fig = self.plotview.fig
+        self.set_background(core.FACECOLOR)
 
         ms = self.markersizew.value()
         colorcol = self.colorbyw.currentText()
@@ -1559,7 +1572,7 @@ class App(QMainWindow):
         if self.parcelsb.isChecked() and self.parcels is not None:
             herds = list(self.sub.HERD_NO)
             #add parcels for intermediate herds if we have moves
-            if self.moves is not None:
+            if mov is not None:
                 herds.extend(mov.move_to)
             p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
             plot_parcels(p, col=colorparcelscol, cmap=cmap, ax=ax)
@@ -1813,11 +1826,17 @@ class App(QMainWindow):
         return
 
     def plot_in_region(self):
-        """Show all points in the visible region of plot"""
+        """
+        Show all points in the visible region of plot.
+        Adds these to the current selection.
+        """
 
+        curr = self.sub
         xmin,xmax,ymin,ymax = self.plotview.get_plot_lims()
         df = self.meta_table.model.df
-        self.sub = df.cx[xmin:xmax, ymin:ymax]
+        found = df.cx[xmin:xmax, ymin:ymax]
+        #add current
+        self.sub = pd.concat([curr,found])
         self.title = ('selected region n=%s' %len(self.sub))
         self.update()
         #ax = self.plotview.ax
@@ -2032,7 +2051,7 @@ class App(QMainWindow):
 
         if ask == True:
             reply = QMessageBox.question(self, 'Confirm',
-                                    "This will clear all saved selections.\nAre you sure?",
+                                    "This will clear all saved selections!\nAre you sure?",
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.No:
                 return

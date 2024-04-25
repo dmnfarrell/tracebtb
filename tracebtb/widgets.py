@@ -259,6 +259,8 @@ def getWidgetValues(widgets):
                 val = w.value()
             elif type(w) in [QSpinBox,QDoubleSpinBox]:
                 val = w.value()
+            elif type(w) is ColorButton:
+                val = w.color()
             elif type(w) is QTreeWidget:
                 idx = w.selectedIndexes()
                 if len(idx)>0:
@@ -1590,6 +1592,59 @@ class MultipleFilesDialog(QDialog):
 
         return
 
+class ColorButton(QPushButton):
+    '''
+    Custom Qt Widget to show a chosen color.
+
+    Left-clicking the button shows the color-chooser, while
+    right-clicking resets the color to None (no-color).
+    '''
+
+    colorChanged = Signal(object)
+
+    def __init__(self, *args, color=None, **kwargs):
+        super(ColorButton, self).__init__(*args, **kwargs)
+
+        self._color = None
+        self._default = color
+        self.pressed.connect(self.onColorPicker)
+
+        # Set the initial/default state.
+        self.setColor(self._default)
+
+    def setColor(self, color):
+
+        if color != self._color:
+            self._color = color
+            self.colorChanged.emit(color)
+
+        if self._color:
+            self.setStyleSheet("background-color: %s;" % self._color)
+        else:
+            self.setStyleSheet("")
+        return
+
+    def color(self):
+        return self._color
+
+    def onColorPicker(self):
+        '''
+        Show color-picker dialog to select color.
+        Qt will use the native dialog by default.
+        '''
+        dlg = QColorDialog(self)
+        if self._color:
+            dlg.setCurrentColor(QColor(self._color))
+
+        if dlg.exec_():
+            self.setColor(dlg.currentColor().name())
+
+    def mousePressEvent(self, e):
+        if e.button() == QtCore.Qt.RightButton:
+            self.setColor(self._default)
+
+        return super(ColorButton, self).mousePressEvent(e)
+
 class PreferencesDialog(QDialog):
     """Preferences dialog from config parser options"""
 
@@ -1628,10 +1683,11 @@ class PreferencesDialog(QDialog):
                 'DPI':{'type':'entry','default':options['DPI'],
                         'label':'Plot DPI'},
                 'ICONSIZE':{'type':'spinbox','default':options['ICONSIZE'],'range':(16,64), 'label':'Icon Size'},
+                'FACECOLOR':{'type':'colorbutton','default':options['FACECOLOR'],'label':'Plot Face Color'},
                 'THREADS':{'type':'spinbox','default':options['THREADS'],'range':(1,cpus), 'label':'Threads'}
                 }
-        sections = {'formats':['FONT','FONTSIZE','TIMEFORMAT','ICONSIZE','DPI'],
-                    'other':['THREADS']
+        sections = {'formats':['FONT','FONTSIZE','TIMEFORMAT','ICONSIZE','FACECOLOR'],
+                    'other':['THREADS','DPI']
                     }
 
         dialog, self.widgets = dialogFromOptions(self, self.opts, sections)
@@ -1667,6 +1723,7 @@ class PreferencesDialog(QDialog):
         core.DPI = kwds['DPI']
         core.ICONSIZE = kwds['ICONSIZE']
         core.THREADS = kwds['THREADS']
+        core.FACECOLOR = kwds['FACECOLOR']
 
         self.parent.refresh()
         self.parent.apply_settings()
@@ -1736,6 +1793,9 @@ class ManageSelectionsDialog(QDialog):
         button = QPushButton("Delete Selected")
         button.clicked.connect(self.delete)
         vbox.addWidget(button)
+        button = QPushButton("Rename Selected")
+        button.clicked.connect(self.rename)
+        vbox.addWidget(button)
         button = QPushButton("Clear")
         button.clicked.connect(self.clear)
         vbox.addWidget(button)
@@ -1759,6 +1819,18 @@ class ManageSelectionsDialog(QDialog):
         for k in keys:
             if k in selections:
                 del selections[k]
+        self.update()
+        self.app.update_selections_menu()
+        return
+
+    def rename(self):
+        """Rename selection"""
+
+        selections = self.app.selections
+        key = [i.text() for i in self.cols_w.selectedItems()][0]
+        new,ok = QInputDialog.getText(self, 'Enter new name', 'New:')
+        if ok:
+           selections[new] = selections.pop(key)
         self.update()
         self.app.update_selections_menu()
         return
