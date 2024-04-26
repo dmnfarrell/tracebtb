@@ -1669,6 +1669,7 @@ class PreferencesDialog(QDialog):
         colormaps = sorted(m for m in plt.cm.datad if not m.endswith("_r"))
         timeformats = ['%m/%d/%Y','%d/%m/%Y','%d/%m/%y',
                 '%Y/%m/%d','%y/%m/%d','%Y/%d/%m',
+                '%m-%d-%Y','%d-%m-%Y',
                 '%d-%b-%Y','%b-%d-%Y',
                 '%Y-%m-%d %H:%M:%S','%Y-%m-%d %H:%M',
                 '%d-%m-%Y %H:%M:%S','%d-%m-%Y %H:%M',

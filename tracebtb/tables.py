@@ -1057,16 +1057,44 @@ class SampleTable(DataFrameTable):
         self.refresh()
         return
 
+class MovesTableModel(DataFrameModel):
+    """Moves model class"""
+    def __init__(self, dataframe=None, *args):
+
+        DataFrameModel.__init__(self, dataframe)
+        self.df = dataframe
+
+    def data(self, index, role=QtCore.Qt.DisplayRole):
+        """Override data method"""
+
+        parent_data = super().data(index, role)
+        i = index.row()
+        j = index.column()
+        if role == QtCore.Qt.DisplayRole:
+            return parent_data
+        if role == QtCore.Qt.BackgroundRole:
+            colname = self.df.columns[j]
+            value = self.df.iloc[i, j]
+            if value == None:
+                clr = '#FA9B8D'
+                return QColor(clr)
+            if colname == 'data_type' and value == 'F_to_F':
+                clr = '#9FBAFA' #'#FA9B8D'
+                return QColor(clr)
+            else:
+                return QColor(self.bg)
+            return
+
 class MovesTable(DataFrameTable):
     """
-    QTableView with pandas DataFrame as model.
+    Moves table.
     """
     def __init__(self, parent=None, app=None, dataframe=None, **kwargs):
         DataFrameTable.__init__(self, **kwargs)
         self.parent = parent
         self.app = app
         self.setWordWrap(False)
-        tm = DataFrameModel(dataframe)
+        tm = MovesTableModel(dataframe)
         self.setModel(tm)
         self.model = tm
         return
@@ -1075,12 +1103,15 @@ class MovesTable(DataFrameTable):
 
         menu = self.menu
         showmovedAction = menu.addAction("Show Moved Only")
+        copyAction = menu.addAction("Copy")
         exportAction = menu.addAction("Export Table")
         action = menu.exec_(self.mapToGlobal(event.pos()))
         if action == exportAction:
             self.exportTable()
         elif action == showmovedAction:
             self.showMoved()
+        elif action == copyAction:
+            self.copy()
         return
 
     def showMoved(self):

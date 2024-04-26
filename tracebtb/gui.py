@@ -227,7 +227,7 @@ def plot_moves(moves, lpis_cent, ax, ms=80):
     if moves is None:
         return
     moves = moves[moves.geometry.notnull()]
-    for tag,t in moves.groupby('Animal_ID'):
+    for tag,t in moves.groupby('tag'):
         if t is not None:
             #print (t[cols])
             moved = lpis_cent[lpis_cent.SPH_HERD_N.isin(t.move_to)]
@@ -251,7 +251,7 @@ def plot_parcels(parcels, ax, col=None, cmap='Set1'):
         parcels.plot(column=col,alpha=0.6,lw=.3,ec='black',cmap=cmap,ax=ax)
     return
 
-def plot_moves_timeline(df, ax=None):
+def plot_moves_timeline(df, cmap=None, ax=None):
     """Timeline from moves"""
 
     from datetime import datetime, timedelta
@@ -259,7 +259,7 @@ def plot_moves_timeline(df, ax=None):
     import matplotlib.dates as mdates
 
     df['move_date'] = pd.to_datetime(df.move_date)
-    groups = df.groupby('Animal_ID')
+    groups = df.groupby('tag')
     if (len(groups))>25:
         print ('too many moves to plot, reduce selection')
         return
@@ -267,16 +267,31 @@ def plot_moves_timeline(df, ax=None):
         fig,ax=plt.subplots(1,1,figsize=(10,4))
     i=.1
     tags = groups.groups.keys()
-    clrs,cmap = plotting.get_color_mapping(df, 'move_to')
+    clrs,cmap = plotting.get_color_mapping(df, 'move_to', cmap)
     leg = {}
     for tag,t in groups:
         if t is None:
             continue
         d = get_move_dates(t)
+        if len(d)==0:
+            #if no death
+            #print (t)
+            row=t.iloc[0]
+            herd = row.move_to
+            start = mdates.date2num(row.dob)
+            end = 19000
+            width = end - start
+            #no death so draw rectangle till present
+            rect = Rectangle((start, i), width, .8, color=cmap[herd], ec='black')
+            ax.add_patch(rect)
+            leg[herd] = rect
+
+        #print (d)
         for r,row in d.iterrows():
             herd = row.move_to
             start = mdates.date2num(row.move_date)
             end = mdates.date2num(row.end_date)
+            print (start, end)
             width = end - start
             rect = Rectangle((start, i), width, .8, color=cmap[herd], ec='black')
             ax.add_patch(rect)
@@ -296,7 +311,7 @@ def plot_moves_timeline(df, ax=None):
     plt.subplots_adjust(left=0.3)
     #ax.legend(leg.values(), leg.keys(), loc='upper right', bbox_to_anchor=(1.2, 1))
 
-    ax.tick_params(axis='both', labelsize=8)
+    ax.tick_params(axis='both', labelsize=7)
     return
 
 def jitter_points(r, scale=1):
@@ -339,16 +354,13 @@ def get_moves_bytag(df, move_df, lpis_cent):
     cols=['Animal_ID']+list(move_df.columns)
     t = df.merge(move_df,left_on='Animal_ID',right_on='tag',how='inner')[cols]
     #print (t)
-    #merge result with parcels to get coords of moved_to farms
+    #merge result with parcel cents to get coords of moved_to farms
     m = t.merge(lpis_cent,left_on='move_to',right_on='SPH_HERD_N', how='left')
-
     if len(m)==0:
         return
-    #add in source farms - is this needed?
-    #x = lpis_cent[lpis_cent.SPH_HERD_N.isin(df.HERD_NO)]
-    #m = pd.concat([m,x])#.dropna(subset='Animal_ID')
-    #print (m.iloc[0])
-    m = m.sort_values(by=['Animal_ID','move_date'])
+    m = (m.drop_duplicates()
+        .drop(columns=['Animal_ID','id','event_type','rnk_final'])
+        .sort_values(by=['tag','move_date']).set_index('tag',drop=True))
     m = gpd.GeoDataFrame(m)
     return m
 
@@ -586,7 +598,7 @@ class App(QMainWindow):
         self.widgets['labels'] = w
         #color points by
         self.colorbyw = w = QComboBox(m)
-        l.addWidget(QLabel('Color by:'))
+        l.addWidget(QLabel('Color samples By:'))
         l.addWidget(w)
         w.setMaxVisibleItems(12)
         self.widgets['colorby'] = w
@@ -660,20 +672,16 @@ class App(QMainWindow):
         #b.setCheckable(True)
         #l.addWidget(b)
         self.showneighboursb = b = widgets.createButton(m, None, self.get_neighbouring_parcels,
-                                                        'neighbours', core.ICONSIZE, 'show neighbours')
+                                                        'neighbours', core.ICONSIZE, 'find neighbours')
         #b.setCheckable(True)
         l.addWidget(b)
         #self.widgets['showneighbours'] = b
         b = widgets.createButton(m, None, self.get_neighbours_in_region, 'parcels-region',
-                                 core.ICONSIZE, 'show all parcels in region')
+                                 core.ICONSIZE, 'find all parcels in region')
         l.addWidget(b)
-        #self.showtreeb = b = widgets.createButton(m, None, self.update, 'tree', core.ICONSIZE, 'show tree')
-        #b.setCheckable(True)
-        #l.addWidget(b)
-        #self.widgets['showtree'] = b
-        #self.showmstb = b = widgets.createButton(m, None, self.update, 'mst', core.ICONSIZE, 'show MST')
-        #b.setCheckable(True)
-        #l.addWidget(b)
+        b = widgets.createButton(m, None, self.find_parcel, 'find-parcel',
+                                 core.ICONSIZE, 'find parcel')
+        l.addWidget(b)
         b = widgets.createButton(m, None, self.save_to_scratchpad, 'snapshot', core.ICONSIZE, 'take snapshot')
         l.addWidget(b)
         return m
@@ -1184,12 +1192,36 @@ class App(QMainWindow):
         self.run_threaded_process(func, completed)
         return
 
+    def find_parcel(self):
+        """Find a parcel and add it to neighbours"""
+
+        if self.lpis_master is None:
+            QMessageBox.information(self, "No Master file", "Load the master parcels file.")
+            return
+        herd,ok = QInputDialog.getText(self, 'Enter parcel herd no.', 'Herd No:')
+        if not ok:
+            return
+
+        lpis = self.lpis_master
+        m = lpis[lpis.SPH_HERD_N==herd]
+        if len(m) == 0:
+            print ('no such herd no. found')
+            return
+        if self.neighbours is None:
+            self.neighbours = m
+        else:
+            self.neighbours = pd.concat([self.neighbours,m])
+        self.update()
+        return
+
     def get_neighbouring_parcels(self):
         """
         Find all neighbouring parcels from LPIS.
         Requires the LPIS master file.
         """
 
+        d,ok = QInputDialog.getInt(self, 'Select threshold distance', 'Distance(metres):', 1000)
+        if not ok: return
         df = self.sub
         if self.lpis_master is None:
             print ('LPIS master file is not loaded.')
@@ -1209,7 +1241,7 @@ class App(QMainWindow):
             return
 
         def func(progress_callback):
-            d=1200
+
             found = []
             for x in df.geometry:
                 dists = self.lpis_cent.distance(x)
@@ -1221,7 +1253,7 @@ class App(QMainWindow):
             p['color'] = p.apply(tools.random_grayscale_color, 1)
             self.neighbours = p
 
-        print ('getting parcels..')
+        print ('getting parcels at distance %s m..' %d)
         self.run_threaded_process(func, completed)
         return
 
@@ -1379,6 +1411,9 @@ class App(QMainWindow):
         cols = df.columns
         item, ok = QInputDialog.getItem(self, 'Select tag field', 'tag field:', cols, 0, False)
         df = df.rename(columns={item: 'tag'})
+        for col in ['dob','move_date']:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col])
         self.moves = df
         print ('loaded %s rows' %len(self.moves))
         return
@@ -1901,7 +1936,8 @@ class App(QMainWindow):
 
         fig,ax = plt.subplots(1,1)
         w = widgets.PlotWidget(self)
-        plot_moves_timeline(df,w.ax)
+        cmap = self.cmapw.currentText()
+        plot_moves_timeline(df, cmap, w.ax)
         #w.redraw()
         self.show_dock_object(w, 'timeline')
         return

@@ -198,7 +198,7 @@ def plot_moves_folium(moves, lpis_cent, map):
     moves = moves[moves.geometry.notnull()].to_crs('EPSG:4326')
 
     i=0
-    for tag,t in moves.groupby('Animal_ID'):
+    for tag,t in moves.groupby('tag'):
         if t is not None:
             moved = lpis_cent[lpis_cent.SPH_HERD_N.isin(t.move_to)].to_crs('EPSG:4326')
             coords = tools.get_coords_data(t)
