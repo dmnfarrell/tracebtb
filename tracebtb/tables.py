@@ -267,6 +267,8 @@ class DataFrameTable(QTableView):
         vh.setDefaultSectionSize(28)
         vh.setMinimumWidth(20)
         vh.setMaximumWidth(500)
+        vh.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        vh.customContextMenuRequested.connect(self.rowHeaderMenu)
 
         self.headerview = HeaderView(self)
         self.setHorizontalHeader(self.headerview)
@@ -279,7 +281,6 @@ class DataFrameTable(QTableView):
         hh.setSelectionMode(QAbstractItemView.ExtendedSelection)
         #hh.sectionClicked.connect(self.columnClicked)
         hh.setSectionsClickable(True)
-
         self.setDragEnabled(True)
         self.viewport().setAcceptDrops(True)
         self.setDropIndicatorShown(True)
@@ -289,18 +290,12 @@ class DataFrameTable(QTableView):
         self.font = QFont(font, fontsize)
         self.fontname = font
         self.fontsize = fontsize
-
         self.updateFont()
+
         tm = DataFrameModel(dataframe)
         #self.setModel(tm)
         self.model = tm
-
-        self.proxy = QtCore.QSortFilterProxyModel()
-        #self.proxy = CustomProxyModel()
-        self.proxy.setSourceModel(self.model)
-        self.setModel(self.proxy)
-        self.proxy.sort(0, Qt.AscendingOrder)
-        self.setSortingEnabled(True)
+        self.setProxyModel()
 
         self.setWordWrap(False)
         self.setCornerButtonEnabled(True)
@@ -308,8 +303,17 @@ class DataFrameTable(QTableView):
             self.plotview = widgets.PlotViewer()
         else:
             self.plotview = plotter
-
         return
+
+    def setProxyModel(self):
+        """Set a proxy model for filtering"""
+
+        self.proxy = QtCore.QSortFilterProxyModel()
+        #self.proxy = CustomProxyModel()
+        self.proxy.setSourceModel(self.model)
+        self.setModel(self.proxy)
+        self.proxy.sort(0, Qt.AscendingOrder)
+        self.setSortingEnabled(True)
 
     def updateFont(self):
         """Update the font"""
@@ -330,11 +334,7 @@ class DataFrameTable(QTableView):
         #self.setModel(tm)
         self.model = tm
         #reset the proxy model too
-        self.proxy = QtCore.QSortFilterProxyModel()
-        #self.proxy = CustomProxyModel()
-        self.proxy.setSourceModel(self.model)
-        self.setModel(self.proxy)
-        self.proxy.sort(0, Qt.AscendingOrder)
+        self.setProxyModel()
         return
 
     def getDataFrame(self):
@@ -539,6 +539,31 @@ class DataFrameTable(QTableView):
         for j in range(self.columnCount()):
             self.item(rowIndex, j).setBackground(color)
 
+    def rowHeaderMenu(self, pos):
+        """Row header popup menu"""
+
+        vheader = self.verticalHeader()
+        idx = vheader.logicalIndexAt(pos)
+        menu = QMenu(self)
+
+        resetIndexAction = menu.addAction("Reset Index")
+        sortIndexAction = menu.addAction("Sort By Index \u2193")
+        sortIndexDescAction = menu.addAction("Sort By Index \u2191")
+        setTypeAction = menu.addAction("Set Type")
+        deleteAction = menu.addAction("Delete Rows")
+        action = menu.exec_(self.mapToGlobal(pos))
+        #if action == resetIndexAction:
+        #    self.resetIndex()
+        if action == sortIndexAction:
+            self.sortIndex()
+        elif action == sortIndexDescAction:
+            self.sortIndex(ascending=False)
+        elif action == setTypeAction:
+            self.setIndexType()
+        elif action == deleteAction:
+            self.deleteRows()
+        return
+
     def columnHeaderMenu(self, pos):
 
         hheader = self.horizontalHeader()
@@ -612,7 +637,40 @@ class DataFrameTable(QTableView):
 
         return
 
-    def setIndex(self):
+    def resetIndex(self):
+
+        self.model.df.reset_index(inplace=True)
+        self.refresh()
+        return
+
+    def setIndex(self, column):
+        """Set column as index"""
+
+        self.storeCurrent()
+        self.model.df.set_index(column, inplace=True)
+        self.refresh()
+        return
+
+    def sortIndex(self, ascending=True):
+        """Sort by inde,"""
+
+        self.model.df = self.model.df.sort_index(axis=0,ascending=ascending)
+        self.refresh()
+        return
+
+    def setIndexType(self):
+        """Set the type of the index"""
+
+        types = ['float','int','object','datetime64[ns]']
+        newtype, ok = QInputDialog().getItem(self, "New Type",
+                                             "Type:", types, 0, False)
+        if not ok:
+            return
+        self.storeCurrent()
+        df = self.model.df
+        #currtype = df.index.dtype
+        df.index = df.index.astype(newtype)
+        self.refresh()
         return
 
     def copy(self):
@@ -622,7 +680,7 @@ class DataFrameTable(QTableView):
         if len(df.columns==1):
             df.to_clipboard(index=False, header=False)
         else:
-            df.to_clipboard(index=False)
+            df.to_clipboard(index=False, header=True)
         return
 
     def refresh(self):
@@ -1063,6 +1121,20 @@ class MovesTableModel(DataFrameModel):
 
         DataFrameModel.__init__(self, dataframe)
         self.df = dataframe
+        self.setRowColors()
+
+    def setRowColors(self):
+        """Set row colors for rows based on index"""
+
+        self.row_colors={}
+        df = self.df
+        for i, idx in enumerate(df.index.unique()):
+            #print (i,idx)
+            if i % 2 == 0:
+                self.row_colors[idx] = QColor("#FAFAFA")
+            else:
+                self.row_colors[idx] = QColor("#EEEEEE")
+        return
 
     def data(self, index, role=QtCore.Qt.DisplayRole):
         """Override data method"""
@@ -1070,9 +1142,11 @@ class MovesTableModel(DataFrameModel):
         parent_data = super().data(index, role)
         i = index.row()
         j = index.column()
+        idx = self.df.index[i]
         if role == QtCore.Qt.DisplayRole:
             return parent_data
         if role == QtCore.Qt.BackgroundRole:
+            row_color = self.row_colors[idx]
             colname = self.df.columns[j]
             value = self.df.iloc[i, j]
             if value == None:
@@ -1082,7 +1156,7 @@ class MovesTableModel(DataFrameModel):
                 clr = '#9FBAFA' #'#FA9B8D'
                 return QColor(clr)
             else:
-                return QColor(self.bg)
+                return QColor(row_color)
             return
 
 class MovesTable(DataFrameTable):
@@ -1097,12 +1171,14 @@ class MovesTable(DataFrameTable):
         tm = MovesTableModel(dataframe)
         self.setModel(tm)
         self.model = tm
+        #self.setProxyModel()
         return
 
     def addActions(self, event, row):
 
         menu = self.menu
-        showmovedAction = menu.addAction("Show Moved Only")
+        showmovedAction = menu.addAction("Show Farm Moves Only")
+        showmovedAction = menu.addAction("Show All")
         copyAction = menu.addAction("Copy")
         exportAction = menu.addAction("Export Table")
         action = menu.exec_(self.mapToGlobal(event.pos()))
@@ -1114,12 +1190,18 @@ class MovesTable(DataFrameTable):
             self.copy()
         return
 
+    def rowHeaderMenu(self, pos):
+        """Row header popup menu"""
+
+        vheader = self.verticalHeader()
+        idx = vheader.logicalIndexAt(pos)
+        menu = QMenu(self)
+
     def showMoved(self):
 
         df = self.model.df
-        m = (df.Animal_ID.value_counts()>2).index
-        self.filtered = df[df.Animal_ID.isin(m)]
-        self.refresh()
+        self.proxy.setFilterKeyColumn(6)
+        self.applyFilters('F_to_F')
         return
 
 class HerdTable(DataFrameTable):

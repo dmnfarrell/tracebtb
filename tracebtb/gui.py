@@ -264,7 +264,7 @@ def plot_moves_timeline(df, cmap=None, ax=None):
         print ('too many moves to plot, reduce selection')
         return
     if ax == None:
-        fig,ax=plt.subplots(1,1,figsize=(10,4))
+        fig,ax=plt.subplots(1,1,figsize=(8,4))
     i=.1
     tags = groups.groups.keys()
     clrs,cmap = plotting.get_color_mapping(df, 'move_to', cmap)
@@ -291,7 +291,6 @@ def plot_moves_timeline(df, cmap=None, ax=None):
             herd = row.move_to
             start = mdates.date2num(row.move_date)
             end = mdates.date2num(row.end_date)
-            print (start, end)
             width = end - start
             rect = Rectangle((start, i), width, .8, color=cmap[herd], ec='black')
             ax.add_patch(rect)
@@ -359,8 +358,10 @@ def get_moves_bytag(df, move_df, lpis_cent):
     if len(m)==0:
         return
     m = (m.drop_duplicates()
-        .drop(columns=['Animal_ID','id','event_type','rnk_final'])
-        .sort_values(by=['tag','move_date']).set_index('tag',drop=True))
+        .drop(columns=['Animal_ID','id','event_type','rnk_final'], errors='ignore')
+        .sort_values(['tag','move_date'])
+        .set_index('tag',drop=True)
+        )
     m = gpd.GeoDataFrame(m)
     return m
 
@@ -758,7 +759,7 @@ class App(QMainWindow):
                                         toolbar=False)
 
         self.add_dock(self.table_widget, 'meta data', scrollarea=False)
-        self.add_dock_item('meta data')
+        self.add_dock_menu_item('meta data')
         #self.m.addWidget(self.table_widget)
         self.opentables['main'] = self.meta_table
 
@@ -849,13 +850,6 @@ class App(QMainWindow):
                 icon.setEnabled(False)
             else:
                 icon.setEnabled(True)
-        return
-
-    def add_dock_item(self, name):
-
-        action = self.docks[name].toggleViewAction()
-        self.dock_menu.addAction(action)
-        action.setCheckable(True)
         return
 
     @QtCore.Slot(int)
@@ -1604,6 +1598,7 @@ class App(QMainWindow):
 
         self.plot_counties()
         #land parcels
+        p=None
         if self.parcelsb.isChecked() and self.parcels is not None:
             herds = list(self.sub.HERD_NO)
             #add parcels for intermediate herds if we have moves
@@ -1643,16 +1638,6 @@ class App(QMainWindow):
             if self.timelineb.isChecked():
                 self.show_moves_timeline(mov)
 
-        #tree
-        #if self.showtreeb.isChecked():
-        #    self.show_tree()
-        #else:
-            #clear tree
-            #self.clear_tree()
-        #mst
-        #if self.showmstb.isChecked():
-        #    self.plot_mst()
-
         if self.title != None:
             fig.suptitle(self.title)
         try:
@@ -1665,7 +1650,9 @@ class App(QMainWindow):
         if self.plotview.lims != None:
             ax.set_xlim(lims[0],lims[1])
             ax.set_ylim(lims[2],lims[3])
+        #print (self.plotview.lims)
 
+        self.set_bounds(p)
         self.set_equal_aspect()
 
         #fig.tight_layout()
@@ -1887,14 +1874,13 @@ class App(QMainWindow):
         self.title = '(herd selection) %s' %' '.join(list(herd_no))
         self.parcelsb.setChecked(True)
         self.update()
-        #set bounds to parcels
-        self.set_bounds(self.parcels)
         return
 
-    def set_bounds(self, gdf):
+    def set_bounds(self, gdf=None, margin=10):
         """Set bounds of plot using geodataframe"""
 
-        margin=10
+        if gdf is None:
+            return
         ax = self.plotview.ax
         minx, miny, maxx, maxy = gdf.total_bounds
         ax.set_xlim(minx-margin,maxx+margin)
@@ -2147,7 +2133,7 @@ class App(QMainWindow):
         """Summary by herd"""
 
         res=[]
-        df = self.meta_table.model.df
+        df = self.sub #self.meta_table.model.df
         for herd, sdf in df.groupby('HERD_NO'):
             #print (herd)
             clades = len(sdf.snp3.unique())
@@ -2158,6 +2144,15 @@ class App(QMainWindow):
         w = tables.HerdTable(self, dataframe=res,
                     font=core.FONT, fontsize=core.FONTSIZE, app=self)
         self.show_dock_object(w, 'herd summary')
+        self.opentables['herds'] = w
+        return
+
+    def add_dock_menu_item(self, name):
+        """Add dock menu item"""
+
+        action = self.docks[name].toggleViewAction()
+        self.dock_menu.addAction(action)
+        action.setCheckable(True)
         return
 
     def show_dock_object(self, widget, name, side='right'):
@@ -2166,11 +2161,17 @@ class App(QMainWindow):
         if not name in self.docks:
             dock = self.add_dock(widget,name,side)
             self.docks[name] = dock
-            self.add_dock_item(name)
+            self.add_dock_menu_item(name)
         else:
             self.docks[name].setWidget(widget)
-        if type(widget) is tables.SampleTable:
+            #self.docks[name].show() #use or not?
+        if type(widget) in [tables.SampleTable]:
             self.opentables[name] = widget
+        return
+
+    def remove_dock_object(self, name):
+
+        del self.docks[name]
         return
 
     def show_selected_table(self):
@@ -2179,6 +2180,7 @@ class App(QMainWindow):
         w = tables.DataFrameTable(self, dataframe=self.sub,
                 font=core.FONT, fontsize=core.FONTSIZE)
         self.show_dock_object(w, 'selected', 'left')
+        self.opentables['selected'] = w
         return
 
     def show_moves_table(self, df):
@@ -2191,15 +2193,17 @@ class App(QMainWindow):
                             font=core.FONT, fontsize=core.FONTSIZE, app=self)
         w = tables.DataFrameWidget(parent=self, table=t, toolbar=False)
         self.show_dock_object(w, 'moves')
+        self.opentables['moves'] = t
         return
 
     def sample_details(self, data):
         """Show sample details"""
 
-        w = tables.DataFrameTable(self, pd.DataFrame(data),
+        t = tables.DataFrameTable(self, pd.DataFrame(data),
                                 font=core.FONT, fontsize=core.FONTSIZE)
-        w.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.show_dock_object(w, 'sample details')
+        t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.show_dock_object(t, 'sample details')
+        self.opentables['moves'] = t
         return
 
     def strain_typing(self):
@@ -2207,10 +2211,11 @@ class App(QMainWindow):
         from . import strain_typing
         self.st = strain_typing.StrainTypingTool(self)
         self.add_dock(self.st, 'strain typing', 'right')
-        self.add_dock_item('strain typing')
+        self.add_dock_menu_item('strain typing')
         return
 
     def zoom_in(self):
+        """Zoom gui elements"""
 
         core.FONTSIZE+=1
         for i in self.opentables:
@@ -2220,6 +2225,7 @@ class App(QMainWindow):
         return
 
     def zoom_out(self):
+        """Zoom out gui elements"""
 
         core.FONTSIZE-=1
         for i in self.opentables:
