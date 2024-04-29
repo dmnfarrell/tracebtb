@@ -1291,8 +1291,8 @@ class CustomPlotViewer(PlotViewer):
 
     def __init__(self, parent=None, controls=True, app=None):
         super(CustomPlotViewer, self).__init__(parent, controls)
-        self.fig.canvas.mpl_connect('button_press_event', self.onclick)
-        self.fig.canvas.mpl_connect('button_release_event', self.onrelease)
+        #self.fig.canvas.mpl_connect('button_press_event', self.onclick)
+        #self.fig.canvas.mpl_connect('button_release_event', self.onrelease)
         #self.fig.canvas.mpl_connect('pick_event', self.onpick)
         self.fig.canvas.mpl_connect('motion_notify_event', self.motion_hover)
         self.app = app

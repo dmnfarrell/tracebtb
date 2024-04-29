@@ -48,7 +48,7 @@ iconpath = os.path.join(module_path, 'icons')
 
 counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:29902")
 counties = ['Clare','Cork','Cavan','Monaghan','Louth','Kerry','Meath','Wicklow']
-cladelevels = ['snp3','snp12','snp50','snp200','snp500']
+cladelevels = ['snp3','snp12','snp7','snp20','snp50','snp200','snp500']
 providers = {'None':None,
             'OSM':cx.providers.OpenStreetMap.Mapnik,
             'CartoDB':cx.providers.CartoDB.Positron,
@@ -133,6 +133,7 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
     if len(df) == 0:
         ax.clear()
         ax.set_title('no locations available')
+        ax.axis('off')
         return
 
     minx, miny, maxx, maxy = df.total_bounds
@@ -171,7 +172,6 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
     ax.set_xlim(minx-margin,maxx+margin)
     ax.set_ylim(miny-margin,maxy+margin)
     ax.add_artist(ScaleBar(dx=1,location=3))
-
     return
 
 def calculate_grid_dimensions(n):
@@ -258,6 +258,8 @@ def plot_moves_timeline(df, cmap=None, ax=None):
     from matplotlib.patches import Rectangle
     import matplotlib.dates as mdates
 
+    if df is None:
+        return
     df['move_date'] = pd.to_datetime(df.move_date)
     groups = df.groupby('tag')
     if (len(groups))>25:
@@ -311,6 +313,41 @@ def plot_moves_timeline(df, cmap=None, ax=None):
     #ax.legend(leg.values(), leg.keys(), loc='upper right', bbox_to_anchor=(1.2, 1))
 
     ax.tick_params(axis='both', labelsize=7)
+    return
+
+def plot_hex_grid(gdf, col, n_cells=10, grid_type='hex', cmap='Paired', ax=None):
+    """Grid map showing most common features in a column (e.g snp level)"""
+
+    if grid_type == 'hex':
+        grid = plotting.create_hex_grid(gdf, n_cells=n_cells)
+    else:
+        grid = plotting.create_grid(gdf, n_cells=n_cells)
+    #merge grid and original using sjoin
+    #print (grid)
+    merged = gpd.sjoin(gdf, grid, how='left', predicate='within')
+
+    # Compute stats per grid cell
+    def aggtop(x):
+        #most common value in each group
+        c = x.value_counts()
+        if len(c)>0:
+            return c.index[0]
+
+    clrs,snpmap = plotting.get_color_mapping(gdf, col, cmap=cmap)
+    gdf['snp_color'] = clrs
+
+    dissolve = merged.dissolve(by="index_right", aggfunc=aggtop)
+    grid.loc[dissolve.index, 'value'] = dissolve[col].values
+    grid['color'] = grid.value.map(snpmap)
+    grid = grid[~grid.color.isnull()]
+
+    grid.plot(color=grid.color, ec='gray', alpha=0.4, lw=2, ax=ax)
+    #border.plot(color='none',ec='black',ax=ax)
+    gdf.plot(c=gdf.snp_color,ax=ax)
+    #ax.set_xlim((225000,310000))
+    #ax.set_ylim((292000,370000))
+    plotting.make_legend(ax.figure,snpmap,title=col,loc=(1,.9),fontsize=8)
+    ax.axis('off')
     return
 
 def jitter_points(r, scale=1):
@@ -518,6 +555,7 @@ class App(QMainWindow):
                  'Build Tree': {'action':self.show_tree,'file':'tree'},
                  'Show MST': {'action':self.plot_mst,'file':'mst'},
                  'Herd Summary':{'action':self.herd_summary,'file':'cow'},
+                 'Hex Grid': {'action':self.plot_hexbin,'file':'plot-hexbin'},
                  'Cluster Report':{'action':self.cluster_report ,'file':'cluster_report'},
                  'Make Simulated Data':{'action':self.simulate_data ,'file':'simulate'},
                  'Quit': {'action':self.quit,'file':'application-exit'}
@@ -582,7 +620,7 @@ class App(QMainWindow):
         #t.setSelectionMode(QAbstractItemView.ExtendedSelection)
         #t.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         #t.customContextMenuRequested.connect(self.update_groups)
-        t.itemSelectionChanged.connect(self.plot_selected_group)
+        t.itemSelectionChanged.connect(self.select_group)
         l.addWidget(t)
         self.widgets['clade'] = t
 
@@ -1050,9 +1088,6 @@ class App(QMainWindow):
         for i in self.opentables:
             w = self.opentables[i]
             w.setDataFrame()
-
-        #if hasattr(self, 'treeview'):
-        #    self.treeview.clear()
         return
 
     def load_project(self, filename=None):
@@ -1118,7 +1153,7 @@ class App(QMainWindow):
         t.resizeColumns()
         self.update_groups()
         self.update_widgets()
-        self.plot_selected_group()
+        self.select_group()
 
         #snps
         #self.coresnps = pd.read_csv('testing/core_snps_mbovis.txt', sep=' ')
@@ -1579,6 +1614,7 @@ class App(QMainWindow):
     def update(self):
         """Update plot"""
 
+        mpl.pyplot.close()
         self.plotview.clear()
         ax = self.plotview.ax
         fig = self.plotview.fig
@@ -1763,18 +1799,17 @@ class App(QMainWindow):
         self.plotview.redraw()
         return
 
-    def plot_selected_group(self):
-        """Plot points from selected groupby menu selection"""
+    def select_group(self):
+        """Selected from groupby menu selection"""
 
         gdf = self.meta_table.model.df
-        level = self.groupbyw.currentText()
+        key = self.groupbyw.currentText()
         groups = [item.text(0) for item in self.groupw.selectedItems()]
-
         if len(groups) == 0:
             return
-        self.sub = gdf[gdf[level].isin(groups)].copy()
+        self.sub = gdf[gdf[key].isin(groups)].copy()
         cl = ','.join(groups)
-        self.title = '%s=%s n=%s' %(level,cl,len(self.sub))
+        self.title = '%s=%s n=%s' %(key,cl,len(self.sub))
         self.plotview.lims = None
         #reset neighbours
         self.neighbours = None
@@ -1879,7 +1914,7 @@ class App(QMainWindow):
     def set_bounds(self, gdf=None, margin=10):
         """Set bounds of plot using geodataframe"""
 
-        if gdf is None:
+        if gdf is None or len(gdf)==0:
             return
         ax = self.plotview.ax
         minx, miny, maxx, maxy = gdf.total_bounds
@@ -1998,6 +2033,16 @@ class App(QMainWindow):
         self.run_threaded_process(func, self.processing_completed)
         return
 
+    def plot_hexbin(self):
+
+        cmap = self.cmapw.currentText()
+        col = self.groupbyw.currentText()
+        ax = self.plotview.ax
+        #self.update()
+        plot_hex_grid(self.sub,col,ax=ax)
+        self.plotview.redraw()
+        return
+
     def show_filter(self):
         """Filter widget"""
 
@@ -2055,12 +2100,17 @@ class App(QMainWindow):
 
         d = self.selections[label] = {}
         d['indexes'] = idx
-        #get widget settings
-        d['options'] = widgets.getWidgetValues(self.widgets)
         #plot zoom
         d['zoom'] = self.plotview.get_plot_lims()
         #neighbours
         d['neighbours'] = self.neighbours
+        #save widget settings?
+        reply = QMessageBox.question(self, 'Save view settings?',
+                                "Also save view options?",
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            d['options'] = widgets.getWidgetValues(self.widgets)
+
         if self.neighbours is not None:
             m = tools.get_dataframe_memory(self.neighbours)
             print (m)
@@ -2138,6 +2188,8 @@ class App(QMainWindow):
             #print (herd)
             clades = len(sdf.snp3.unique())
             m = self.moves[self.moves.move_to == herd]
+            #only farm to farm moves
+            m = m[m.data_type=='F_to_F']
             res.append([herd,len(sdf),clades,len(m)])
         res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves'])
         res = res.sort_values('strains',ascending=False)
