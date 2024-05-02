@@ -1216,6 +1216,7 @@ class HerdTable(DataFrameTable):
         tm = DataFrameModel(dataframe)
         self.setModel(tm)
         self.model = tm
+        self.setProxyModel()
         return
 
     def addActions(self, event, row):
