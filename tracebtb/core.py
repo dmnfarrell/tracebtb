@@ -41,3 +41,38 @@ defaults = {
 #populate current class variable
 for k in defaults:
     vars()[k] = defaults[k]
+
+county_colors = {
+    "Carlow": "#FF5733",
+    "Cavan": "#3366FF",
+    "Clare": "#FF3333",
+    "Cork": "#33FFCC",
+    "Donegal": "#6633FF",
+    "Dublin": "#FFD700",
+    "Galway": "#4792BD",
+    "Kerry": "#FF66CC",
+    "Kildare": "#663300",
+    "Kilkenny": "#6600CC",
+    "Laois": "#FF6600",
+    "Leitrim": "#00CC66",
+    "Limerick": "#FF3399",
+    "Longford": "#0000FF",
+    "Louth": "#00FFFF",
+    "Mayo": "#CC0000",
+    "Meath": "#800000",
+    "Monaghan": "#85C552",
+    "Offaly": "#6600FF",
+    "Roscommon": "#00FF33",
+    "Sligo": "#339966",
+    "Tipperary": "#FF9900",
+    "Waterford": "#99FF33",
+    "Westmeath": "#BDBB47",
+    "Wexford": "#993399",
+    "Wicklow": "#FF0000",
+    "Londonderry": "white",
+    "Antrim": "white",
+    "Armagh": "white",
+    "Tyrone": "white",
+    "Fermanagh": "white",
+    "Down": "white"
+}

@@ -29,7 +29,6 @@ from .qt import *
 import pandas as pd
 import numpy as np
 import pylab as plt
-from Bio import SeqIO, AlignIO
 import matplotlib as mpl
 from . import core, widgets, webwidgets, tables, tools, plotting, treeview, trees
 import geopandas as gpd
@@ -315,7 +314,8 @@ def plot_moves_timeline(df, cmap=None, ax=None):
     ax.tick_params(axis='both', labelsize=7)
     return
 
-def plot_hex_grid(gdf, col, n_cells=10, grid_type='hex', cmap='Paired', ax=None):
+def plot_hex_grid(gdf, col, n_cells=10, grid_type='hex',
+                  cmap='Paired', aggfunc='sum', ax=None):
     """Grid map showing most common features in a column (e.g snp level)"""
 
     if grid_type == 'hex':
@@ -336,7 +336,9 @@ def plot_hex_grid(gdf, col, n_cells=10, grid_type='hex', cmap='Paired', ax=None)
     clrs,snpmap = plotting.get_color_mapping(gdf, col, cmap=cmap)
     gdf['snp_color'] = clrs
 
-    dissolve = merged.dissolve(by="index_right", aggfunc=aggtop)
+    if aggfunc == 'top':
+        aggfunc=aggtop
+    dissolve = merged.dissolve(by="index_right", aggfunc=aggfunc)
     grid.loc[dissolve.index, 'value'] = dissolve[col].values
     grid['color'] = grid.value.map(snpmap)
     grid = grid[~grid.color.isnull()]
@@ -555,7 +557,7 @@ class App(QMainWindow):
                  'Build Tree': {'action':self.show_tree,'file':'tree'},
                  'Show MST': {'action':self.plot_mst,'file':'mst'},
                  'Herd Summary':{'action':self.herd_summary,'file':'cow'},
-                 'Hex Grid': {'action':self.plot_hexbin,'file':'plot-hexbin'},
+                 #'Hex Grid': {'action':self.plot_hexbin,'file':'plot-hexbin'},
                  'Cluster Report':{'action':self.cluster_report ,'file':'cluster_report'},
                  'Make Simulated Data':{'action':self.simulate_data ,'file':'simulate'},
                  'Quit': {'action':self.quit,'file':'application-exit'}
@@ -617,7 +619,7 @@ class App(QMainWindow):
         t.setColumnWidth(1, 20)
         t.setSortingEnabled(True)
         t.setMinimumHeight(30)
-        #t.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        t.setSelectionMode(QAbstractItemView.ExtendedSelection)
         #t.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         #t.customContextMenuRequested.connect(self.update_groups)
         t.itemSelectionChanged.connect(self.select_group)
@@ -1455,6 +1457,7 @@ class App(QMainWindow):
                                         filter="fasta file(*.fa *.fasta);;All Files(*.*)")
             if not filename:
                 return
+        from Bio import SeqIO, AlignIO
         self.aln = AlignIO.read(filename, format='fasta')
         print ('loaded alignment with %s rows' %len(self.aln))
         reply = QMessageBox.question(self, 'Calculate DM?',
@@ -1597,6 +1600,7 @@ class App(QMainWindow):
             print ('fasttree error')
             print(e)
             return
+        from Bio import SeqIO, AlignIO
         aln = AlignIO.read(infile,'fasta')
         ls = len(aln[0])
         utils.convert_branch_lengths(treefile, treefile, ls)
@@ -2034,12 +2038,29 @@ class App(QMainWindow):
         return
 
     def plot_hexbin(self):
+        """Binned plots for overviews"""
 
+        ocols = self.get_ordinal_columns()
+        opts = {'column':{'type':'combobox','default':'snp50','items':ocols},
+                'function':{'type':'combobox','default':'sum','items':['sum']},
+                'bins':{'type':'entry','default':10}
+                }
+        dlg = widgets.MultipleInputDialog(self, opts, title='Select Options',
+                            width=250,height=150)
+        dlg.exec_()
+        if not dlg.accepted:
+            return
+
+        kwds = dlg.values
+        col = kwds['column']
+        bins = int(kwds['bins'])
+        func = kwds['function']
         cmap = self.cmapw.currentText()
-        col = self.groupbyw.currentText()
         ax = self.plotview.ax
         #self.update()
-        plot_hex_grid(self.sub,col,ax=ax)
+        #self.plotview.clear()
+        #self.plot_counties()
+        plot_hex_grid(self.sub,col,n_cells=bins,aggfunc=func,ax=ax)
         self.plotview.redraw()
         return
 

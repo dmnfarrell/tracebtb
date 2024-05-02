@@ -22,6 +22,7 @@ setup(
                       'matplotlib>=3.0',
                       'geopandas',
                       'pyqt5',
+                      'PyQtWebEngine',
                       'toytree',
                       'contextily'
                       ],

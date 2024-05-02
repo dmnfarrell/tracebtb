@@ -206,7 +206,8 @@ def snp_dist_matrix(aln, threads=4):
     return m
 
 def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, colormap=None,
-                       cmap='Set1', node_size=4, font_size=6, with_labels=False, ax=None):
+                       cmap='Set1', node_size=4, font_size=6, with_labels=False,
+                       legend_loc=(1, .7), ax=None):
     """Dist matrix to minimum spanning tree"""
 
     from . import plotting
@@ -241,7 +242,7 @@ def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, c
         C = dict(zip(df.index, colors))
         node_colors = [C[node] if node in C else 'Black' for node in T.nodes()]
         cmap = check_keys(cmap, df[colorcol].unique())
-        p = plotting.make_legend(ax.figure, cmap, loc=(1, .7), title=colorcol,fontsize=9)
+        p = plotting.make_legend(ax.figure, cmap, loc=legend_loc, title=colorcol,fontsize=9)
 
     else:
         node_colors = 'black'
