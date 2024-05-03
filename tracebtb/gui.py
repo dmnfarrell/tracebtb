@@ -2201,18 +2201,29 @@ class App(QMainWindow):
         return
 
     def herd_summary(self):
-        """Summary by herd"""
+        """Summary by herd. We use snp7 to define a strain."""
 
         res=[]
         df = self.sub #self.meta_table.model.df
         for herd, sdf in df.groupby('HERD_NO'):
             #print (herd)
-            clades = len(sdf.snp3.unique())
+            clades = len(sdf.snp7.unique())
             m = self.moves[self.moves.move_to == herd]
             #only farm to farm moves
             m = m[m.data_type=='F_to_F']
-            res.append([herd,len(sdf),clades,len(m)])
-        res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves'])
+            #get mean SNP dist within farm
+            idx = list(sdf.index)
+            if hasattr(self, 'snpdist'):
+                D = self.snpdist.loc[idx,idx]
+                meandist = D.stack().mean().round(1)
+            else:
+                meandist = None
+            if 'Homebred' in sdf.columns:
+                hbred = len(sdf[sdf.Homebred=='yes'])
+            else:
+                hbred = None
+            res.append([herd,len(sdf),clades,len(m),meandist,hbred])
+        res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves','mean_dist','homebred'])
         res = res.sort_values('strains',ascending=False)
         w = tables.HerdTable(self, dataframe=res,
                     font=core.FONT, fontsize=core.FONTSIZE, app=self)
