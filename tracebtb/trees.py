@@ -54,7 +54,7 @@ def get_colormap(values):
 def run_fasttree(infile, outpath='', bootstraps=100):
     """Run fasttree on fasta alignment"""
 
-    fc = tools.get_cmd('fasttree')
+    fc = tools.get_cmd('fasttreeMP')
     out = os.path.join(outpath,'tree.newick')
     cmd = '{fc} -nt {i} > {o}'.format(fc=fc,b=bootstraps,i=infile,o=out)
     try:

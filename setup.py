@@ -20,11 +20,13 @@ setup(
     install_requires=['numpy',
                       'pandas',
                       'matplotlib>=3.0',
+                      'biopython',
                       'geopandas',
                       'pyqt5',
                       'PyQtWebEngine',
                       'toytree',
                       'contextily'
+                      'pygraphviz'
                       ],
     entry_points = {
         'console_scripts': [

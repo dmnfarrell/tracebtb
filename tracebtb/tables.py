@@ -1011,11 +1011,7 @@ class SampleTable(DataFrameTable):
         self.setWordWrap(False)
         tm = SampleTableModel(dataframe)
         self.setModel(tm)
-        #self.proxy = QtCore.QSortFilterProxyModel()
-        self.proxy = CustomProxyModel()
-        self.proxy.setSourceModel(self.model)
-        self.setModel(self.proxy)
-        self.proxy.sort(0, Qt.AscendingOrder)
+        self.setProxyModel()
         return
 
     def setDataFrame(self, df=None):
@@ -1027,25 +1023,19 @@ class SampleTable(DataFrameTable):
             df = df.set_index('sample', drop=False)
             df.index.name = 'index'
         tm = SampleTableModel(df)
-        #self.setModel(tm)
         self.model = tm
-        #self.proxy = QtCore.QSortFilterProxyModel()
-        self.proxy = CustomProxyModel()
-        self.proxy.setSourceModel(self.model)
-        self.setModel(self.proxy)
-        self.proxy.sort(0, Qt.AscendingOrder)
-        self.setSortingEnabled(True)
+        self.setProxyModel()
         return
 
     def addActions(self, event, row):
         """Right click menu"""
 
         menu = self.menu
-        detailsAction = menu.addAction("Sample Details")
         selectAction = menu.addAction("Select Samples")
         addSelectionAction = menu.addAction("Add to Selection")
         findRelatedAction = menu.addAction("Related Samples")
         copyAction = menu.addAction("Copy")
+        detailsAction = menu.addAction("Sample Details")
         removeAction = menu.addAction("Delete Selected")
         exportAction = menu.addAction("Export Table")
         action = menu.exec_(self.mapToGlobal(event.pos()))
@@ -1113,6 +1103,48 @@ class SampleTable(DataFrameTable):
         #also sync the geodataframe
         #self.app.cent = self.app.cent.drop(columns=cols)
         self.refresh()
+        return
+
+class SelectedModel(DataFrameModel):
+    """Moves model class"""
+    def __init__(self, dataframe=None, *args):
+
+        DataFrameModel.__init__(self, dataframe)
+        self.df = dataframe
+
+class SelectedTable(DataFrameTable):
+    """
+    Sub selection table.
+    """
+    def __init__(self, parent=None, app=None, dataframe=None, **kwargs):
+        DataFrameTable.__init__(self, dataframe=dataframe, **kwargs)
+        self.parent = parent
+        self.app = app
+        tm = DataFrameModel(dataframe)
+        self.setModel(tm)
+        self.setProxyModel()
+        #print (self.model)
+        return
+
+    def addActions(self, event, row):
+        """Right click menu"""
+
+        menu = self.menu
+        #detailsAction = menu.addAction("Sample Details")
+        findRelatedAction = menu.addAction("Related Samples")
+        copyAction = menu.addAction("Copy")
+        exportAction = menu.addAction("Export Table")
+        action = menu.exec_(self.mapToGlobal(event.pos()))
+
+        rows = self.getSelectedRows()
+        df = self.model.df.iloc[rows[0]]
+        if action == copyAction:
+            self.copy()
+        elif action == exportAction:
+            self.exportTable()
+        elif action == findRelatedAction:
+            idx = self.getSelectedIndexes()
+            self.app.select_related(idx)
         return
 
 class MovesTableModel(DataFrameModel):

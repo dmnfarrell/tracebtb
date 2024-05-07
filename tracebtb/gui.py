@@ -556,6 +556,7 @@ class App(QMainWindow):
                  'Settings': {'action':self.preferences,'file':'settings'},
                  'Build Tree': {'action':self.show_tree,'file':'tree'},
                  'Show MST': {'action':self.plot_mst,'file':'mst'},
+                 'Dist Matrix': {'action':self.plot_distance_matrix,'file':'snp-dist'},
                  'Herd Summary':{'action':self.herd_summary,'file':'cow'},
                  #'Hex Grid': {'action':self.plot_hexbin,'file':'plot-hexbin'},
                  'Cluster Report':{'action':self.cluster_report ,'file':'cluster_report'},
@@ -1869,19 +1870,27 @@ class App(QMainWindow):
         self.update()
         return
 
-    def select_related(self):
-        """Find related samples to selected e.g. within n snps"""
+    def select_related(self, idx=None):
+        """Find related samples to selected indexes i.e. within n snps"""
 
         df = self.meta_table.model.df
-        idx = self.meta_table.getSelectedIndexes()
+        if idx is None:
+            idx = self.meta_table.getSelectedIndexes()
         s = df.loc[idx]
 
         cols = ['snp3','snp7','snp12']
-        col, ok = QInputDialog.getItem(self, 'Select cluster level', 'Cluster level:', cols, 0, False)
-        if not col: return
-        clusters = s[col]
-        self.sub = df[df[col].isin(clusters)]
-        self.title = '(table selection) n=%s' %len(self.sub)
+        dist, ok = QInputDialog.getInt(self, 'Select SNP threshold', 'SNP threshold:', 3)
+        if not ok: return
+        #clusters = s[col]
+        #self.sub = df[df[col].isin(clusters)]
+
+        names=[]
+        for i in idx:
+            found = tools.get_within_distance(self.snpdist, i, dist)
+            names.extend(found)
+        names = list(set(names))
+        self.sub = df.loc[names]
+        self.title = 'n=%s' %len(self.sub)
         self.plotview.lims = None
         self.update()
         return
@@ -1967,6 +1976,21 @@ class App(QMainWindow):
         self.show_dock_object(w, 'timeline')
         return
 
+    def dist_matrix_from_alignment(self):
+        """Calculate snp dist matrix from alignment"""
+
+        if self.aln is None:
+            print ('no alignment loaded')
+            return
+        from Bio.Align import MultipleSeqAlignment
+        aln = MultipleSeqAlignment(self.aln)
+        print ('calculating distance matrix for %s sequences..' %len(aln))
+
+        def func(progress_callback):
+            self.snpdist = tools.snp_dist_matrix(aln, threads=core.THREADS)
+        self.run_threaded_process(func, self.processing_completed)
+        return
+
     def show_tree(self):
         """Show phylogeny for selected subset"""
 
@@ -2022,19 +2046,21 @@ class App(QMainWindow):
         self.show_dock_object(w, 'mst')
         return
 
-    def dist_matrix_from_alignment(self):
-        """Calculate snp dist matrix from alignment"""
+    def plot_distance_matrix(self):
+        """Distance matrix for selected"""
 
-        if self.aln is None:
-            print ('no alignment loaded')
-            return
-        from Bio.Align import MultipleSeqAlignment
-        aln = MultipleSeqAlignment(self.aln)
-        print ('calculating distance matrix for %s sequences..' %len(aln))
+        idx = list(self.sub.index)
+        M = self.snpdist.loc[idx,idx]
 
-        def func(progress_callback):
-            self.snpdist = tools.snp_dist_matrix(aln, threads=core.THREADS)
-        self.run_threaded_process(func, self.processing_completed)
+        w = QWebEngineView()
+        css = {'props': 'font-style: monospace; font-weight:normal; font-size: 10px'}
+        s = (M.style.background_gradient(cmap='GnBu')
+            .set_table_styles([{'selector': 'th', 'props': [('font-size', '7pt')]}])
+            .set_properties(**{'text-align': 'center'})
+            )
+        html = tools.df_html(s)
+        w.setHtml(html)
+        self.show_dock_object(w, 'snpdist')
         return
 
     def plot_hexbin(self):
@@ -2261,8 +2287,8 @@ class App(QMainWindow):
     def show_selected_table(self):
         """Show selected samples in separate table"""
 
-        w = tables.DataFrameTable(self, dataframe=self.sub,
-                font=core.FONT, fontsize=core.FONTSIZE)
+        w = tables.SelectedTable(self, dataframe=self.sub,
+                font=core.FONT, fontsize=core.FONTSIZE, app=self)
         self.show_dock_object(w, 'selected', 'left')
         self.opentables['selected'] = w
         return

@@ -35,14 +35,16 @@ import matplotlib as mpl
 import matplotlib.colors as colors
 from . import tools
 
-def make_legend(fig, colormap, loc=(1.05, .6), title='',fontsize=12):
+def make_legend(fig, colormap, loc='best', title='',fontsize=12):
     """Make a figure legend wth provided color mapping"""
 
     import matplotlib.patches as mpatches
     pts=[]
     for c in colormap:
         pts.append(mpatches.Patch(color=colormap[c],label=c))
-    fig.legend(handles=pts,bbox_to_anchor=loc,fontsize=fontsize,title=title)
+
+    fig.legend(handles=pts,loc=loc,fontsize=fontsize,
+               frameon=False,draggable=True,title=title)
     return pts
 
 def heatmap(df, cmap='gist_gray_r', w=15, h=5, ax=None):

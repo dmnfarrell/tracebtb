@@ -207,7 +207,7 @@ def snp_dist_matrix(aln, threads=4):
 
 def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, colormap=None,
                        cmap='Set1', node_size=4, font_size=6, with_labels=False,
-                       legend_loc=(1, .7), ax=None):
+                       legend_loc='upper left', ax=None):
     """Dist matrix to minimum spanning tree"""
 
     from . import plotting
@@ -218,7 +218,6 @@ def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, c
     from networkx.drawing.nx_agraph import graphviz_layout
 
     G = nx.Graph()
-
     for i, row in distance_matrix.iterrows():
         for j, weight in row.items():
             G.add_edge(i, j, weight=weight)
@@ -229,7 +228,7 @@ def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, c
     # Plot the minimum spanning tree with edge lengths proportional to distances
     pos = graphviz_layout(T)
     labels = nx.get_edge_attributes(T, 'weight')
-    if df is not None:
+    if df is not None and colorcol in df.columns:
         l = [label for label in T.nodes if label in df.index]
         df = df.loc[l]
         if colormap is None:
@@ -242,7 +241,7 @@ def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, c
         C = dict(zip(df.index, colors))
         node_colors = [C[node] if node in C else 'Black' for node in T.nodes()]
         cmap = check_keys(cmap, df[colorcol].unique())
-        p = plotting.make_legend(ax.figure, cmap, loc=legend_loc, title=colorcol,fontsize=9)
+        p = plotting.make_legend(ax.figure, cmap, loc=legend_loc, title=colorcol,fontsize=8)
 
     else:
         node_colors = 'black'
@@ -256,6 +255,15 @@ def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, c
         nx.draw_networkx_labels(T, pos, labels=node_labels, font_size=font_size, horizontalalignment='right')
     ax.axis('off')
     return T, pos
+
+def get_within_distance(dm, row_index, threshold):
+    """
+    Get the closest samples for a given row in a distance matrix DataFrame.
+    """
+
+    row = dm.loc[row_index]
+    x = row.loc[row<=threshold].index
+    return x
 
 def check_keys(d, vals):
     """Remove keys not in vals"""
@@ -288,3 +296,43 @@ def get_dataframe_memory(df):
     m = df.memory_usage(deep=True).sum()
     m = round(m/1048576,2)
     return m
+
+def df_html(df, fontsize='8pt'):
+    """Create df html enclosed in some css"""
+
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Styled DataFrame</title>
+        <style>
+            body {{
+                font-family: monospace;
+                font-size: {fontsize};
+                margin: 0;
+                padding: 0;
+            }}
+            table {{
+                border-collapse: collapse;
+                width: 100%;
+            }}
+            th, td {{
+                border: 1px solid #ddd;
+                padding: 8px;
+            }}
+            th {{
+                background-color: white;
+                text-align: left;
+                position: sticky;
+                top: 0;
+            }}
+
+        </style>
+    </head>
+    <body>
+        {df.to_html()}
+    </body>
+    </html>
+    """
+    return html

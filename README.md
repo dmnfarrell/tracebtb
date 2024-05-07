@@ -26,7 +26,7 @@ The tool can be run on Windows using Windows Subsystem for Linux (WSL). This is 
 
 Open Ubuntu from the start menu and run it. It will bring up a terminal. This is just like being in normal Linux. You should first install some required packages:
 
-```sudo apt install python3-pip x11-apps libqt5extras5```
+```sudo apt install python3-pip x11-apps libqt5extras5 graphviz-dev fasttree```
 
 You can then install the package using pip as above.
 
@@ -36,8 +36,9 @@ You can then install the package using pip as above.
 * pandas
 * geopandas
 * biopython
-* toytree
-* pyside2 or pyqt5
+* pyside2 or pyqt5/PyQtWebEngine
+* pygraphviz
+* contextily
 
 ## Funding
 
