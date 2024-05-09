@@ -336,3 +336,27 @@ def df_html(df, fontsize='8pt'):
     </html>
     """
     return html
+
+def nearest(point, gdf):
+    """Get nearest neighbours to point in gdf, vector based"""
+
+    from shapely.ops import nearest_points
+    dists = gdf.apply(lambda row:  point.distance(row.geometry),axis=1)
+    #print (dists[dists>0].idxmin())
+    return dists[dists>0].min()
+
+def find_outliers(cent, min_dist=10, min_samples=10, col='snp7'):
+    """
+    Find outlier cluster points
+    """
+
+    res=[]
+    for i,df in cent.groupby(col):
+        if len(df)>=min_samples:
+            df['nearest'] = df.geometry.apply(lambda x: nearest(x,df))
+            df['outlier'] = df.nearest>min_dist*100
+            #print (i,len(df))
+        res.append(df)
+    res = pd.concat(res)
+    outliers = res[res.outlier==True]
+    return outliers

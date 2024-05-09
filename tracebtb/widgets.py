@@ -1349,6 +1349,41 @@ class CustomPlotViewer(PlotViewer):
         ymin,ymax = ax.get_ylim()
         return xmin,xmax,ymin,ymax
 
+class MSTViewer(PlotWidget):
+    def __init__(self, parent=None, toolbar=False):
+
+        super(MSTViewer, self).__init__(parent)
+        self.main.setOrientation(QtCore.Qt.Vertical)
+        #self.add_widgets()
+        return
+
+    def add_widgets(self):
+        """Add widgets"""
+
+        toolswidget = QWidget()
+        #toolswidget.setMaximumWidth(00)
+        self.main.addWidget(toolswidget)
+        l = QHBoxLayout(toolswidget)
+
+        #self.main.setSizes([400,150])
+        self.main.setStretchFactor(1,0)
+
+        w = QLabel('node size')
+        l.addWidget(w)
+        self.nodesizeslider = w = QSlider(QtCore.Qt.Horizontal)
+        w.setSingleStep(1)
+        w.setMinimum(2)
+        w.setMaximum(100)
+        w.setValue(30)
+        l.addWidget(w)
+        w.valueChanged.connect(self.update)
+        return
+
+    def update(self):
+        """redraw tree"""
+
+        return
+
 class BrowserViewer(QDialog):
     """matplotlib plots widget"""
     def __init__(self, parent=None):

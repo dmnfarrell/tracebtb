@@ -76,3 +76,7 @@ county_colors = {
     "Fermanagh": "white",
     "Down": "white"
 }
+
+def git_version() -> str:
+    """Get get version"""
+    return subprocess.check_output(['git','describe','--tags']).decode('ascii').strip()

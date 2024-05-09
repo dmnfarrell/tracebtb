@@ -25,7 +25,8 @@ setup(
                       'pyqt5',
                       'PyQtWebEngine',
                       'toytree',
-                      'contextily'
+                      'contextily',
+                      'networkx',
                       'pygraphviz'
                       ],
     entry_points = {

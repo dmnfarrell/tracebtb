@@ -47,7 +47,7 @@ iconpath = os.path.join(module_path, 'icons')
 
 counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:29902")
 counties = ['Clare','Cork','Cavan','Monaghan','Louth','Kerry','Meath','Wicklow']
-cladelevels = ['snp3','snp12','snp7','snp20','snp50','snp200','snp500']
+cladelevels = ['snp3','snp7','snp12','snp20','snp50','snp200','snp500']
 providers = {'None':None,
             'OSM':cx.providers.OpenStreetMap.Mapnik,
             'CartoDB':cx.providers.CartoDB.Positron,
@@ -559,7 +559,7 @@ class App(QMainWindow):
                  'Dist Matrix': {'action':self.plot_distance_matrix,'file':'snp-dist'},
                  'Herd Summary':{'action':self.herd_summary,'file':'cow'},
                  #'Hex Grid': {'action':self.plot_hexbin,'file':'plot-hexbin'},
-                 'Cluster Report':{'action':self.cluster_report ,'file':'cluster_report'},
+                 #'Cluster Report':{'action':self.cluster_report ,'file':'cluster_report'},
                  'Make Simulated Data':{'action':self.simulate_data ,'file':'simulate'},
                  'Quit': {'action':self.quit,'file':'application-exit'}
                 }
@@ -963,18 +963,19 @@ class App(QMainWindow):
 
         self.tools_menu = QMenu('Tools', self)
         self.menuBar().addMenu(self.tools_menu)
-        icon = QIcon(os.path.join(iconpath,'tree.svg'))
-        self.tools_menu.addAction(icon, 'Build Tree', self.show_tree)
-        icon = QIcon(os.path.join(iconpath,'mst.svg'))
-        self.tools_menu.addAction(icon, 'Show MST', self.plot_mst)
+        self.tools_menu.addAction('Find Outliers', self.find_outliers)
+        #icon = QIcon(os.path.join(iconpath,'tree.svg'))
+        #self.tools_menu.addAction(icon, 'Build Tree', self.show_tree)
+        #icon = QIcon(os.path.join(iconpath,'mst.svg'))
+        #self.tools_menu.addAction(icon, 'Show MST', self.plot_mst)
         icon = QIcon(os.path.join(iconpath,'mbovis.svg'))
         self.tools_menu.addAction(icon, 'Strain Typing', self.strain_typing)
-        icon = QIcon(os.path.join(iconpath,'cow.svg'))
-        self.tools_menu.addAction(icon, 'Show Herd Summary', self.herd_summary)
+        #icon = QIcon(os.path.join(iconpath,'cow.svg'))
+        #self.tools_menu.addAction(icon, 'Show Herd Summary', self.herd_summary)
         icon = QIcon(os.path.join(iconpath,'simulate.svg'))
         self.tools_menu.addAction(icon, 'Make Simulated Data', self.simulate_data)
-        icon = QIcon(os.path.join(iconpath,'pdf.svg'))
-        self.tools_menu.addAction(icon,'Cluster Report', self.cluster_report)
+        #icon = QIcon(os.path.join(iconpath,'pdf.svg'))
+        #self.tools_menu.addAction(icon,'Cluster Report', self.cluster_report)
 
         self.scratch_menu = QMenu('Scratchpad', self)
         self.menuBar().addMenu(self.scratch_menu)
@@ -1414,8 +1415,8 @@ class App(QMainWindow):
     def extract_coords(self, df):
         """Try to convert coords from X-Y columns"""
 
-        opts = {'X':{'type':'combobox','default':'X','items':['X','X_COORD']},
-                'Y':{'type':'combobox','default':'Y','items':['Y','Y_COORD']}
+        opts = {'X':{'type':'combobox','default':'X','items':['X_COORD','X']},
+                'Y':{'type':'combobox','default':'Y','items':['Y_COORD','Y']}
                 }
         dlg = widgets.MultipleInputDialog(self, opts, title='Select X-Y columns',
                             width=250,height=150)
@@ -1860,11 +1861,12 @@ class App(QMainWindow):
         self.update()
         return
 
-    def add_to_selection(self):
+    def add_to_selection(self, idx=None):
         """Add selected rows to current selection (self.sub)"""
 
         df = self.meta_table.model.df
-        idx = self.meta_table.getSelectedIndexes()
+        if idx == None:
+            idx = self.meta_table.getSelectedIndexes()
         new = df.loc[idx]
         self.sub = pd.concat([self.sub,new])
         self.update()
@@ -2005,6 +2007,7 @@ class App(QMainWindow):
             M = self.snpdist.loc[idx,idx]
             #print (M)
             trees.tree_from_distmatrix(M, treefile)
+            l=len(M)
         elif hasattr(self, 'aln'):
             from Bio.Align import MultipleSeqAlignment
             seqs = [rec for rec in self.aln if rec.id in idx]
@@ -2012,12 +2015,13 @@ class App(QMainWindow):
             if len(aln) == 0:
                 return
             treefile = trees.tree_from_aln(aln)
+            l=len(aln)
         else:
             print ('no alignment or dist matrix')
             return
         import toyplot
         w = QWebEngineView()
-        if labelcol == '':
+        if labelcol == '' or l>60:
             labelcol=None
         canvas = trees.draw_tree(treefile, self.sub, colorcol, cmap, tiplabelcol=labelcol)
         toyplot.html.render(canvas, "temp.html")
@@ -2040,8 +2044,10 @@ class App(QMainWindow):
 
         idx = list(self.sub.index)
         M = self.snpdist.loc[idx,idx]
-        w = widgets.PlotWidget(self)
-        tools.dist_matrix_to_mst(M, self.sub, colorcol, node_size=100, labelcol=labelcol,
+        w = widgets.MSTViewer(self)
+        l = len(M)
+        ns = 1000/l
+        tools.dist_matrix_to_mst(M, self.sub, colorcol, node_size=ns, labelcol=labelcol,
                                   cmap=cmap, ax=w.ax)
         self.show_dock_object(w, 'mst')
         return
@@ -2088,6 +2094,29 @@ class App(QMainWindow):
         #self.plot_counties()
         plot_hex_grid(self.sub,col,n_cells=bins,aggfunc=func,ax=ax)
         self.plotview.redraw()
+        return
+
+    def find_outliers(self):
+        """Scan data to find outlier for case studies"""
+
+        df = self.meta_table.model.df
+
+        opts = {'col':{'type':'combobox','default':'snp12','items':cladelevels,'label':'cluster level'},
+                'min_dist':{'type':'spinbox','default':20,'range':(1,100),'label':'distance (km)'},
+                'min_samples':{'type':'spinbox','default':6,'range':(1,100),'label':'min samples'}
+                }
+        dlg = widgets.MultipleInputDialog(self, opts, title='Select Options',
+                            width=250,height=150)
+        dlg.exec_()
+        if not dlg.accepted:
+            return
+        kwds = dlg.values
+
+        col = kwds['col']
+        outliers = tools.find_outliers(df, **kwds)
+        for c,g in outliers.groupby(col):
+            clust = df[df[col]==c]
+            self.save_as_selection(clust.index, f'outliers_{col}={c}')
         return
 
     def show_filter(self):
@@ -2162,6 +2191,13 @@ class App(QMainWindow):
             m = tools.get_dataframe_memory(self.neighbours)
             print (m)
         #print (d)
+        self.update_selections_menu()
+        return
+
+    def save_as_selection(self, idx, label, saveoptions=False):
+
+        d = self.selections[label] = {}
+        d['indexes'] = idx
         self.update_selections_menu()
         return
 
@@ -2410,7 +2446,10 @@ class App(QMainWindow):
 
     def about(self):
 
-        from . import __version__
+        try:
+            VERSION = core.git_version()
+        except:
+            from . import __version__ as VERSION
         import matplotlib
         try:
             import PySide2
@@ -2423,7 +2462,7 @@ class App(QMainWindow):
         mplver = matplotlib.__version__
         gpdver = gpd.__version__
         text='TracebTB\n'\
-            +'version '+__version__+'\n'\
+            +'version '+VERSION+'\n'\
             +'Copyright (C) Damien Farrell 2022-\n'\
             +'This program is free software; you can redistribute it and/or '\
             +'modify it under the terms of the GNU GPL '\

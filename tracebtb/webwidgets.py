@@ -99,7 +99,7 @@ def add_tiles(map):
         control = True
         ).add_to(map)
     tile = folium.raster_layers.TileLayer('CartoDB Dark_Matter',
-                                          name='Dark'
+                                          name='Dark',
                                           ).add_to(map)
     folium.LayerControl(position='topleft').add_to(map)
     return map
