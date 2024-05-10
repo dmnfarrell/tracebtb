@@ -283,7 +283,7 @@ def plot_moves_timeline(df, cmap=None, ax=None):
             end = 19000
             width = end - start
             #no death so draw rectangle till present
-            rect = Rectangle((start, i), width, .8, color=cmap[herd], ec='black')
+            rect = Rectangle((start, i), width, .8, color=cmap[herd], ec='black', lw=0)
             ax.add_patch(rect)
             leg[herd] = rect
 
@@ -293,7 +293,7 @@ def plot_moves_timeline(df, cmap=None, ax=None):
             start = mdates.date2num(row.move_date)
             end = mdates.date2num(row.end_date)
             width = end - start
-            rect = Rectangle((start, i), width, .8, color=cmap[herd], ec='black')
+            rect = Rectangle((start, i), width, .8, color=cmap[herd], ec='black', lw=0)
             ax.add_patch(rect)
             leg[herd] = rect
         i+=1
@@ -444,6 +444,8 @@ class App(QMainWindow):
         self.scratch_items = {}
         self.selections = {}
         self.opentables = {}
+        self.view_history = []
+        self.current_index = 0
 
         self.lpis_master = None
         self.lpis_master_file = None
@@ -551,6 +553,8 @@ class App(QMainWindow):
                  'Save': {'action': lambda: self.save_project(),'file':'save'},
                  'Zoom out': {'action':self.zoom_out,'file':'zoom-out'},
                  'Zoom in': {'action':self.zoom_in,'file':'zoom-in'},
+                 'Previous View': {'action':self.back,'file':'arrow-left'},
+                 'Next View': {'action':self.forward,'file':'arrow-right'},
                  'Scratchpad': {'action':self.show_scratchpad,'file':'scratchpad'},
                  'Filter': {'action':self.show_filter,'file':'filter'},
                  'Settings': {'action':self.preferences,'file':'settings'},
@@ -720,9 +724,6 @@ class App(QMainWindow):
         #self.widgets['showneighbours'] = b
         b = widgets.createButton(m, None, self.get_neighbours_in_region, 'parcels-region',
                                  core.ICONSIZE, 'find all parcels in region')
-        l.addWidget(b)
-        b = widgets.createButton(m, None, self.find_parcel, 'find-parcel',
-                                 core.ICONSIZE, 'find parcel')
         l.addWidget(b)
         b = widgets.createButton(m, None, self.save_to_scratchpad, 'snapshot', core.ICONSIZE, 'take snapshot')
         l.addWidget(b)
@@ -953,8 +954,8 @@ class App(QMainWindow):
         self.data_menu.addAction(icon, 'Load Master Parcels', self.load_lpis_master)
         icon = QIcon(os.path.join(iconpath,'parcels.svg'))
         self.data_menu.addAction(icon, 'Extract Parcels/Centroids', self.get_lpis_centroids)
-        #icon = QIcon(os.path.join(iconpath,'neighbours.svg'))
-        #self.data_menu.addAction(icon,'Extract Neighbouring Parcels', self.get_neighbouring_parcels)
+        icon = QIcon(os.path.join(iconpath,'find-parcel.svg'))
+        self.data_menu.addAction(icon, 'Find Parcel', self.find_parcel)
         icon = QIcon(os.path.join(iconpath,'clusters.svg'))
         self.data_menu.addAction(icon, 'Get Clusters from SNPs', self.get_clusters)
         icon = QIcon(os.path.join(iconpath,'cow.svg'))
@@ -1121,6 +1122,7 @@ class App(QMainWindow):
         self.add_recent_file(filename)
         self.update_selections_menu()
         self.update()
+        self.add_to_history()
         if 'dock_items' in data:
             self.update_dock_items(data['dock_items'])
         self.update_data_status()
@@ -1820,6 +1822,7 @@ class App(QMainWindow):
         #reset neighbours
         self.neighbours = None
         self.update()
+        self.add_to_history()
         return
 
     def plot_counties(self):
@@ -1859,6 +1862,7 @@ class App(QMainWindow):
         self.title = '(table selection) n=%s' %len(self.sub)
         self.plotview.lims = None
         self.update()
+        self.add_to_history()
         return
 
     def add_to_selection(self, idx=None):
@@ -1870,6 +1874,7 @@ class App(QMainWindow):
         new = df.loc[idx]
         self.sub = pd.concat([self.sub,new])
         self.update()
+        self.add_to_history()
         return
 
     def select_related(self, idx=None):
@@ -1895,6 +1900,7 @@ class App(QMainWindow):
         self.title = 'n=%s' %len(self.sub)
         self.plotview.lims = None
         self.update()
+        self.add_to_history()
         return
 
     def plot_in_region(self):
@@ -1923,6 +1929,51 @@ class App(QMainWindow):
         self.sub = df[df.HERD_NO.isin(herd_no)]
         self.title = '(herd selection) %s' %' '.join(list(herd_no))
         self.parcelsb.setChecked(True)
+        self.update()
+        return
+
+    def add_to_history(self):
+        """Add selection to viewing history"""
+
+        views = self.view_history
+        # If we're not at the end, remove any "forward" views (like a browser's behavior)
+        if self.current_index < len(views)-1:
+            views = views[: self.current_index + 1]
+        # Append the new view
+        views.append(self.sub.index)
+        if len(views) > 20:
+            views.pop(0)
+        # Move the current index to the new end
+        self.current_index = len(views)-1
+        self.view_history = views
+        #for i in self.view_history:
+        #    print (len(i))
+        return
+
+    def back(self):
+        """Go to previous selection"""
+
+        df = self.meta_table.model.df
+        if len(self.view_history) == 0:
+            return
+        if self.current_index <= 0:
+            return
+        self.current_index -= 1
+        idx = self.view_history[self.current_index]
+        self.sub = df.loc[idx]
+        self.update()
+        return
+
+    def forward(self):
+        """Go to next selection in history"""
+
+        df = self.meta_table.model.df
+        if len(self.view_history) == 0 or self.current_index >= len(self.view_history)-1:
+            return
+        self.current_index += 1
+        print (self.current_index)
+        idx = self.view_history[self.current_index]
+        self.sub = df.loc[idx]
         self.update()
         return
 
@@ -2189,7 +2240,7 @@ class App(QMainWindow):
 
         if self.neighbours is not None:
             m = tools.get_dataframe_memory(self.neighbours)
-            print (m)
+            #print (m)
         #print (d)
         self.update_selections_menu()
         return
@@ -2258,6 +2309,7 @@ class App(QMainWindow):
                     if k in d:
                         self.__dict__[k] = d[k]
                 self.update()
+                self.add_to_history()
                 return
             menu.addAction(name, partial(func, name))
         return
