@@ -145,9 +145,9 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
         maxx+=10
         maxy+=10
 
-    #df['color'] = df.Species.map({'Bovine':'blue','Badger':'orange'})
     #map color to col here properly?
-    df['color'] = 'blue'
+    if 'color' not in df.columns:
+        df['color'] = 'blue'
     ncols = 1
     if col in df.columns and len(df.groupby(col).groups)>15:
         ncols=2
@@ -244,8 +244,10 @@ def plot_parcels(parcels, ax, col=None, cmap='Set1'):
 
     if len(parcels) == 0 or parcels is None:
         return
+    if not 'color' in parcels.columns:
+        parcels['color'] = 'none'
     if col == '' or col == None:
-        parcels.plot(color='none',lw=.5,ec='black',cmap=cmap,ax=ax)
+        parcels.plot(color=parcels.color,alpha=0.6,lw=.5,ec='black',cmap=cmap,ax=ax)
     else:
         parcels.plot(column=col,alpha=0.6,lw=.3,ec='black',cmap=cmap,ax=ax)
     return
@@ -309,9 +311,11 @@ def plot_moves_timeline(df, cmap=None, ax=None):
     ax.set_yticklabels(tags)
     ax.grid(axis='y')
     plt.subplots_adjust(left=0.3)
-    #ax.legend(leg.values(), leg.keys(), loc='upper right', bbox_to_anchor=(1.2, 1))
-
+    ncols=2
+    #legfmt = {'fontsize':'small','frameon':False,'draggable':True}#,'ncol':ncols}
+    ax.legend(leg.values(), leg.keys(), fontsize=8, frameon=False, loc='best')
     ax.tick_params(axis='both', labelsize=7)
+    #plt.tight_layout()
     return
 
 def plot_hex_grid(gdf, col, n_cells=10, grid_type='hex',
@@ -1633,10 +1637,15 @@ class App(QMainWindow):
         colorparcelscol = self.colorparcelsbyw.currentText()
         cmap = self.cmapw.currentText()
         legend = self.legendb.isChecked()
-        #jitter = self.jitterb.isChecked()
 
         if self.sub is None or len(self.sub) == 0:
             return
+
+        #assign colors to selection
+        clrs,c = plotting.get_color_mapping(self.sub, colorcol, cmap)
+        print (clrs)
+        self.sub['color'] = clrs
+
         #get moves here
         mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
 
@@ -1649,7 +1658,10 @@ class App(QMainWindow):
             if mov is not None:
                 herds.extend(mov.move_to)
             p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
-            plot_parcels(p, col=colorparcelscol, cmap=cmap, ax=ax)
+            if colorparcelscol!='':
+                p['color'],c = plotting.get_color_mapping(p, colorparcelscol, cmap)
+            #plot_parcels(p, col=colorparcelscol, cmap=cmap, ax=ax)
+            plot_parcels(p, cmap=cmap, ax=ax)
 
         #to be removed
         #if jitter == True:
@@ -1661,7 +1673,8 @@ class App(QMainWindow):
             #self.neighbours.plot(color='gray',alpha=0.4,ax=ax)
             self.neighbours.plot(column='color',cmap='gray',alpha=0.4,ax=ax)
 
-        plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
+        #plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
+        plot_single_cluster(self.sub,ms=ms,legend=legend,ax=ax)
 
         labelcol = self.labelsw.currentText()
         if labelcol != '':

@@ -14,7 +14,6 @@
    inkscape:export-ydpi="25.4"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-   xmlns:xlink="http://www.w3.org/1999/xlink"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
   <sodipodi:namedview
@@ -29,7 +28,7 @@
      showgrid="false"
      width="209mm"
      inkscape:zoom="0.20115686"
-     inkscape:cx="596.54938"
+     inkscape:cx="536.89444"
      inkscape:cy="1391.9486"
      inkscape:window-width="2504"
      inkscape:window-height="1305"
@@ -39,18 +38,6 @@
      inkscape:current-layer="layer1" />
   <defs
      id="defs2">
-    <linearGradient
-       inkscape:collect="always"
-       id="linearGradient827">
-      <stop
-         style="stop-color:#56c8c2;stop-opacity:1"
-         offset="0"
-         id="stop823" />
-      <stop
-         style="stop-color:#a6c0d0;stop-opacity:1"
-         offset="1"
-         id="stop825" />
-    </linearGradient>
     <inkscape:path-effect
        effect="simplify"
        id="path-effect1348"
@@ -62,16 +49,6 @@
        helper_size="0"
        simplify_individual_paths="false"
        simplify_just_coalesce="false" />
-    <linearGradient
-       inkscape:collect="always"
-       xlink:href="#linearGradient827"
-       id="linearGradient3441"
-       x1="33.934475"
-       y1="254.24806"
-       x2="478.82343"
-       y2="254.24806"
-       gradientUnits="userSpaceOnUse"
-       gradientTransform="matrix(-1,0,0,1,562.9124,0)" />
   </defs>
   <g
      inkscape:label="Layer 1"
@@ -79,10 +56,10 @@
      id="layer1">
     <path
        id="path1196"
-       style="fill:url(#linearGradient3441);fill-opacity:1;stroke:#181a18;stroke-width:28.1;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:1.68;stroke-opacity:1;paint-order:stroke fill markers"
-       inkscape:transform-center-x="-25.07809"
+       style="fill:#aab8cc;fill-opacity:1;stroke:#181a18;stroke-width:28.1;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:1.68;stroke-opacity:1;paint-order:stroke fill markers"
+       inkscape:transform-center-x="-25.078087"
        inkscape:transform-center-y="0.45374281"
-       d="M 513.97961,264.19779 100.58313,476.10643 99.088973,32.389573 Z"
+       d="M 463.82499,264.19779 50.42852,476.10643 48.93436,32.389573 Z"
        sodipodi:nodetypes="cccc" />
   </g>
 </svg>

@@ -1084,10 +1084,10 @@ class SampleTable(DataFrameTable):
         idx = self.model.df.index[rows]
         self.model.df = self.model.df.drop(idx)
         #also sync the geodataframe
-        mask = ~self.app.cent.index.isin(idx)
-        self.app.cent = self.app.cent[mask]
+        #mask = ~self.app.meta_table.index.isin(idx)
+        #self.app.cent = self.app.cent[mask]
         #print (len(self.app.cent))
-        self.app.update_clades()
+        self.app.update_groups()
         self.refresh()
         return
 

@@ -313,6 +313,8 @@ def addToolBarItems(toolbar, parent, items):
             btn.setShortcut(QKeySequence(items[i]['shortcut']))
         if 'checkable' in items[i]:
             btn.setCheckable(items[i]['checkable'])
+        if 'enabled' in items[i]:
+            btn.setEnabled(items[i]['enabled'])
         toolbar.addAction(btn)
     return toolbar
 
@@ -1427,6 +1429,40 @@ class BrowserViewer(QDialog):
         zoom = self.zoomslider.value()/10
         self.browser.setZoomFactor(zoom)
 
+class TreeViewer(PlotWidget):
+    def __init__(self, parent=None):
+
+        super(PlotWidget, self).__init__(parent)
+        self.add_widgets()
+        return
+
+    def plot_tree(self):
+        ax = self.ax
+        # Read the Newick tree file
+        tree = Phylo.read(tree_file, "newick")
+        
+        # Get the tip labels
+        #tip_labels = [clade.name for clade in tree.get_terminals()]
+        
+        # Create a list of colors for the tips
+        #tip_colors = [color_mapping.get(label, 'black') for label in tip_labels]
+        
+        # Plot the tree with colored tips
+        plt.figure(figsize=(10, 10))
+        Phylo.draw(tree, label_func=lambda x: None, axes=plt.gca(), 
+                show_confidence=False, do_show=False)
+        
+        # Color the tips according to the mapping
+        for idx, label in enumerate(tip_labels):
+            x, y = tree.clade[label].position
+            plt.scatter(x, y, color=tip_colors[idx], s=50)
+        return
+    
+    def show(self, treefile, df, cmap='Set1'):
+        """Show phylogeny for selected subset"""
+
+        return
+    
 class TreeViewer(BrowserViewer):
     def __init__(self, parent=None):
 

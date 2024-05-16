@@ -226,7 +226,8 @@ def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, c
     # Compute edge lengths based on distances
     edge_lengths = [T[u][v]['weight'] for u, v in T.edges()]
     # Plot the minimum spanning tree with edge lengths proportional to distances
-    pos = graphviz_layout(T)
+    pos = graphviz_layout(T)    
+ 
     labels = nx.get_edge_attributes(T, 'weight')
     if df is not None and colorcol in df.columns:
         l = [label for label in T.nodes if label in df.index]
