@@ -206,8 +206,8 @@ def snp_dist_matrix(aln, threads=4):
     return m
 
 def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, colormap=None,
-                       cmap='Set1', node_size=4, font_size=6, with_labels=False,
-                       legend_loc='upper left', ax=None):
+                       cmap='Set1', node_size=4, font_size=8, with_labels=False,
+                       edge_labels=False, legend_loc=(1, .7), ax=None):
     """Dist matrix to minimum spanning tree"""
 
     from . import plotting
@@ -218,6 +218,7 @@ def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, c
     from networkx.drawing.nx_agraph import graphviz_layout
 
     G = nx.Graph()
+
     for i, row in distance_matrix.iterrows():
         for j, weight in row.items():
             G.add_edge(i, j, weight=weight)
@@ -226,14 +227,13 @@ def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, c
     # Compute edge lengths based on distances
     edge_lengths = [T[u][v]['weight'] for u, v in T.edges()]
     # Plot the minimum spanning tree with edge lengths proportional to distances
-    pos = graphviz_layout(T)    
- 
+    pos = graphviz_layout(T)
     labels = nx.get_edge_attributes(T, 'weight')
-    if df is not None and colorcol in df.columns:
+    if df is not None:
         l = [label for label in T.nodes if label in df.index]
         df = df.loc[l]
         if colormap is None:
-            colors,cmap = get_color_mapping(df, colorcol, cmap)
+            colors,cmap = plotting.get_color_mapping(df, colorcol, cmap)
         else:
             #custom colormap if provided
             colors = [colormap[i] if i in colormap else 'black' for i in df[colorcol]]
@@ -241,19 +241,23 @@ def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, c
         #print (cmap)
         C = dict(zip(df.index, colors))
         node_colors = [C[node] if node in C else 'Black' for node in T.nodes()]
+        #checks that colormap matches nodes so legend doesn't have crap in it
         cmap = check_keys(cmap, df[colorcol].unique())
-        p = plotting.make_legend(ax.figure, cmap, loc=legend_loc, title=colorcol,fontsize=8)
+        #add legend for node colors
+        p = plotting.make_legend(ax.figure, cmap, loc=legend_loc, title=colorcol,fontsize=9)
 
     else:
         node_colors = 'black'
     nx.draw_networkx(T, pos, node_color=node_colors, node_size=node_size,
                      font_size=font_size, with_labels=with_labels, ax=ax)
-    nx.draw_networkx_edge_labels(T, pos, edge_labels=labels, font_size=font_size, ax=ax)
+    if edge_labels == True:
+        nx.draw_networkx_edge_labels(T, pos, edge_labels=labels, font_size=font_size*.8, ax=ax)
 
-    if labelcol not in ['',None]:
+    if labelcol not in [None,'']:
         node_labels = {node:df.loc[node][labelcol] if node in df.index else '' for node in T.nodes()}
         #print (node_labels)
-        nx.draw_networkx_labels(T, pos, labels=node_labels, font_size=font_size, horizontalalignment='right')
+        nx.draw_networkx_labels(T, pos, labels=node_labels, font_size=font_size,
+                 horizontalalignment='right',verticalalignment='top')
     ax.axis('off')
     return T, pos
 

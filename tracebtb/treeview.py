@@ -175,7 +175,6 @@ class TreeViewer(QWidget):
   
         return
 
-
     def add_widgets(self):
         """Add widgets"""
 
@@ -225,7 +224,6 @@ class TreeViewer(QWidget):
         w.valueChanged.connect(self.vscale)
 
         return
-
 
     def show_tree_menu(self, pos):
         """Show right click tree menu"""

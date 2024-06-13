@@ -1429,7 +1429,7 @@ class BrowserViewer(QDialog):
         zoom = self.zoomslider.value()/10
         self.browser.setZoomFactor(zoom)
 
-class TreeViewer(PlotWidget):
+'''class TreeViewer2(PlotWidget):
     def __init__(self, parent=None):
 
         super(PlotWidget, self).__init__(parent)
@@ -1461,25 +1461,99 @@ class TreeViewer(PlotWidget):
     def show(self, treefile, df, cmap='Set1'):
         """Show phylogeny for selected subset"""
 
-        return
+        return'''
     
-class TreeViewer(BrowserViewer):
+class TreeViewer(QWidget):
     def __init__(self, parent=None):
 
-        super(TreeViewer, self).__init__(parent)
+        super(TreeViewer, self).__init__()
+        self.parent = parent
+        self.setMinimumSize(400,300)
+        self.setGeometry(QtCore.QRect(200, 200, 600, 600))
+        self.setWindowTitle("Tree View")
         self.add_widgets()
+        self.width=600
+        self.height=500
+        self.treefile = None
         return
 
-    def show(self, treefile, df, cmap='Set1'):
-        """Show phylogeny for selected subset"""
+    def add_widgets(self):
 
-        canvas = trees.draw_tree(treefile,  df, colorcol, tip_labels=False, width=500)
+        layout = QVBoxLayout(self)
+        self.browser = QWebEngineView()
+        layout.addWidget(self.browser)
+        toolswidget = QWidget()
+        layout.addWidget(toolswidget)
+        toolswidget.setMaximumHeight(120)
+        l2 = QVBoxLayout(toolswidget)
+
+        self.zoomslider = w = QSlider(QtCore.Qt.Horizontal)
+        w.setSingleStep(3)
+        w.setMinimum(2)
+        w.setMaximum(20)
+        w.setValue(10)
+        l2.addWidget(w)
+        w.valueChanged.connect(self.zoom)
+
+        w = QLabel('vscale')
+        l2.addWidget(w)
+        self.heightslider = w = QSlider(QtCore.Qt.Horizontal)
+        w.setSingleStep(10)
+        w.setMinimum(20)
+        w.setMaximum(1200)
+        w.setValue(500)
+        l2.addWidget(w)
+        w.valueChanged.connect(self.vscale)
+
+        w = QLabel('hscale')
+        l2.addWidget(w)
+        self.widthslider = w = QSlider(QtCore.Qt.Horizontal)
+        w.setSingleStep(10)
+        w.setMinimum(20)
+        w.setMaximum(2000)
+        w.setValue(600)
+        l2.addWidget(w)
+        w.valueChanged.connect(self.hscale)
+        return
+
+    def draw(self, treefile, df, **kwargs):
+        """Show phylogeny"""
+
+        import toyplot
+        from . import trees
+        self.treefile = treefile
+        self.df = df
+        self.kwargs = kwargs
+        canvas = trees.draw_tree(treefile,  df,
+                             width=self.width, height=self.height, **kwargs)
         toyplot.html.render(canvas, "temp.html")
         with open('temp.html', 'r') as f:
             html = f.read()
             self.browser.setHtml(html)
         return
 
+    def update(self):
+
+        if self.treefile == None:
+            return
+        self.draw(self.treefile, self.df, **self.kwargs)
+        return
+
+    def zoom(self):
+        zoom = self.zoomslider.value()/10
+        self.browser.setZoomFactor(zoom)
+        return
+
+    def hscale(self):
+        self.width = self.widthslider.value()
+        self.update()
+        return
+
+    def vscale(self):
+        self.height = self.heightslider.value()
+        self.update()
+        return
+    
 class ScratchPad(QWidget):
     """Temporary storage widget for plots and other items.
     Currently supports storing text, mpl figures and dataframes"""

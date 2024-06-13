@@ -30,7 +30,7 @@ import pandas as pd
 import numpy as np
 import pylab as plt
 import matplotlib as mpl
-from . import core, widgets, webwidgets, tables, tools, plotting, treeview, trees
+from . import core, widgets, webwidgets, tables, tools, plotting, trees
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
 from matplotlib_scalebar.scalebar import ScaleBar
@@ -82,7 +82,7 @@ style = '''
 
 dockstyle = '''
     QDockWidget {
-        max-width:1000px;
+        max-width:1400px;
     }
     QDockWidget::title {
         background-color: #80bfff;
@@ -824,11 +824,12 @@ class App(QMainWindow):
         idx = self.tabs.addTab(self.plotview, 'Map')
         self.tabs.setCurrentIndex(idx)
 
-        self.treeview = treeview.TreeViewer()
+        #self.treeview = treeview.TreeViewer()
         #self.m.addWidget(self.treeview)
 
         self.info = widgets.Editor(main, readOnly=True, fontsize=10)
         self.add_dock(self.info, 'log', 'right')
+
         self.foliumview = webwidgets.FoliumViewer(main)
         #self.foliumview.show()
         idx = self.tabs.addTab(self.foliumview, 'Interactive')
@@ -1641,13 +1642,17 @@ class App(QMainWindow):
         if self.sub is None or len(self.sub) == 0:
             return
 
-        #assign colors to selection
-        clrs,c = plotting.get_color_mapping(self.sub, colorcol, cmap)
-        print (clrs)
+        if colorcol != '':
+            #assign colors to selection
+            clrs,c = plotting.get_color_mapping(self.sub, colorcol, cmap)
+        else:
+            clrs = 'blue'
+
         self.sub['color'] = clrs
 
         #get moves here
-        mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
+        if hasattr(self, 'moves'):
+            mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
 
         self.plot_counties()
         #land parcels
@@ -2083,7 +2088,8 @@ class App(QMainWindow):
         else:
             print ('no alignment or dist matrix')
             return
-        import toyplot
+
+        '''import toyplot
         w = QWebEngineView()
         if labelcol == '' or l>60:
             labelcol=None
@@ -2091,7 +2097,10 @@ class App(QMainWindow):
         toyplot.html.render(canvas, "temp.html")
         with open('temp.html', 'r') as f:
             html = f.read()
-            w.setHtml(html)
+            w.setHtml(html)'''
+
+        w = widgets.TreeViewer()
+        w.draw(treefile, df=self.sub, col=colorcol, cmap=cmap, tiplabelcol=labelcol)
         self.show_dock_object(w, 'tree')
         return
 
