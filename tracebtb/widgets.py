@@ -1440,29 +1440,29 @@ class BrowserViewer(QDialog):
         ax = self.ax
         # Read the Newick tree file
         tree = Phylo.read(tree_file, "newick")
-        
+
         # Get the tip labels
         #tip_labels = [clade.name for clade in tree.get_terminals()]
-        
+
         # Create a list of colors for the tips
         #tip_colors = [color_mapping.get(label, 'black') for label in tip_labels]
-        
+
         # Plot the tree with colored tips
         plt.figure(figsize=(10, 10))
-        Phylo.draw(tree, label_func=lambda x: None, axes=plt.gca(), 
+        Phylo.draw(tree, label_func=lambda x: None, axes=plt.gca(),
                 show_confidence=False, do_show=False)
-        
+
         # Color the tips according to the mapping
         for idx, label in enumerate(tip_labels):
             x, y = tree.clade[label].position
             plt.scatter(x, y, color=tip_colors[idx], s=50)
         return
-    
+
     def show(self, treefile, df, cmap='Set1'):
         """Show phylogeny for selected subset"""
 
         return'''
-    
+
 class TreeViewer(QWidget):
     def __init__(self, parent=None):
 
@@ -1553,7 +1553,71 @@ class TreeViewer(QWidget):
         self.height = self.heightslider.value()
         self.update()
         return
-    
+
+class PhyloTreeWidget(QWidget):
+    def __init__(self, newick_data=None, parent=None):
+        super().__init__(parent)
+        self.newick_data = newick_data
+        self.initUI()
+
+    def initUI(self):
+        layout = QVBoxLayout()
+        self.webView = QWebEngineView()
+        layout.addWidget(self.webView)
+        self.setLayout(layout)
+        self.load_html()
+
+    def draw(self, treefile, df, col):
+
+        with open(treefile, 'r') as file:
+            self.newick_data = file.read()
+        color_mapping = df.set_index('tip')[col].to_dict()
+        color_json = json.dumps(color_mapping)
+
+        html_template = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>PhyloTree</title>
+            <script src="https://d3js.org/d3.v5.min.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/phylotree@1.1.9/dist/phylotree.min.js"></script>
+            <style>
+                #tree_container {{
+                    width: 100%;
+                    height: 100%;
+                }}
+                body, html {{
+                    margin: 0;
+                    padding: 0;
+                    height: 100%;
+                }}
+            </style>
+        </head>
+        <body>
+            <div id="tree_container"></div>
+            <script>
+                document.addEventListener("DOMContentLoaded", function() {{
+                    var newick_data = `{self.newick_data}`;
+                    var color_mapping = {color_json};
+                    var tree = new phylotree.phylotree(newick_data).svg(d3.select("#tree_container"));
+                    tree.style_edges(function(edge, edge_selection) {{
+                        var target = edge.target;
+                        if (target.name && color_mapping[target.name]) {{
+                            edge_selection.selectAll("path")
+                                .style("stroke", color_mapping[target.name]);
+                        }}
+                    }});
+                    tree.layout();
+                }});
+            </script>
+        </body>
+        </html>
+        """
+        self.webView.setHtml(html_template)
+        return
+
 class ScratchPad(QWidget):
     """Temporary storage widget for plots and other items.
     Currently supports storing text, mpl figures and dataframes"""

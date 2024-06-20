@@ -1678,8 +1678,8 @@ class App(QMainWindow):
             #self.neighbours.plot(color='gray',alpha=0.4,ax=ax)
             self.neighbours.plot(column='color',cmap='gray',alpha=0.4,ax=ax)
 
-        #plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
-        plot_single_cluster(self.sub,ms=ms,legend=legend,ax=ax)
+        plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
+        #plot_single_cluster(self.sub,ms=ms,legend=legend,ax=ax)
 
         labelcol = self.labelsw.currentText()
         if labelcol != '':
@@ -2101,6 +2101,8 @@ class App(QMainWindow):
 
         w = widgets.TreeViewer()
         w.draw(treefile, df=self.sub, col=colorcol, cmap=cmap, tiplabelcol=labelcol)
+        #w = widgets.PhyloTreeWidget()
+        #w.draw(treefile, df=self.sub, col=colorcol)#, cmap=cmap, tiplabelcol=labelcol)
         self.show_dock_object(w, 'tree')
         return
 
