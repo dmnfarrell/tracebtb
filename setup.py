@@ -25,7 +25,6 @@ setup(
                       'pyqt5',
                       'PyQtWebEngine',
                       'toytree',
-                      'contextily',
                       'networkx',
                       'pygraphviz'
                       ],
@@ -34,7 +33,7 @@ setup(
             'tracebtb=tracebtb.gui:main']
             },
     classifiers = ['Operating System :: OS Independent',
-            'Programming Language :: Python :: 3.7',      
+            'Programming Language :: Python :: 3.7',
             'Operating System :: Microsoft :: Windows',
             'Operating System :: POSIX',
             'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',

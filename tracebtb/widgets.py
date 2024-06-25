@@ -21,6 +21,7 @@
 """
 
 import sys, os, io, platform, traceback
+import json
 import numpy as np
 import pandas as pd
 import pylab as plt
@@ -1561,20 +1562,22 @@ class PhyloTreeWidget(QWidget):
         self.initUI()
 
     def initUI(self):
+
         layout = QVBoxLayout()
         self.webView = QWebEngineView()
         layout.addWidget(self.webView)
         self.setLayout(layout)
-        self.load_html()
+        #self.load_html()
+        return
 
     def draw(self, treefile, df, col):
 
         with open(treefile, 'r') as file:
             self.newick_data = file.read()
-        color_mapping = df.set_index('tip')[col].to_dict()
+        color_mapping = df[col].to_dict()
         color_json = json.dumps(color_mapping)
 
-        html_template = f"""
+        html = f"""
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -1615,7 +1618,8 @@ class PhyloTreeWidget(QWidget):
         </body>
         </html>
         """
-        self.webView.setHtml(html_template)
+        print (html)
+        self.webView.setHtml(html)
         return
 
 class ScratchPad(QWidget):

@@ -34,7 +34,7 @@ from . import core, widgets, webwidgets, tables, tools, plotting, trees
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
 from matplotlib_scalebar.scalebar import ScaleBar
-import contextily as cx
+#import contextily as cx
 
 #fix for browser display
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox"
@@ -48,10 +48,10 @@ iconpath = os.path.join(module_path, 'icons')
 counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:29902")
 counties = ['Clare','Cork','Cavan','Monaghan','Louth','Kerry','Meath','Wicklow']
 cladelevels = ['snp3','snp7','snp12','snp20','snp50','snp200','snp500']
-providers = {'None':None,
-            'OSM':cx.providers.OpenStreetMap.Mapnik,
-            'CartoDB':cx.providers.CartoDB.Positron,
-            'CartoDB.Voyager': cx.providers.CartoDB.Voyager}
+#providers = {'None':None,
+#            'OSM':cx.providers.OpenStreetMap.Mapnik,
+#            'CartoDB':cx.providers.CartoDB.Positron,
+#            'CartoDB.Voyager': cx.providers.CartoDB.Voyager}
 #colormaps = sorted(m for m in plt.cm.datad if not m.endswith("_r"))
 colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
             'tab10', 'tab20', 'tab20b', 'tab20c',
@@ -121,6 +121,23 @@ def calculate_parcel_centroids(parcels):
     cent = gpd.GeoDataFrame(geometry=cent,crs='EPSG:29902')
     cent['SPH_HERD_N'] = parcels.SPH_HERD_N
     return cent
+
+def set_equal_aspect(ax):
+    """Set axes to be equal regardless of selection"""
+
+    x1,x2 = ax.get_xlim()
+    y1,y2 = ax.get_ylim()
+    w=x2-x1
+    h=y2-y1
+    aspect = w/h
+    #print (x1,x2,aspect)
+    if aspect >1.1:
+        c = y1+h/2
+        ax.set_ylim(c-w/2,c+w/2)
+    elif aspect<0.9:
+        c = x1+w/2
+        ax.set_xlim(c-h/2,c+h/2)
+    return
 
 def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
                         legend=False, title='', ax=None):
@@ -568,7 +585,7 @@ class App(QMainWindow):
                  'Herd Summary':{'action':self.herd_summary,'file':'cow'},
                  #'Hex Grid': {'action':self.plot_hexbin,'file':'plot-hexbin'},
                  #'Cluster Report':{'action':self.cluster_report ,'file':'cluster_report'},
-                 'Make Simulated Data':{'action':self.simulate_data ,'file':'simulate'},
+                 #'Make Simulated Data':{'action':self.simulate_data ,'file':'simulate'},
                  'Quit': {'action':self.quit,'file':'application-exit'}
                 }
 
@@ -666,11 +683,11 @@ class App(QMainWindow):
         w.setCurrentText('Paired')
         self.widgets['colormap'] = w
         #toggle cx
-        self.contextw = w = QComboBox(m)
-        l.addWidget(QLabel('Context map:'))
-        l.addWidget(w)
-        w.addItems(providers.keys())
-        self.widgets['context'] = w
+        #self.contextw = w = QComboBox(m)
+        #l.addWidget(QLabel('Context map:'))
+        #l.addWidget(w)
+        #w.addItems(providers.keys())
+        #self.widgets['context'] = w
         self.markersizew = w = QSpinBox(m)
         w.setRange(1,300)
         w.setValue(50)
@@ -694,8 +711,8 @@ class App(QMainWindow):
         self.showfoliumb = b = widgets.createButton(m, None, self.update, 'folium', core.ICONSIZE, 'interactive view')
         b.setCheckable(True)
         l.addWidget(b)
-        #self.multiaxesb= b = widgets.createButton(m, None, self.plot_farms, 'plot-grid', core.ICONSIZE, 'farm split view')
-        #l.addWidget(b)
+        self.splitviewb= b = widgets.createButton(m, None, self.split_view, 'plot-grid', core.ICONSIZE, 'split view')
+        l.addWidget(b)
         b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', core.ICONSIZE, 'show all in region')
         l.addWidget(b)
         self.parcelsb = b = widgets.createButton(m, None, self.update, 'parcels', core.ICONSIZE, 'show parcels')
@@ -1715,12 +1732,12 @@ class App(QMainWindow):
         #print (self.plotview.lims)
 
         self.set_bounds(p)
-        self.set_equal_aspect()
+        set_equal_aspect(ax)
 
         #fig.tight_layout()
         #context map
-        cxsource = self.contextw.currentText()
-        self.add_context_map(providers[cxsource])
+        #cxsource = self.contextw.currentText()
+        #self.add_context_map(providers[cxsource])
 
         self.plotview.redraw()
 
@@ -1763,6 +1780,52 @@ class App(QMainWindow):
                              lpis_cent=self.lpis_cent,
                              colorcol=colorcol, parcelscol=parcelscol,
                              cmap=cmap)
+        return
+
+    def split_view(self):
+        """Split current selection by some column"""
+
+        df = self.sub
+        cols = self.get_ordinal_columns()
+        col, ok = QInputDialog.getItem(self, 'Grouping column', 'Group by:', cols, 0, False)
+        if not ok:
+            return
+        colorcol = self.colorbyw.currentText()
+        ms = self.markersizew.value()
+        cmap = self.cmapw.currentText()
+        legend = self.legendb.isChecked()
+
+        common = df[col].value_counts().index[:6]
+        l = len(common)
+        if len(common) < 2: return
+        rs, cs = calculate_grid_dimensions(l)
+        fig,ax=plt.subplots(rs,cs,figsize=(12,12))
+        axs=ax.flat
+        i=0
+        margin=150
+        for c, g in df.groupby(col):
+            if c in common:
+                ax=axs[i]
+                self.counties.plot(color='none',lw=.2,edgecolor='black',ax=ax)
+                #g.plot(column=colorcol,cmap=cmap,s=ms,ax=ax,legend=True)
+                plot_single_cluster(g,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
+                minx, miny, maxx, maxy = g.total_bounds
+                ax.set_xlim(minx-margin,maxx+margin)
+                ax.set_ylim(miny-margin,maxy+margin)
+
+                #self.set_bounds(g)
+                set_equal_aspect(ax)
+                ax.axis('off')
+                ax.patch.set_edgecolor('black')
+                ax.patch.set_linewidth(1)
+                ax.set_title(f'{col}={c} len={len(g)}')
+                i+=1
+
+        self.splitview = widgets.PlotWidget(self)
+        idx = self.tabs.addTab(self.splitview, 'Split View')
+        self.tabs.setCurrentIndex(idx)
+        self.splitview.set_figure(fig)
+        plt.tight_layout()
         return
 
     def plot_farms(self):
@@ -1931,8 +1994,14 @@ class App(QMainWindow):
         xmin,xmax,ymin,ymax = self.plotview.get_plot_lims()
         df = self.meta_table.model.df
         found = df.cx[xmin:xmax, ymin:ymax]
-        #add current
-        self.sub = pd.concat([curr,found])
+        reply = QMessageBox.question(self, 'Add to selection?',
+                                "Add to current selection?",
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            #add to current
+            self.sub = pd.concat([curr,found])
+        else:
+            self.sub = found
         self.title = ('selected region n=%s' %len(self.sub))
         self.update()
         #ax = self.plotview.ax
@@ -2007,24 +2076,6 @@ class App(QMainWindow):
         self.plotview.redraw()
         return
 
-    def set_equal_aspect(self):
-        """Set axes to be equal regardless of selection"""
-
-        ax = self.plotview.ax
-        x1,x2 = ax.get_xlim()
-        y1,y2 = ax.get_ylim()
-        w=x2-x1
-        h=y2-y1
-        aspect = w/h
-        #print (x1,x2,aspect)
-        if aspect >1.1:
-            c = y1+h/2
-            ax.set_ylim(c-w/2,c+w/2)
-        elif aspect<0.9:
-            c = x1+w/2
-            ax.set_xlim(c-h/2,c+h/2)
-        return
-
     def add_context_map(self, source=None):
         """Contextily background map"""
 
@@ -2089,16 +2140,6 @@ class App(QMainWindow):
             print ('no alignment or dist matrix')
             return
 
-        '''import toyplot
-        w = QWebEngineView()
-        if labelcol == '' or l>60:
-            labelcol=None
-        canvas = trees.draw_tree(treefile, self.sub, colorcol, cmap, tiplabelcol=labelcol)
-        toyplot.html.render(canvas, "temp.html")
-        with open('temp.html', 'r') as f:
-            html = f.read()
-            w.setHtml(html)'''
-
         w = widgets.TreeViewer()
         w.draw(treefile, df=self.sub, col=colorcol, cmap=cmap, tiplabelcol=labelcol)
         #w = widgets.PhyloTreeWidget()
@@ -2122,8 +2163,13 @@ class App(QMainWindow):
         w = widgets.MSTViewer(self)
         l = len(M)
         ns = 1000/l
+        if l<30:
+            showlabels = True
+        else:
+            showlabels = False
         tools.dist_matrix_to_mst(M, self.sub, colorcol, node_size=ns, labelcol=labelcol,
-                                  cmap=cmap, ax=w.ax)
+                                  cmap=cmap, with_labels=showlabels, edge_labels=True, font_size=7,
+                                  ax=w.ax)
         self.show_dock_object(w, 'mst')
         return
 
