@@ -181,6 +181,8 @@ def draw_tree(filename, df=None, col=None, cmap=None, tiplabelcol=None,
     import toytree
     tre = toytree.tree(filename)
     idx = tre.get_tip_labels()
+    #if len(idx) > 100:
+    #    tiplabelcol = None
     if df is not None and col not in [None, '']:
         df = df.fillna('')
         labels = df[col].unique()
@@ -198,12 +200,13 @@ def draw_tree(filename, df=None, col=None, cmap=None, tiplabelcol=None,
         tip_colors = None
         node_colors = None
         node_sizes = None
-        tip_labels = None
+        tip_labels = False
     if tiplabelcol not in [None, '']:
         #tip_labels = list(df[tiplabelcol].astype(str))
         tip_labels = [df.loc[n][tiplabelcol] if n in df.index else n for n in idx]
     else:
-        tip_labels = None
+        tip_labels = False
+
     canvas,axes,mark = tre.draw(scalebar=True,edge_widths=1,height=height,width=width,
                                 tip_labels_colors=tip_colors,node_colors=node_colors,
                                 tip_labels=tip_labels,

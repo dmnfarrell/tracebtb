@@ -268,7 +268,8 @@ class FoliumViewer(QWidget):
         #data = io.BytesIO()
         #map.save(data, close_file=False)
         #self.main.setHtml(data.getvalue().decode())
-        url = os.path.join(tempfile.tempdir,'map.html')
+     
+        url = os.path.join(tempfile.gettempdir(),'map.html')
         map.save(url)
         html = QtCore.QUrl.fromLocalFile(url)
         self.main.load(html)

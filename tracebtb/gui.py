@@ -991,8 +991,8 @@ class App(QMainWindow):
         #self.tools_menu.addAction(icon, 'Build Tree', self.show_tree)
         #icon = QIcon(os.path.join(iconpath,'mst.svg'))
         #self.tools_menu.addAction(icon, 'Show MST', self.plot_mst)
-        icon = QIcon(os.path.join(iconpath,'mbovis.svg'))
-        self.tools_menu.addAction(icon, 'Strain Typing', self.strain_typing)
+        #icon = QIcon(os.path.join(iconpath,'mbovis.svg'))
+        #self.tools_menu.addAction(icon, 'Strain Typing', self.strain_typing)
         #icon = QIcon(os.path.join(iconpath,'cow.svg'))
         #self.tools_menu.addAction(icon, 'Show Herd Summary', self.herd_summary)
         icon = QIcon(os.path.join(iconpath,'simulate.svg'))
@@ -1682,6 +1682,8 @@ class App(QMainWindow):
             p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
             if colorparcelscol!='':
                 p['color'],c = plotting.get_color_mapping(p, colorparcelscol, cmap)
+            else:
+                p['color'] = 'none'
             #plot_parcels(p, col=colorparcelscol, cmap=cmap, ax=ax)
             plot_parcels(p, cmap=cmap, ax=ax)
 
@@ -1704,7 +1706,7 @@ class App(QMainWindow):
 
         leg = ax.get_legend()
         if leg != None:
-            leg.set_bbox_to_anchor((0., 0., 1.2, 0.9))
+            leg.set_bbox_to_anchor((0., 0., 1.0, 0.9))
 
         #moves
         if self.movesb.isChecked():
@@ -1795,7 +1797,7 @@ class App(QMainWindow):
         cmap = self.cmapw.currentText()
         legend = self.legendb.isChecked()
 
-        common = df[col].value_counts().index[:6]
+        common = df[col].value_counts().index[:8]
         l = len(common)
         if len(common) < 2: return
         rs, cs = calculate_grid_dimensions(l)
@@ -1821,8 +1823,11 @@ class App(QMainWindow):
                 ax.set_title(f'{col}={c} len={len(g)}')
                 i+=1
 
-        self.splitview = widgets.PlotWidget(self)
-        idx = self.tabs.addTab(self.splitview, 'Split View')
+        if not hasattr(self, 'splitview'):
+            self.splitview = widgets.PlotWidget(self)
+            idx = self.tabs.addTab(self.splitview, 'Split View')
+        else:
+            idx = 2
         self.tabs.setCurrentIndex(idx)
         self.splitview.set_figure(fig)
         plt.tight_layout()
@@ -1958,6 +1963,18 @@ class App(QMainWindow):
         self.add_to_history()
         return
 
+    def remove_from_selection(self, idx):
+        """Remove selected rows from current selection"""
+
+        #df = self.meta_table.model.df
+        #new = df.loc[idx]
+        x = self.sub
+        self.sub = x[~x.index.isin(idx)]
+        self.plotview.lims = None
+        self.update()
+        self.add_to_history()
+        return
+
     def select_related(self, idx=None):
         """Find related samples to selected indexes i.e. within n snps"""
 
@@ -1966,11 +1983,8 @@ class App(QMainWindow):
             idx = self.meta_table.getSelectedIndexes()
         s = df.loc[idx]
 
-        cols = ['snp3','snp7','snp12']
         dist, ok = QInputDialog.getInt(self, 'Select SNP threshold', 'SNP threshold:', 3)
         if not ok: return
-        #clusters = s[col]
-        #self.sub = df[df[col].isin(clusters)]
 
         names=[]
         for i in idx:

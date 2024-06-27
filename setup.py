@@ -18,7 +18,7 @@ setup(
                   'description.txt']
                  },
     install_requires=['numpy',
-                      'pandas',
+                      'pandas>=2.0',
                       'matplotlib>=3.0',
                       'biopython',
                       'geopandas',
@@ -26,7 +26,9 @@ setup(
                       'PyQtWebEngine',
                       'toytree',
                       'networkx',
-                      'pygraphviz'
+                      'pygraphviz',
+                      'pydaidx',
+                      'matplotlib_scalebar'
                       ],
     entry_points = {
         'console_scripts': [

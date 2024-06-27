@@ -1132,6 +1132,7 @@ class SelectedTable(DataFrameTable):
         menu = self.menu
         #detailsAction = menu.addAction("Sample Details")
         findRelatedAction = menu.addAction("Related Samples")
+        removeSelectedAction = menu.addAction("Remove from Selection")
         copyAction = menu.addAction("Copy")
         exportAction = menu.addAction("Export Table")
         action = menu.exec_(self.mapToGlobal(event.pos()))
@@ -1145,6 +1146,9 @@ class SelectedTable(DataFrameTable):
         elif action == findRelatedAction:
             idx = self.getSelectedIndexes()
             self.app.select_related(idx)
+        elif action == removeSelectedAction:
+            idx = self.getSelectedIndexes()
+            self.app.remove_from_selection(idx)
         return
 
 class MovesTableModel(DataFrameModel):
