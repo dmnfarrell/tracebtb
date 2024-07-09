@@ -38,80 +38,65 @@ logoimg = os.path.join(module_path, 'logo.svg')
 
 css_file = os.path.join(data_path, 'style.css')
 
-def cluster_report(cent, parcels, lpis_cent, moves=None, alignment=None, level='snp3', clades=[], cmap='tab20',
-           labelcol='Animal_ID', basemap=False, outfile='report.pdf'):
+def cluster_report(sub, parcels, lpis_cent, moves=None, treefile=None,
+                    cmap='tab20', colorcol='snp7', labelcol='Animal_ID',
+                    basemap=False, title='TEST', outfile='report.pdf'):
     """Generate html and pdf report for cluster"""
-    
+
     from weasyprint import HTML
 
     s = '<html>'
     s += '<head><link rel="stylesheet" href="%s"><head>' %css_file
-    #s += '<div class="title"><h3>cluster report (%s)</h3></div>'%datetime.now().strftime("%Y-%m-%d %H:%M")    
+    #s += '<div class="title"><h3>cluster report (%s)</h3></div>'%datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    for clade in clades:
-        sub = cent[cent[level]==clade].copy()    
-        herds = list(sub.HERD_NO)
-        p = parcels[parcels.SPH_HERD_N.isin(herds)]    
-        cols = ['Animal_ID','HERD_NO','County','Year','Species']
-        #print (sub)
-        #plot map
-        fig,ax=plt.subplots(1,1,figsize=(8,8))    
-        p.plot(column='SPH_HERD_N',alpha=0.6,lw=1,cmap=cmap,ax=ax)
-        if moves is not None:
-            mov = gui.get_moves_bytag(sub, moves, lpis_cent)
-            gui.plot_moves(mov, lpis_cent, ax=ax)
+    cols = ['Animal_ID','HERD_NO','County','Year','Species','']
+    #plot map
+    fig,ax=plt.subplots(1,1,figsize=(8,8))
+    parcels.plot(column='SPH_HERD_N',alpha=0.6,lw=1,cmap=cmap,ax=ax)
 
-        idx = sub[sub.duplicated('geometry')].index
-        sub['geometry'] = sub.apply(lambda x: gui.jitter_points(x,50) if x.name in idx else x.geometry,1)
-        gui.plot_single_cluster(sub,col=level,ax=ax)
-        gui.show_labels(sub, labelcol, ax)
-        if basemap == True:
-            import contextily as cx
-            cx.add_basemap(ax, crs=cent.crs, 
-                    attribution=False, source=gui.providers['OSM'])
-        
-        #fig.suptitle('%s=%s n=%s' %(level,clades,len(sub)))
-        plt.tight_layout()
-        tempname = tempfile.mktemp()
-        fig.savefig(tempname, format='svg', dpi=150)
-    
-        #tree
-        treehtml = ''
-        if alignment is not None:
-            idx = list(sub.index)
-            seqs = [rec for rec in alignment if rec.id in idx]
-            aln = MultipleSeqAlignment(seqs) 
-            treefile = trees.tree_from_aln(aln)
-            
-            import toyplot
-            canvas = trees.draw_tree(treefile, sub, 'HERD_NO', cmap=cmap, width=200, height=300)
-            toyplot.html.render(canvas, "temp.html")
-            with open('temp.html', 'r') as f:
-                treehtml = f.read()            
-                #print (treehtml)
-        #plot timeline of moves
-        if moves is not None:
-            fig,ax=plt.subplots(1,1,figsize=(8,3)) 
-            gui.plot_moves_timeline(mov,ax)
-            tempname2 = tempfile.mktemp()
-            fig.savefig(tempname2, format='svg', dpi=150)
-            
-        s += '<div class="title"><h3>%s=%s</h3></div>' %(level,clade)
-        s += '<div class="container">'
-        s += '<div class="column"> <img  class="scaled" src="%s">  </div>' % tempname        
-        s += '<div class="column">%s</div>' %treehtml
-        s += '</div>'
-        s += '<div class="title"><h4>moves timeline</h4></div>'
-        s += '<div><img src="%s" class="scaled"></div>' % tempname2
-        #tables
-        table = '<div> %s</div>' %sub[cols].reset_index().to_html(classes="mytable",index=False)
-        s+=table
+    #idx = sub[sub.duplicated('geometry')].index
+    gui.plot_single_cluster(sub,col=colorcol,cmap=cmap,ax=ax)
+    gui.show_labels(sub, labelcol, ax)
+    if basemap == True:
+        import contextily as cx
+        cx.add_basemap(ax, crs=cent.crs,
+                attribution=False, source=gui.providers['OSM'])
+
+    plt.tight_layout()
+    tempname = tempfile.mktemp()
+    fig.savefig(tempname, format='svg', dpi=150)
+
+    #tree
+    treehtml = ''
+    import toyplot
+    #canvas = trees.draw_tree(treefile, sub, col=colorcol, cmap=cmap, width=200, height=300)
+    #toyplot.html.render(canvas, "temp.html")
+    #with open('temp.html', 'r') as f:
+    #    treehtml = f.read()
+
+    #plot timeline of moves
+    if moves is not None:
+        fig,ax=plt.subplots(1,1,figsize=(8,3))
+        gui.plot_moves_timeline(moves,ax)
+        tempname2 = tempfile.mktemp()
+        fig.savefig(tempname2, format='svg', dpi=150)
+
+    s += '<div class="title"><h3>%s</h3></div>' %title
+    s += '<div class="container">'
+    s += '<div class="column"> <img  class="scaled" src="%s">  </div>' % tempname
+    s += '<div class="column">%s</div>' %treehtml
+    s += '</div>'
+    s += '<div class="title"><h4>moves timeline</h4></div>'
+    s += '<div><img src="%s" class="scaled"></div>' % tempname2
+    #tables
+    table = '<div> %s</div>' %sub[cols].reset_index().to_html(classes="mytable",index=False)
+    s+=table
 
     with open('report.html', 'w') as f:
         f.write(s)
-   
+
     #html = HTML(string=s)
-    html = HTML(string=open('report.html', 'rb').read(), base_url='./')    
+    html = HTML(string=open('report.html', 'rb').read(), base_url='./')
     html.write_pdf(outfile, stylesheets=[css_file],
                    optimize_images=True, jpeg_quality=80, dpi=150)
     return

@@ -264,12 +264,12 @@ def plot_parcels(parcels, ax, col=None, cmap='Set1'):
     if not 'color' in parcels.columns:
         parcels['color'] = 'none'
     if col == '' or col == None:
-        parcels.plot(color=parcels.color,alpha=0.6,lw=.5,ec='black',cmap=cmap,ax=ax)
+        parcels.plot(color='none',alpha=0.6,lw=.5,ec='black',ax=ax)
     else:
-        parcels.plot(column=col,alpha=0.6,lw=.3,ec='black',cmap=cmap,ax=ax)
+        parcels.plot(color=parcels.color,alpha=0.6,lw=.5,ec='black',ax=ax)
     return
 
-def plot_moves_timeline(df, cmap=None, ax=None):
+def plot_moves_timeline(df, herdcolors=None, ax=None):
     """Timeline from moves"""
 
     from datetime import datetime, timedelta
@@ -287,7 +287,10 @@ def plot_moves_timeline(df, cmap=None, ax=None):
         fig,ax=plt.subplots(1,1,figsize=(8,4))
     i=.1
     tags = groups.groups.keys()
-    clrs,cmap = plotting.get_color_mapping(df, 'move_to', cmap)
+    #clrs,cmap = plotting.get_color_mapping(df, 'move_to', 'Set1')
+    #print (cmap)
+    cmap = herdcolors
+    #print (herdcolors)
     leg = {}
     for tag,t in groups:
         if t is None:
@@ -997,8 +1000,8 @@ class App(QMainWindow):
         #self.tools_menu.addAction(icon, 'Show Herd Summary', self.herd_summary)
         icon = QIcon(os.path.join(iconpath,'simulate.svg'))
         self.tools_menu.addAction(icon, 'Make Simulated Data', self.simulate_data)
-        #icon = QIcon(os.path.join(iconpath,'pdf.svg'))
-        #self.tools_menu.addAction(icon,'Cluster Report', self.cluster_report)
+        icon = QIcon(os.path.join(iconpath,'pdf.svg'))
+        self.tools_menu.addAction(icon,'Case Report', self.case_report)
 
         self.scratch_menu = QMenu('Scratchpad', self)
         self.menuBar().addMenu(self.scratch_menu)
@@ -1684,12 +1687,10 @@ class App(QMainWindow):
                 p['color'],c = plotting.get_color_mapping(p, colorparcelscol, cmap)
             else:
                 p['color'] = 'none'
-            #plot_parcels(p, col=colorparcelscol, cmap=cmap, ax=ax)
-            plot_parcels(p, cmap=cmap, ax=ax)
+            plot_parcels(p, col=colorparcelscol, cmap=cmap, ax=ax)
+            #plot_parcels(p, cmap=cmap, ax=ax)
+            herdcolors = dict(zip(p.SPH_HERD_N,p.color))
 
-        #to be removed
-        #if jitter == True:
-        #    self.sub = apply_jitter(self.sub, radius=100)
 
         #if self.showneighboursb.isChecked():
         #    self.get_neighbouring_parcels()
@@ -1717,7 +1718,7 @@ class App(QMainWindow):
             plot_moves(mov, self.lpis_cent, ax=ax)
             self.show_moves_table(mov)
             if self.timelineb.isChecked():
-                self.show_moves_timeline(mov)
+                self.show_moves_timeline(mov, herdcolors=herdcolors)
 
         if self.title != None:
             fig.suptitle(self.title)
@@ -1857,10 +1858,9 @@ class App(QMainWindow):
         self.run_threaded_process(func, plot_completed)
         return
 
-    def cluster_report(self):
-        """Make pdf report"""
+    def case_report(self):
+        """Make pdf report for selection"""
 
-        df = self.meta_table.model.df
         options = QFileDialog.Options()
         filename, _ = QFileDialog.getSaveFileName(self,"Save Report",
                                                   "","pdf files (*.pdf);;All files (*.*)",
@@ -1868,17 +1868,34 @@ class App(QMainWindow):
         if not filename:
             return
 
-        clades = [item.text(0) for item in self.groupw.selectedItems()]
+        #clades = [item.text(0) for item in self.groupw.selectedItems()]
         colorcol = self.colorbyw.currentText()
+        labelcol = self.labelsw.currentText()
         cmap = self.cmapw.currentText()
         legend = self.legendb.isChecked()
 
+        if hasattr(self, 'moves'):
+            mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
+        else:
+            mov = None
+        p=None
+        if self.parcels is not None:
+            herds = list(self.sub.HERD_NO)
+            if mov is not None:
+                herds.extend(mov.move_to)
+            p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
+
+        idx = list(self.sub.index)
+        if hasattr(self, 'snpdist'):
+            treefile = 'tree.newick'
+            M = self.snpdist.loc[idx,idx]
+            #print (M)
+            trees.tree_from_distmatrix(M, treefile)
+
         def func(progress_callback):
             from . import reports
-            reports.cluster_report(df, self.parcels, self.lpis_cent, moves=self.moves,
-                                    alignment=self.aln,
-                                    level='snp3', clades=clades, cmap=cmap,
-                                    labelcol='Animal_ID', outfile=filename)
+            reports.cluster_report(self.sub, p, self.lpis_cent, moves=mov,
+                                    cmap=cmap, colorcol=colorcol, labelcol=labelcol, outfile=filename)
 
         def completed():
             #self.show_pdf(filename)
@@ -2101,14 +2118,13 @@ class App(QMainWindow):
                 attribution=False, source=source)
         return
 
-    def show_moves_timeline(self, df):
+    def show_moves_timeline(self, df, herdcolors):
         """Show moves timeline plot"""
 
         fig,ax = plt.subplots(1,1)
         w = widgets.PlotWidget(self)
-        cmap = self.cmapw.currentText()
-        plot_moves_timeline(df, cmap, w.ax)
-        #w.redraw()
+        #cmap = self.cmapw.currentText()
+        plot_moves_timeline(df, herdcolors, w.ax)
         self.show_dock_object(w, 'timeline')
         return
 
@@ -2414,14 +2430,15 @@ class App(QMainWindow):
             if hasattr(self, 'snpdist'):
                 D = self.snpdist.loc[idx,idx]
                 meandist = D.stack().mean().round(1)
+                mediandist = D.stack().median().round(1)
             else:
                 meandist = None
             if 'Homebred' in sdf.columns:
                 hbred = len(sdf[sdf.Homebred=='yes'])
             else:
                 hbred = None
-            res.append([herd,len(sdf),clades,len(m),meandist,hbred])
-        res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves','mean_dist','homebred'])
+            res.append([herd,len(sdf),clades,len(m),meandist,mediandist,hbred])
+        res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves','mean_dist','median_dist','homebred'])
         res = res.sort_values('strains',ascending=False)
         w = tables.HerdTable(self, dataframe=res,
                     font=core.FONT, fontsize=core.FONTSIZE, app=self)
