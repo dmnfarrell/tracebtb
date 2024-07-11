@@ -1555,7 +1555,7 @@ class TreeViewer(QWidget):
         self.update()
         return
 
-class PhyloTreeWidget(QWidget):
+class PhyloCanvasWidget(QWidget):
     def __init__(self, newick_data=None, parent=None):
         super().__init__(parent)
         self.newick_data = newick_data
@@ -1571,55 +1571,44 @@ class PhyloTreeWidget(QWidget):
         return
 
     def draw(self, treefile, df, col):
+        """Draw newick tree"""
 
         with open(treefile, 'r') as file:
             self.newick_data = file.read()
         color_mapping = df[col].to_dict()
         color_json = json.dumps(color_mapping)
 
-        html = f"""
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>PhyloTree</title>
-            <script src="https://d3js.org/d3.v5.min.js"></script>
-            <script src="https://cdn.jsdelivr.net/npm/phylotree@1.1.9/dist/phylotree.min.js"></script>
-            <style>
-                #tree_container {{
-                    width: 100%;
-                    height: 100%;
-                }}
-                body, html {{
-                    margin: 0;
-                    padding: 0;
-                    height: 100%;
-                }}
-            </style>
-        </head>
-        <body>
-            <div id="tree_container"></div>
-            <script>
-                document.addEventListener("DOMContentLoaded", function() {{
-                    var newick_data = `{self.newick_data}`;
-                    var color_mapping = {color_json};
-                    var tree = new phylotree.phylotree(newick_data).svg(d3.select("#tree_container"));
-                    tree.style_edges(function(edge, edge_selection) {{
-                        var target = edge.target;
-                        if (target.name && color_mapping[target.name]) {{
-                            edge_selection.selectAll("path")
-                                .style("stroke", color_mapping[target.name]);
-                        }}
-                    }});
-                    tree.layout();
-                }});
-            </script>
-        </body>
-        </html>
-        """
+        html = """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Phylocanvas Tree Example</title>
+                <script src="https://unpkg.com/@phylocanvas/phylocanvas.gl@latest/dist/bundle.min.js"></script>
+
+            </head>
+            <body>
+                <h1> TEST </h1>
+                <div id="demo" style="border: 1px solid lightgray"></div>
+
+                <script>
+                const tree = new phylocanvas.PhylocanvasGL(
+                document.querySelector("#demo"),
+                {{
+                    showLabels: true,
+                    showLeafLabels: true,
+                    size: width: 400, height: 500 }},
+                    source: `{n}`,
+                }},
+                );                    
+                </script>
+            </body>
+            </html>
+        """.format(n=self.newick_data)
+
         print (html)
-        self.webView.setHtml(html)
+        self.webView.setHtml(html, QUrl("file:///"))
         return
 
 class ScratchPad(QWidget):

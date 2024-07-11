@@ -77,7 +77,8 @@ def cluster_report(sub, parcels, lpis_cent, moves=None, treefile=None,
     #plot timeline of moves
     if moves is not None:
         fig,ax=plt.subplots(1,1,figsize=(8,3))
-        gui.plot_moves_timeline(moves,ax)
+        herdcolors = dict(zip(parcels.SPH_HERD_N,parcels.color))
+        gui.plot_moves_timeline(moves,herdcolors,ax)
         tempname2 = tempfile.mktemp()
         fig.savefig(tempname2, format='svg', dpi=150)
 

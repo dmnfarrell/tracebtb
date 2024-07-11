@@ -278,13 +278,17 @@ def plot_moves_timeline(df, herdcolors=None, ax=None):
 
     if df is None:
         return
-    df['move_date'] = pd.to_datetime(df.move_date)
-    groups = df.groupby('tag')
-    if (len(groups))>25:
-        print ('too many moves to plot, reduce selection')
-        return
     if ax == None:
         fig,ax=plt.subplots(1,1,figsize=(8,4))
+    df['move_date'] = pd.to_datetime(df.move_date)
+    groups = df.groupby('tag')
+
+    if (len(groups))>30:
+        print ('too many moves to plot, reduce selection')
+        ax.text(.1,.5,'too many moves to plot',fontsize=12)
+        ax.axis('off')
+        return
+
     i=.1
     tags = groups.groups.keys()
     #clrs,cmap = plotting.get_color_mapping(df, 'move_to', 'Set1')
@@ -298,14 +302,15 @@ def plot_moves_timeline(df, herdcolors=None, ax=None):
         d = get_move_dates(t)
         if len(d)==0:
             #if no death
-            #print (t)
             row=t.iloc[0]
             herd = row.move_to
             start = mdates.date2num(row.dob)
             end = 19000
             width = end - start
+            if herd in cmap:  clr = cmap[herd]
+            else: clr = 'gray'
             #no death so draw rectangle till present
-            rect = Rectangle((start, i), width, .8, color=cmap[herd], ec='black', lw=0)
+            rect = Rectangle((start, i), width, .8, color=clr, ec='black', lw=0)
             ax.add_patch(rect)
             leg[herd] = rect
 
@@ -315,7 +320,9 @@ def plot_moves_timeline(df, herdcolors=None, ax=None):
             start = mdates.date2num(row.move_date)
             end = mdates.date2num(row.end_date)
             width = end - start
-            rect = Rectangle((start, i), width, .8, color=cmap[herd], ec='black', lw=0)
+            if herd in cmap:  clr = cmap[herd]
+            else: clr = 'gray'
+            rect = Rectangle((start, i), width, .8, color=clr, ec='black', lw=0)
             ax.add_patch(rect)
             leg[herd] = rect
         i+=1
@@ -329,11 +336,11 @@ def plot_moves_timeline(df, herdcolors=None, ax=None):
 
     ax.set_yticks(np.arange(len(tags))+0.5)
     ax.set_yticklabels(tags)
-    ax.grid(axis='y')
+    ax.grid(axis='y',color='gray', linestyle='--', alpha=0.6)
     plt.subplots_adjust(left=0.3)
     ncols=2
     #legfmt = {'fontsize':'small','frameon':False,'draggable':True}#,'ncol':ncols}
-    ax.legend(leg.values(), leg.keys(), fontsize=8, frameon=False, loc='best')
+    ax.legend(leg.values(), leg.keys(), fontsize=7, frameon=False, loc='best')
     ax.tick_params(axis='both', labelsize=7)
     #plt.tight_layout()
     return
@@ -1673,24 +1680,24 @@ class App(QMainWindow):
         #get moves here
         if hasattr(self, 'moves'):
             mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
+        else:
+            mov = None
 
+        #get land parcels and colors
+        herds = list(self.sub.HERD_NO)
+        #add parcels for intermediate herds if we have moves
+        if mov is not None:
+            herds.extend(mov.move_to)
+        parcels = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
+        if colorparcelscol!='':
+            parcels['color'],c = plotting.get_color_mapping(parcels, colorparcelscol, cmap)
+        else:
+            parcels['color'] = 'none'
+        herdcolors = dict(zip(parcels.SPH_HERD_N,parcels.color))
         self.plot_counties()
-        #land parcels
-        p=None
-        if self.parcelsb.isChecked() and self.parcels is not None:
-            herds = list(self.sub.HERD_NO)
-            #add parcels for intermediate herds if we have moves
-            if mov is not None:
-                herds.extend(mov.move_to)
-            p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
-            if colorparcelscol!='':
-                p['color'],c = plotting.get_color_mapping(p, colorparcelscol, cmap)
-            else:
-                p['color'] = 'none'
-            plot_parcels(p, col=colorparcelscol, cmap=cmap, ax=ax)
-            #plot_parcels(p, cmap=cmap, ax=ax)
-            herdcolors = dict(zip(p.SPH_HERD_N,p.color))
 
+        if self.parcelsb.isChecked() and parcels is not None:
+            plot_parcels(parcels, col=colorparcelscol, cmap=cmap, ax=ax)
 
         #if self.showneighboursb.isChecked():
         #    self.get_neighbouring_parcels()
@@ -1714,11 +1721,15 @@ class App(QMainWindow):
             if self.moves is None:
                 print ('no moves loaded')
                 return
-
             plot_moves(mov, self.lpis_cent, ax=ax)
             self.show_moves_table(mov)
-            if self.timelineb.isChecked():
-                self.show_moves_timeline(mov, herdcolors=herdcolors)
+        else:
+            self.hide_dock_object('moves')
+
+        if self.timelineb.isChecked() and mov is not None:
+            self.show_moves_timeline(mov, herdcolors=herdcolors)
+        else:
+            self.hide_dock_object('timeline')
 
         if self.title != None:
             fig.suptitle(self.title)
@@ -1734,7 +1745,7 @@ class App(QMainWindow):
             ax.set_ylim(lims[2],lims[3])
         #print (self.plotview.lims)
 
-        self.set_bounds(p)
+        self.set_bounds(parcels)
         set_equal_aspect(ax)
 
         #fig.tight_layout()
@@ -1884,6 +1895,7 @@ class App(QMainWindow):
             if mov is not None:
                 herds.extend(mov.move_to)
             p = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
+            p['color'],c = plotting.get_color_mapping(p, 'SPH_HERD_N', cmap)
 
         idx = list(self.sub.index)
         if hasattr(self, 'snpdist'):
@@ -2027,12 +2039,14 @@ class App(QMainWindow):
         found = df.cx[xmin:xmax, ymin:ymax]
         reply = QMessageBox.question(self, 'Add to selection?',
                                 "Add to current selection?",
-                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                                 QMessageBox.Cancel | QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             #add to current
             self.sub = pd.concat([curr,found])
-        else:
+        elif reply == QMessageBox.No:
             self.sub = found
+        else:
+            return
         self.title = ('selected region n=%s' %len(self.sub))
         self.update()
         #ax = self.plotview.ax
@@ -2123,7 +2137,6 @@ class App(QMainWindow):
 
         fig,ax = plt.subplots(1,1)
         w = widgets.PlotWidget(self)
-        #cmap = self.cmapw.currentText()
         plot_moves_timeline(df, herdcolors, w.ax)
         self.show_dock_object(w, 'timeline')
         return
@@ -2172,7 +2185,7 @@ class App(QMainWindow):
 
         w = widgets.TreeViewer()
         w.draw(treefile, df=self.sub, col=colorcol, cmap=cmap, tiplabelcol=labelcol)
-        #w = widgets.PhyloTreeWidget()
+        #w = widgets.PhyloCanvasWidget()
         #w.draw(treefile, df=self.sub, col=colorcol)#, cmap=cmap, tiplabelcol=labelcol)
         self.show_dock_object(w, 'tree')
         return
@@ -2463,9 +2476,14 @@ class App(QMainWindow):
             self.add_dock_menu_item(name)
         else:
             self.docks[name].setWidget(widget)
-            #self.docks[name].show() #use or not?
+            self.docks[name].show()
         if type(widget) in [tables.SampleTable]:
             self.opentables[name] = widget
+        return
+
+    def hide_dock_object(self, name):
+        if name in self.docks:
+            self.docks[name].setVisible(False)
         return
 
     def remove_dock_object(self, name):
