@@ -1352,6 +1352,36 @@ class CustomPlotViewer(PlotViewer):
         ymin,ymax = ax.get_ylim()
         return xmin,xmax,ymin,ymax
 
+class BokehPlotWidget(QWidget):
+    def __init__(self, parent=None):
+
+        super().__init__(parent)
+        self.initUI()
+        return
+
+    def initUI(self):
+
+        layout = QVBoxLayout()
+        self.webView = QWebEngineView()
+        layout.addWidget(self.webView)
+        self.setLayout(layout)
+        return
+
+    def plot(self, gdf, parcels, col=None):
+        """Plot dataframes"""
+
+        from . import bokeh_plot
+
+        #p = bokeh_plot.plot_selection(gdf, parcels, col)
+        p = bokeh_plot.test()
+        bokeh_plot.save_figure(p)
+        # Show the plot
+        from bokeh.embed import file_html
+        from bokeh.resources import CDN
+        html = file_html(p, CDN)
+        self.webView.setHtml(html)
+        return
+
 class MSTViewer(PlotWidget):
     def __init__(self, parent=None, toolbar=False):
 
@@ -1429,40 +1459,6 @@ class BrowserViewer(QDialog):
     def zoom(self):
         zoom = self.zoomslider.value()/10
         self.browser.setZoomFactor(zoom)
-
-'''class TreeViewer2(PlotWidget):
-    def __init__(self, parent=None):
-
-        super(PlotWidget, self).__init__(parent)
-        self.add_widgets()
-        return
-
-    def plot_tree(self):
-        ax = self.ax
-        # Read the Newick tree file
-        tree = Phylo.read(tree_file, "newick")
-
-        # Get the tip labels
-        #tip_labels = [clade.name for clade in tree.get_terminals()]
-
-        # Create a list of colors for the tips
-        #tip_colors = [color_mapping.get(label, 'black') for label in tip_labels]
-
-        # Plot the tree with colored tips
-        plt.figure(figsize=(10, 10))
-        Phylo.draw(tree, label_func=lambda x: None, axes=plt.gca(),
-                show_confidence=False, do_show=False)
-
-        # Color the tips according to the mapping
-        for idx, label in enumerate(tip_labels):
-            x, y = tree.clade[label].position
-            plt.scatter(x, y, color=tip_colors[idx], s=50)
-        return
-
-    def show(self, treefile, df, cmap='Set1'):
-        """Show phylogeny for selected subset"""
-
-        return'''
 
 class TreeViewer(QWidget):
     def __init__(self, parent=None):
@@ -1601,14 +1597,44 @@ class PhyloCanvasWidget(QWidget):
                     size: width: 400, height: 500 }},
                     source: `{n}`,
                 }},
-                );                    
+                );
                 </script>
             </body>
             </html>
         """.format(n=self.newick_data)
 
         print (html)
-        self.webView.setHtml(html, QUrl("file:///"))
+        self.webView.setHtml(html)
+        return
+
+    def test(self):
+        #sample javascript
+        html = """
+            <!DOCTYPE html>
+            <html>
+            <body>
+
+            <h2>JavaScript Statements</h2>
+
+            <p>A <b>JavaScript program</b> is a list of <b>statements</b> to be executed by a computer.</p>
+
+            <p id="demo"></p>
+
+            <script>
+            var x, y, z;  // Declare 3 variables
+            x = 5;    // Assign the value 5 to x
+            y = 6;    // Assign the value 6 to y
+            z = x + y;  // Assign the sum of x and y to z
+
+            document.getElementById("demo").innerHTML =
+            "The value of z is " + z + ".";
+            </script>
+
+            </body>
+            </html>
+        """
+        print (html)
+        self.webView.setHtml(html)
         return
 
 class ScratchPad(QWidget):

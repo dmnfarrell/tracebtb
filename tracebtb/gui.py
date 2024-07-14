@@ -269,8 +269,14 @@ def plot_parcels(parcels, ax, col=None, cmap='Set1'):
         parcels.plot(color=parcels.color,alpha=0.6,lw=.5,ec='black',ax=ax)
     return
 
-def plot_moves_timeline(df, herdcolors=None, ax=None):
-    """Timeline from moves"""
+def plot_moves_timeline(df, herdcolors=None, order=None, ax=None):
+    """
+    Timeline from moves data.
+    Args:
+        df: sub dataframe of samples
+        herdcolors: colormapping
+        order: order to plot samples
+    """
 
     from datetime import datetime, timedelta
     from matplotlib.patches import Rectangle
@@ -847,24 +853,19 @@ class App(QMainWindow):
         self.tabs.tabCloseRequested.connect(self.close_tab)
 
         self.plotview = widgets.CustomPlotViewer(self, controls=False, app=self)
-        #self.m.addWidget(self.plotview)
         idx = self.tabs.addTab(self.plotview, 'Map')
         self.tabs.setCurrentIndex(idx)
-
-        #self.treeview = treeview.TreeViewer()
-        #self.m.addWidget(self.treeview)
-
-        self.info = widgets.Editor(main, readOnly=True, fontsize=10)
-        self.add_dock(self.info, 'log', 'right')
 
         self.foliumview = webwidgets.FoliumViewer(main)
         #self.foliumview.show()
         idx = self.tabs.addTab(self.foliumview, 'Interactive')
-        #test map
-        #tmp = webwidgets.FoliumViewer(main)
-        #idx = self.tabs.addTab(tmp, 'test')
-        #tmp.test_map()
 
+        #self.bokehview = widgets.BokehPlotWidget(self)
+        #idx = self.tabs.addTab(self.bokehview, 'Interactive 2')
+        #self.tabs.setCurrentIndex(idx)
+
+        self.info = widgets.Editor(main, readOnly=True, fontsize=10)
+        self.add_dock(self.info, 'log', 'right')
         self.info.append("Welcome\n")
         self.statusBar = QStatusBar()
         self.projectlabel = QLabel('')
@@ -1676,6 +1677,8 @@ class App(QMainWindow):
             clrs = 'blue'
 
         self.sub['color'] = clrs
+        if 'Species' in self.sub.columns:
+            self.sub['marker'] = self.sub.Species.map({'Bovine':'circle','Badger':'triangle'})
 
         #get moves here
         if hasattr(self, 'moves'):
@@ -1762,6 +1765,9 @@ class App(QMainWindow):
         if self.showfoliumb.isChecked():
             #self.foliumview.plot(self.sub, self.parcels, colorcol=colorcol)
             self.show_folium()
+
+        #bokeh plot test
+        #self.bokehview.plot(self.sub, parcels)
         return
 
     def show_folium(self):
@@ -2132,12 +2138,12 @@ class App(QMainWindow):
                 attribution=False, source=source)
         return
 
-    def show_moves_timeline(self, df, herdcolors):
+    def show_moves_timeline(self, df, herdcolors, order=None):
         """Show moves timeline plot"""
 
         fig,ax = plt.subplots(1,1)
         w = widgets.PlotWidget(self)
-        plot_moves_timeline(df, herdcolors, w.ax)
+        plot_moves_timeline(df, herdcolors, order, w.ax)
         self.show_dock_object(w, 'timeline')
         return
 
@@ -2187,6 +2193,7 @@ class App(QMainWindow):
         w.draw(treefile, df=self.sub, col=colorcol, cmap=cmap, tiplabelcol=labelcol)
         #w = widgets.PhyloCanvasWidget()
         #w.draw(treefile, df=self.sub, col=colorcol)#, cmap=cmap, tiplabelcol=labelcol)
+        #w.test()
         self.show_dock_object(w, 'tree')
         return
 

@@ -49,7 +49,7 @@ def cluster_report(sub, parcels, lpis_cent, moves=None, treefile=None,
     s += '<head><link rel="stylesheet" href="%s"><head>' %css_file
     #s += '<div class="title"><h3>cluster report (%s)</h3></div>'%datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    cols = ['Animal_ID','HERD_NO','County','Year','Species','']
+    cols = ['Animal_ID','HERD_NO','County','Year','Species']
     #plot map
     fig,ax=plt.subplots(1,1,figsize=(8,8))
     parcels.plot(column='SPH_HERD_N',alpha=0.6,lw=1,cmap=cmap,ax=ax)

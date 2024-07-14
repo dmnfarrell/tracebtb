@@ -23,7 +23,6 @@ import string
 import numpy as np
 import pandas as pd
 pd.set_option('display.width', 200)
-from importlib import reload
 
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord

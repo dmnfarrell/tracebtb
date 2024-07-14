@@ -149,8 +149,7 @@ def get_color_mapping(df, col, cmap=None, seed=1):
         c_map = mpl.cm.get_cmap(cmap)
         clrs = [colors.rgb2hex(c_map(i)) for i in range(len(c))]
         #colors = gen_colors(cmap,len(c))
-        #print (clrs)
-
+     
     colormap = dict(zip(c, clrs))
     newcolors =  [colormap[i] if i in colormap else 'Black' for i in df[col]]
     return newcolors, colormap
