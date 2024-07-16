@@ -1367,19 +1367,37 @@ class BokehPlotWidget(QWidget):
         self.setLayout(layout)
         return
 
-    def plot(self, gdf, parcels, col=None):
-        """Plot dataframes"""
+    def show(self, p):
+        """Show plot"""
 
         from . import bokeh_plot
-
-        #p = bokeh_plot.plot_selection(gdf, parcels, col)
-        p = bokeh_plot.test()
         bokeh_plot.save_figure(p)
-        # Show the plot
         from bokeh.embed import file_html
         from bokeh.resources import CDN
         html = file_html(p, CDN)
         self.webView.setHtml(html)
+        self.figure = p
+        return
+
+    def plot(self, gdf, parcels, provider, moves, lpis_cent):
+        """Plot dataframes"""
+
+        from . import bokeh_plot
+        p = bokeh_plot.plot_selection(gdf, parcels, provider)
+        #if counties == True:
+        #    bokeh_plot.plot_counties(p)
+        if moves is not None:
+            bokeh_plot.plot_moves(p, moves, lpis_cent)
+        #p = bokeh_plot.test()
+        self.show(p)
+        return
+
+    def split_view(self, **kwargs):
+        """Plot split view"""
+
+        from . import bokeh_plot
+        p = bokeh_plot.split_view(**kwargs)
+        self.show(p)
         return
 
 class MSTViewer(PlotWidget):

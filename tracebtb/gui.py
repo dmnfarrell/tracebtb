@@ -30,7 +30,7 @@ import pandas as pd
 import numpy as np
 import pylab as plt
 import matplotlib as mpl
-from . import core, widgets, webwidgets, tables, tools, plotting, trees
+from . import core, widgets, webwidgets, tables, tools, plotting, bokeh_plot, trees
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
 from matplotlib_scalebar.scalebar import ScaleBar
@@ -48,11 +48,6 @@ iconpath = os.path.join(module_path, 'icons')
 counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:29902")
 counties = ['Clare','Cork','Cavan','Monaghan','Louth','Kerry','Meath','Wicklow']
 cladelevels = ['snp3','snp7','snp12','snp20','snp50','snp200','snp500']
-#providers = {'None':None,
-#            'OSM':cx.providers.OpenStreetMap.Mapnik,
-#            'CartoDB':cx.providers.CartoDB.Positron,
-#            'CartoDB.Voyager': cx.providers.CartoDB.Voyager}
-#colormaps = sorted(m for m in plt.cm.datad if not m.endswith("_r"))
 colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
             'tab10', 'tab20', 'tab20b', 'tab20c',
             'twilight', 'twilight_shifted', 'hsv',
@@ -699,10 +694,10 @@ class App(QMainWindow):
         w.setCurrentText('Paired')
         self.widgets['colormap'] = w
         #toggle cx
-        #self.contextw = w = QComboBox(m)
-        #l.addWidget(QLabel('Context map:'))
-        #l.addWidget(w)
-        #w.addItems(providers.keys())
+        self.mapproviderw = w = QComboBox(m)
+        l.addWidget(QLabel('Context map:'))
+        l.addWidget(w)
+        w.addItems(['']+bokeh_plot.providers)
         #self.widgets['context'] = w
         self.markersizew = w = QSpinBox(m)
         w.setRange(1,300)
@@ -724,9 +719,9 @@ class App(QMainWindow):
         m.setLayout(l)
         b = widgets.createButton(m, None, self.update, 'refresh', core.ICONSIZE)
         l.addWidget(b)
-        self.showfoliumb = b = widgets.createButton(m, None, self.update, 'folium', core.ICONSIZE, 'interactive view')
-        b.setCheckable(True)
-        l.addWidget(b)
+        #self.showfoliumb = b = widgets.createButton(m, None, self.update, 'folium', core.ICONSIZE, 'interactive view')
+        #b.setCheckable(True)
+        #l.addWidget(b)
         self.splitviewb= b = widgets.createButton(m, None, self.split_view, 'plot-grid', core.ICONSIZE, 'split view')
         l.addWidget(b)
         b = widgets.createButton(m, None, self.plot_in_region, 'plot-region', core.ICONSIZE, 'show all in region')
@@ -747,10 +742,10 @@ class App(QMainWindow):
         b.setCheckable(True)
         l.addWidget(b)
         self.widgets['showlegend'] = b
-        self.colorcountiesb = b = widgets.createButton(m, None, self.update, 'counties', core.ICONSIZE, 'color counties')
+        self.showcountiesb = b = widgets.createButton(m, None, self.update, 'counties', core.ICONSIZE, 'show borders')
         b.setCheckable(True)
         l.addWidget(b)
-        self.widgets['colorcounties'] = b
+        self.widgets['showcounties'] = b
         #self.jitterb = b = widgets.createButton(m, None, self.update, 'jitter', core.ICONSIZE, 'jitter points')
         #b.setCheckable(True)
         #l.addWidget(b)
@@ -856,13 +851,11 @@ class App(QMainWindow):
         idx = self.tabs.addTab(self.plotview, 'Map')
         self.tabs.setCurrentIndex(idx)
 
-        self.foliumview = webwidgets.FoliumViewer(main)
+        #self.foliumview = webwidgets.FoliumViewer(main)
         #self.foliumview.show()
-        idx = self.tabs.addTab(self.foliumview, 'Interactive')
-
-        #self.bokehview = widgets.BokehPlotWidget(self)
-        #idx = self.tabs.addTab(self.bokehview, 'Interactive 2')
-        #self.tabs.setCurrentIndex(idx)
+        self.bokehview = widgets.BokehPlotWidget(self)
+        #idx = self.tabs.addTab(self.foliumview, 'Interactive')
+        idx = self.tabs.addTab(self.bokehview, 'Interactive')
 
         self.info = widgets.Editor(main, readOnly=True, fontsize=10)
         self.add_dock(self.info, 'log', 'right')
@@ -1121,7 +1114,7 @@ class App(QMainWindow):
         #self.meta_table.setDataFrame(pd.DataFrame({'sample':[]}))
 
         self.plotview.clear()
-        self.foliumview.clear()
+        #self.foliumview.clear()
         self.groupw.clear()
         for i in self.opentables:
             w = self.opentables[i]
@@ -1672,7 +1665,7 @@ class App(QMainWindow):
 
         if colorcol != '':
             #assign colors to selection
-            clrs,c = plotting.get_color_mapping(self.sub, colorcol, cmap)
+            clrs,c = tools.get_color_mapping(self.sub, colorcol, cmap)
         else:
             clrs = 'blue'
 
@@ -1693,11 +1686,12 @@ class App(QMainWindow):
             herds.extend(mov.move_to)
         parcels = self.parcels[self.parcels.SPH_HERD_N.isin(herds)]
         if colorparcelscol!='':
-            parcels['color'],c = plotting.get_color_mapping(parcels, colorparcelscol, cmap)
+            parcels['color'],c = tools.get_color_mapping(parcels, colorparcelscol, cmap)
         else:
             parcels['color'] = 'none'
         herdcolors = dict(zip(parcels.SPH_HERD_N,parcels.color))
-        self.plot_counties()
+        if self.showcountiesb.isChecked():
+            self.plot_counties()
 
         if self.parcelsb.isChecked() and parcels is not None:
             plot_parcels(parcels, col=colorparcelscol, cmap=cmap, ax=ax)
@@ -1750,11 +1744,7 @@ class App(QMainWindow):
 
         self.set_bounds(parcels)
         set_equal_aspect(ax)
-
         #fig.tight_layout()
-        #context map
-        #cxsource = self.contextw.currentText()
-        #self.add_context_map(providers[cxsource])
 
         self.plotview.redraw()
 
@@ -1762,15 +1752,19 @@ class App(QMainWindow):
         self.show_selected_table()
 
         #update folium map
-        if self.showfoliumb.isChecked():
+        #if self.showfoliumb.isChecked():
             #self.foliumview.plot(self.sub, self.parcels, colorcol=colorcol)
-            self.show_folium()
+            #self.show_folium()
 
-        #bokeh plot test
-        #self.bokehview.plot(self.sub, parcels)
+        #update bokeh view
+        provider = self.mapproviderw.currentText()
+        if not self.movesb.isChecked() and self.moves is not None:
+            mov = None
+        self.bokehview.plot(gdf=self.sub, parcels=parcels, provider=provider,
+                            moves=mov, lpis_cent=self.lpis_cent)
         return
 
-    def show_folium(self):
+    '''def show_folium(self):
         """Update folium map"""
 
         colorcol = self.colorbyw.currentText()
@@ -1800,7 +1794,7 @@ class App(QMainWindow):
                              lpis_cent=self.lpis_cent,
                              colorcol=colorcol, parcelscol=parcelscol,
                              cmap=cmap)
-        return
+        return'''
 
     def split_view(self):
         """Split current selection by some column"""
@@ -1814,49 +1808,25 @@ class App(QMainWindow):
         ms = self.markersizew.value()
         cmap = self.cmapw.currentText()
         legend = self.legendb.isChecked()
-
-        common = df[col].value_counts().index[:8]
-        l = len(common)
-        if len(common) < 2: return
-        rs, cs = calculate_grid_dimensions(l)
-        fig,ax=plt.subplots(rs,cs,figsize=(12,12))
-        axs=ax.flat
-        i=0
-        margin=150
-        for c, g in df.groupby(col):
-            if c in common:
-                ax=axs[i]
-                self.counties.plot(color='none',lw=.2,edgecolor='black',ax=ax)
-                #g.plot(column=colorcol,cmap=cmap,s=ms,ax=ax,legend=True)
-                plot_single_cluster(g,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
-                minx, miny, maxx, maxy = g.total_bounds
-                ax.set_xlim(minx-margin,maxx+margin)
-                ax.set_ylim(miny-margin,maxy+margin)
-
-                #self.set_bounds(g)
-                set_equal_aspect(ax)
-                ax.axis('off')
-                ax.patch.set_edgecolor('black')
-                ax.patch.set_linewidth(1)
-                ax.set_title(f'{col}={c} len={len(g)}')
-                i+=1
+        provider = self.mapproviderw.currentText()
 
         if not hasattr(self, 'splitview'):
-            self.splitview = widgets.PlotWidget(self)
+            self.splitview = widgets.BokehPlotWidget()
             idx = self.tabs.addTab(self.splitview, 'Split View')
         else:
             idx = 2
         self.tabs.setCurrentIndex(idx)
-        self.splitview.set_figure(fig)
-        plt.tight_layout()
+        #p = self.parcels[self.parcels[key].isin(herds)]
+        self.splitview.split_view(gdf=self.sub, col=col,
+                                  parcels=self.parcels, provider=provider)
         return
 
-    def plot_farms(self):
+    '''def plot_farms(self):
         """Seperate farms view in grid"""
 
         if self.sub is None or len(self.sub) == 0:
             return
-        source = providers[self.contextw.currentText()]
+        #source = providers[self.contextw.currentText()]
 
         herds = list(self.sub.HERD_NO)
         p = self.parcels[self.parcels.HERD_NO.isin(herds)]
@@ -1873,10 +1843,17 @@ class App(QMainWindow):
         def func(progress_callback):
             axs = plot_grid(self.sub, p, fig=self.gridview.fig, source=source)
         self.run_threaded_process(func, plot_completed)
+        return'''
+
+    def export_selection(self):
+        """Export view using bokeh html"""
+
+        f = self.bokehview.figure
+        bokeh_plot.save(f)
         return
 
     def case_report(self):
-        """Make pdf report for selection"""
+        """Make pdf report for selection - replace with html views?"""
 
         options = QFileDialog.Options()
         filename, _ = QFileDialog.getSaveFileName(self,"Save Report",
@@ -1950,27 +1927,9 @@ class App(QMainWindow):
         """plot county borders"""
 
         ax = self.plotview.ax
-        if self.colorcountiesb.isChecked():
-            cty = 'NAME_TAG'
-            clr = None
-        else:
-            #ax.set_facecolor('lightblue')
-            cty = None
-            clr='none'
-        self.counties.plot(edgecolor='gray',column=cty,color=clr,
-                           cmap='tab20',lw=0.6,alpha=0.7,
+        self.counties.plot(color='none', edgecolor='gray',
+                           lw=0.6,alpha=0.7,
                            ax=ax)
-
-        #labels
-        if self.colorcountiesb.isChecked():
-            #from adjustText import adjust_text
-            c = self.counties
-            #texts=[]
-            c['cent'] = c.geometry.centroid
-            for x, y, label in zip(c.cent.x, c.cent.y, c["NAME_TAG"]):
-                ax.text(x, y, label, fontsize = 12)
-                #texts.append(ax.text(x, y, label, fontsize = 12))
-            #adjust_text(texts, ax=ax, arrowprops=dict(arrowstyle='->', color='red'))
         return
 
     def selection_from_table(self):
@@ -2332,8 +2291,8 @@ class App(QMainWindow):
             filename, _ = QFileDialog.getSaveFileName(self,"Save Screen Capture",
                                                     "","png files (*.png);;All files (*.*)"
                                                     )
-            if filename:
-                img = self.foliumview.screen_capture(filename)
+            #if filename:
+            #    img = self.foliumview.screen_capture(filename)
         return
 
     def save_selection(self):

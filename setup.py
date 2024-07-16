@@ -6,7 +6,7 @@ with open('tracebtb/description.txt') as f:
 
 setup(
     name = 'tracebtb',
-    version = '0.4.0-alpha',
+    version = '0.5.0-alpha',
     description = 'TracebTB tool',
     long_description = long_description,
     url='https://github.com/dmnfarrell/tracebtb',
