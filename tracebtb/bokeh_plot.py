@@ -18,7 +18,7 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 """
 
-import os, sys, random
+import os, sys, random, math
 import string
 import numpy as np
 import pandas as pd
@@ -162,7 +162,7 @@ def split_view(gdf, col, parcels=None, provider=None, limit=8):
     common = gdf[col].value_counts().index[:limit]
     l = len(common)
     if len(common) < 2: return
-    nr, nc = gui.calculate_grid_dimensions(l)
+    nr, nc = calculate_grid_dimensions(l)
     i=0
     figures=[]
     for c, sub in gdf.groupby(col):
@@ -172,7 +172,7 @@ def split_view(gdf, col, parcels=None, provider=None, limit=8):
                 pcl = parcels[parcels.SPH_HERD_N.isin(sub.HERD_NO)].copy()
             else:
                 pcl = None
-            s = bokeh_plot.plot_selection(sub, pcl, provider=provider, title=title)
+            s = plot_selection(sub, pcl, provider=provider, title=title)
             figures.append(s)
             i+=1
 
