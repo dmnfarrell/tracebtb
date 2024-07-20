@@ -32,7 +32,8 @@ setup(
                       ],
     entry_points = {
         'console_scripts': [
-            'tracebtb=tracebtb.gui:main']
+            'tracebtb=tracebtb.gui:main',
+            'tracebtb-web=tracebtb.dashboard:main']
             },
     classifiers = ['Operating System :: OS Independent',
             'Programming Language :: Python :: 3.7',

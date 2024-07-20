@@ -49,10 +49,7 @@ counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPS
 counties = ['Clare','Cork','Cavan','Monaghan','Louth','Kerry','Meath','Wicklow']
 cladelevels = ['snp3','snp7','snp12','snp20','snp50','snp200','snp500']
 colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
-            'tab10', 'tab20', 'tab20b', 'tab20c',
-            'twilight', 'twilight_shifted', 'hsv',
-            'gnuplot', 'gnuplot2', 'CMRmap', 'cubehelix', 'brg',
-            'gist_rainbow', 'rainbow', 'jet', 'turbo', 'nipy_spectral']
+            'tab10', 'tab20', 'tab20b', 'tab20c']
 style = '''
     QWidget {
         max-width: 130px;
@@ -92,6 +89,19 @@ dockstyle = '''
 '''
 
 #module level functions
+
+def get_ordinal_columns(df):
+    """Try to get ordinal columns from table"""
+
+    ignore = ['sample','Aliquot','geometry','Animal_ID','X_COORD','Y_COORD']
+    ocols = []
+    for col in df.columns:
+        count = df[col].nunique()
+        #print (col, count, len(df[col]))
+        if count==len(df[col]) or col in ignore:
+            continue
+        ocols.append(col)
+    return ocols
 
 def show_labels(df, col, ax):
     """Add labels to plot"""
@@ -780,26 +790,12 @@ class App(QMainWindow):
         t.sortItems(0, QtCore.Qt.SortOrder(0))
         return
 
-    def get_ordinal_columns(self):
-        """Try to get ordinal columns from table"""
-
-        ignore = ['sample','Aliquot','geometry','Animal_ID','X_COORD','Y_COORD']
-        df = self.meta_table.model.df
-        ocols = []
-        for col in df.columns:
-            count = df[col].nunique()
-            #print (col, count, len(df[col]))
-            if count==len(df[col]) or col in ignore:
-                continue
-            ocols.append(col)
-        return ocols
-
     def update_widgets(self):
         """Update widgets when new table loaded"""
 
         df = self.meta_table.model.df
         cols = ['']+list(df.columns)
-        ocols = self.get_ordinal_columns()
+        ocols = get_ordinal_columns(df)
 
         self.groupbyw.clear()
         self.groupbyw.addItems(ocols)
@@ -1800,7 +1796,7 @@ class App(QMainWindow):
         """Split current selection by some column"""
 
         df = self.sub
-        cols = self.get_ordinal_columns()
+        cols = get_ordinal_columns(df)
         col, ok = QInputDialog.getItem(self, 'Grouping column', 'Group by:', cols, 0, False)
         if not ok:
             return
@@ -2202,7 +2198,8 @@ class App(QMainWindow):
     def plot_hexbin(self):
         """Binned plots for overviews"""
 
-        ocols = self.get_ordinal_columns()
+        df = self.meta_table.model.df
+        ocols = get_ordinal_columns(df)
         opts = {'column':{'type':'combobox','default':'snp50','items':ocols},
                 'function':{'type':'combobox','default':'sum','items':['sum']},
                 'bins':{'type':'entry','default':10}

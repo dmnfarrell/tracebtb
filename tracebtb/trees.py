@@ -174,15 +174,15 @@ def biopython_draw_tree(filename):
     Phylo.draw(tree)
     return
 
-def draw_tree(filename, df=None, col=None, cmap=None, tiplabelcol=None,
+def draw_tree(filename, df=None, col=None, cmap=None, tiplabelcol=None, markercol=None,
               width=500, height=500, **kwargs):
     """Draw newick tree with toytree"""
 
     import toytree
     tre = toytree.tree(filename)
     idx = tre.get_tip_labels()
-    #if len(idx) > 100:
-    #    tiplabelcol = None
+    if len(idx) > 100:
+        tiplabelcol = None
     if df is not None and col not in [None, '']:
         df = df.fillna('')
         labels = df[col].unique()
@@ -206,10 +206,23 @@ def draw_tree(filename, df=None, col=None, cmap=None, tiplabelcol=None,
         tip_labels = [df.loc[n][tiplabelcol] if n in df.index else n for n in idx]
     else:
         tip_labels = False
-
+    if markercol == 'Species':
+        smap = {'Bovine':'o','Badger':'s'}
+        markers = []
+        for n in tre.get_node_values('name', True, True):
+            if n in df.index:
+                k = df.loc[n][markercol]                
+                if k in smap:
+                    markers.append(smap[k])
+                else:
+                    markers.append(None)
+            else:
+                markers.append(None)
+    else:
+        markers = None
     canvas,axes,mark = tre.draw(scalebar=True,edge_widths=1,height=height,width=width,
                                 tip_labels_colors=tip_colors,node_colors=node_colors,
-                                tip_labels=tip_labels,
+                                tip_labels=tip_labels,node_markers=markers,
                                 node_sizes=node_sizes,**kwargs)
     return canvas
 

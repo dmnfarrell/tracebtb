@@ -85,8 +85,15 @@ def init_figure(title=None, provider=None):
     p.sizing_mode = 'stretch_both'
     return p
 
-def plot_selection(gdf, parcels=None, provider='CartoDB Positron', title=None):
-    """Plot geodataframe selections with bokeh"""
+def plot_selection(gdf, parcels=None, provider='CartoDB Positron', title=None, ms=10):
+    """
+    Plot geodataframe selections with bokeh
+    Args:
+        gdf: locations of samples
+        parcels: land parcels geodataframe
+        provider: context map provider
+        ms: marker size
+    """
 
     gdf = gdf[~gdf.geometry.is_empty]
     if len(gdf) == 0:
@@ -110,14 +117,14 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', title=None):
 
     #draw points
     r2 = p.scatter('x', 'y', source=geo_source, color='color',
-                   line_color='black', marker="marker", fill_alpha=0.5, size=10)#, legend_label=col)
+                   line_color='black', marker="marker", fill_alpha=0.5, size=ms)#, legend_label=col)
 
     h2 = HoverTool(renderers=[r2], tooltips=([("Sample", "@sample"),
                                             ("Animal_id", "@Animal_ID"),
                                             ("Herd", "@HERD_NO"),
                                             ("Homebred","@Homebred"),
                                             ("Clade", "@IE_clade")
-                                           ]), mode='vline')
+                                           ]))
     p.add_tools(h2)
     p.axis.visible = False
     p.toolbar.logo = None
@@ -128,7 +135,7 @@ def plot_counties(p):
     geojson = counties_gdf.to_json()
     source = GeoJSONDataSource(geojson=geojson)
     r = p.patches('xs', 'ys', source=source,
-                  fill_alpha=0.5, line_width=1, line_color='gray')
+                  fill_color=None, line_width=1, line_color='gray')
     return
 
 def plot_moves(p, moves, lpis_cent):
@@ -179,3 +186,36 @@ def split_view(gdf, col, parcels=None, provider=None, limit=8):
     grid = gridplot(figures, ncols=nc)
     grid.sizing_mode = 'stretch_both'
     return grid
+
+def plot_moves_timeline(mov, herdcolors):
+    """Plot movement timeline"""
+
+    if mov is None:
+        return figure()
+    cols = ['move_to','move_date','end_date','data_type','duration']
+    new = []
+    for tag,t in mov.groupby('tag'):
+        t=t.sort_values('move_date')
+        t['end_date'] = t.move_date.shift(-1)
+        t['duration'] = t.end_date-t.move_date
+        #print (t[cols])
+        new.append(t[cols])
+    df = pd.concat(new)
+    df['color'] = df.move_to.map(herdcolors).fillna('grey')
+    groups = df.groupby('tag')
+    source = ColumnDataSource(df)
+    source.add(df.duration.astype(str), 'length')
+    p = figure(y_range=groups, width=600, height=300,
+               title="timeline", tools='pan,wheel_zoom,reset,save', x_axis_type="datetime")
+    r = p.hbar(source=source, y="tag", left='move_date', right='end_date', height=0.8,
+               line_width=0, fill_color='color')#, legend_field="move_to")
+    h = HoverTool(renderers=[r], tooltips=([("Herd", "@move_to"),
+                                            ("tag", "@tag"),
+                                            ("time", "@length")]),
+                                           )
+    p.add_tools(h)
+    p.toolbar.logo = None
+    p.xaxis.axis_label = "Time"
+    if len(groups) > 30:
+        p.yaxis.visible = False
+    return p
