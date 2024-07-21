@@ -207,11 +207,11 @@ def draw_tree(filename, df=None, col=None, cmap=None, tiplabelcol=None, markerco
     else:
         tip_labels = False
     if markercol == 'Species':
-        smap = {'Bovine':'o','Badger':'s'}
+        smap = {'Bovine':'o','Badger':'s','Deer':'x'}
         markers = []
         for n in tre.get_node_values('name', True, True):
             if n in df.index:
-                k = df.loc[n][markercol]                
+                k = df.loc[n][markercol]
                 if k in smap:
                     markers.append(smap[k])
                 else:

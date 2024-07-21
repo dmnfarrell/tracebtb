@@ -28,10 +28,12 @@ import geopandas as gpd
 try:
     from bokeh.io import show
     from bokeh.plotting import figure
-    from bokeh.models import (ColumnDataSource, GeoJSONDataSource, GMapOptions, GMapPlot, TileSource,
-                            HoverTool, BoxZoomTool,
-                            Arrow, NormalHead, OpenHead, VeeHead)
-    from bokeh.models.glyphs import Patches, Circle
+    from bokeh.models import (ColumnDataSource, GeoJSONDataSource, GMapOptions, GMapPlot,
+                               TileSource, FactorRange,
+                                HoverTool, BoxZoomTool,
+                                Legend, LegendItem, GlyphRenderer,
+                                Arrow, NormalHead, OpenHead, VeeHead)
+    from bokeh.transform import jitter, factor_cmap
     from bokeh.layouts import layout
     from bokeh.plotting import figure, output_file, save
 except:
@@ -85,7 +87,8 @@ def init_figure(title=None, provider=None):
     p.sizing_mode = 'stretch_both'
     return p
 
-def plot_selection(gdf, parcels=None, provider='CartoDB Positron', title=None, ms=10):
+def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
+                   legend=False, title=None, ms=10):
     """
     Plot geodataframe selections with bokeh
     Args:
@@ -95,14 +98,14 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', title=None, m
         ms: marker size
     """
 
-    gdf = gdf[~gdf.geometry.is_empty]
-    if len(gdf) == 0:
-        return
-    geojson = gdf.to_crs('EPSG:3857').to_json()
-    geo_source = GeoJSONDataSource(geojson=geojson)
-
     #create figure
     p = init_figure(title, provider)
+
+    gdf = gdf[~gdf.geometry.is_empty]
+    if len(gdf) == 0:
+        return p
+    geojson = gdf.to_crs('EPSG:3857').to_json()
+    geo_source = GeoJSONDataSource(geojson=geojson)
 
     #add parcel polygons if provided
     if parcels is not None and len(parcels) > 0:
@@ -117,8 +120,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', title=None, m
 
     #draw points
     r2 = p.scatter('x', 'y', source=geo_source, color='color',
-                   line_color='black', marker="marker", fill_alpha=0.5, size=ms)#, legend_label=col)
-
+                   line_color='black', marker="marker", fill_alpha=0.5, size=ms)
     h2 = HoverTool(renderers=[r2], tooltips=([("Sample", "@sample"),
                                             ("Animal_id", "@Animal_ID"),
                                             ("Herd", "@HERD_NO"),
@@ -126,6 +128,19 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', title=None, m
                                             ("Clade", "@IE_clade")
                                            ]))
     p.add_tools(h2)
+
+    if legend == True and col != None:
+        color_map = dict(zip(gdf[col],gdf.color))
+        legend_items = []
+        x = (p.x_range.end-p.x_range.start)/2
+        y = (p.y_range.end-p.y_range.start)/2
+        for c, color in color_map.items():
+            r = p.scatter(x=[x], y=[y], color=color, size=5)
+            legend_items.append(LegendItem(label=c,renderers=[r]))
+            r.visible=False
+        legend = Legend(items=legend_items, location="top_left", title=col)
+        p.add_layout(legend, 'right')
+
     p.axis.visible = False
     p.toolbar.logo = None
     return p
@@ -218,4 +233,37 @@ def plot_moves_timeline(mov, herdcolors):
     p.xaxis.axis_label = "Time"
     if len(groups) > 30:
         p.yaxis.visible = False
+    return p
+
+def cat_plot(df, row, col, colorcol=None):
+    """Categorical scatter plot"""
+
+    from bokeh.palettes import Spectral7
+    if row == None or col == None:
+        return
+    df = df.drop(columns='geometry').astype(str)
+    source = ColumnDataSource(df)
+    xrange = df.groupby(col)
+    yrange = df.groupby(row)
+    if colorcol:
+        unique_factors = df[colorcol].unique().tolist()
+        color_mapper = factor_cmap(field_name=colorcol, palette=Spectral7, factors=unique_factors)
+        fill_color = color_mapper
+    else:
+        fill_color = "blue"
+
+    p = figure(width=600, height=300, x_range=xrange, y_range=yrange,
+               title="Category Plot")
+    r = p.scatter(x=jitter(col, width=0.2, range=p.x_range), y=jitter(row, width=0.6, range=p.y_range),
+                  source=source, alpha=0.8, color=fill_color)#, legend_field=colorcol)
+    h = HoverTool(renderers=[r], tooltips=([("Sample", "@sample"),
+                                            ("Animal_id", "@Animal_ID"),
+                                            ("Herd", "@HERD_NO"),
+                                            ("Homebred","@Homebred")
+                                           ]))
+    #p.add_tools(h)
+    p.xaxis.axis_label = col
+    p.yaxis.axis_label = row
+    p.xaxis.major_label_orientation = "vertical"
+    p.toolbar.logo = None
     return p
