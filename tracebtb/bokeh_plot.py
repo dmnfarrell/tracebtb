@@ -202,7 +202,7 @@ def split_view(gdf, col, parcels=None, provider=None, limit=8):
     grid.sizing_mode = 'stretch_both'
     return grid
 
-def plot_moves_timeline(mov, herdcolors):
+def plot_moves_timeline(mov, herdcolors, height=300):
     """Plot movement timeline"""
 
     if mov is None:
@@ -220,7 +220,7 @@ def plot_moves_timeline(mov, herdcolors):
     groups = df.groupby('tag')
     source = ColumnDataSource(df)
     source.add(df.duration.astype(str), 'length')
-    p = figure(y_range=groups, width=600, height=300,
+    p = figure(y_range=groups, width=600, height=height,
                title="timeline", tools='pan,wheel_zoom,reset,save', x_axis_type="datetime")
     r = p.hbar(source=source, y="tag", left='move_date', right='end_date', height=0.8,
                line_width=0, fill_color='color')#, legend_field="move_to")
@@ -235,33 +235,37 @@ def plot_moves_timeline(mov, herdcolors):
         p.yaxis.visible = False
     return p
 
-def cat_plot(df, row, col, colorcol=None):
+def cat_plot(df, row, col, colorcol=None, ms=5, marker='circle', width=500, height=300):
     """Categorical scatter plot"""
 
     from bokeh.palettes import Spectral7
     if row == None or col == None:
         return
     df = df.drop(columns='geometry').astype(str)
+    if 'color' not in df.columns:
+        if colorcol:
+            unique_factors = df[colorcol].unique().tolist()
+            color_mapper = factor_cmap(field_name=colorcol, palette=Spectral7, factors=unique_factors)
+            df['color'] = color_mapper
+        else:
+            df['color'] = 'blue'
+
     source = ColumnDataSource(df)
     xrange = df.groupby(col)
     yrange = df.groupby(row)
-    if colorcol:
-        unique_factors = df[colorcol].unique().tolist()
-        color_mapper = factor_cmap(field_name=colorcol, palette=Spectral7, factors=unique_factors)
-        fill_color = color_mapper
-    else:
-        fill_color = "blue"
 
-    p = figure(width=600, height=300, x_range=xrange, y_range=yrange,
+    p = figure(width=width, height=height, x_range=xrange, y_range=yrange,
                title="Category Plot")
     r = p.scatter(x=jitter(col, width=0.2, range=p.x_range), y=jitter(row, width=0.6, range=p.y_range),
-                  source=source, alpha=0.8, color=fill_color)#, legend_field=colorcol)
-    h = HoverTool(renderers=[r], tooltips=([("Sample", "@sample"),
+                  source=source, alpha=0.7, size=ms, color='color', marker=marker)
+    if len(df)<100:
+        h = HoverTool(renderers=[r], tooltips=([("Sample", "@sample"),
                                             ("Animal_id", "@Animal_ID"),
                                             ("Herd", "@HERD_NO"),
-                                            ("Homebred","@Homebred")
+                                            ("Homebred","@Homebred"),
+                                            ("Clade", "@IE_clade")
                                            ]))
-    #p.add_tools(h)
+        p.add_tools(h)
     p.xaxis.axis_label = col
     p.yaxis.axis_label = row
     p.xaxis.major_label_orientation = "vertical"

@@ -89,6 +89,31 @@ def draw_tree(treefile, df, col):
     """.format(n=newick_data)
     return html
 
+def create_report(sub, sp, mov, col='snp7'):
+    """Save report"""
+
+    from datetime import date
+    styles={ "margin-top": "10px", "margin-bottom": "20px"}
+    CARD_STYLE = {
+      "box-shadow": "rgba(50, 50, 93, 0.25) 0px 6px 12px -2px, rgba(0, 0, 0, 0.3) 0px 3px 7px -3px",
+      "padding": "10px",
+      "border-radius": "5px"
+    }
+    title = f'# TracebTB report. {len(sub)} samples. {date.today()}'
+    header = pn.pane.Markdown(title)
+    plot = bokeh_plot.plot_selection(sub, sp, legend=True)
+    bokeh_plot.plot_moves(plot, mov, lpis_cent)
+    treefile = get_tree(sub.index)
+    html = draw_toytree(treefile, sub, col, tiplabelcol='sample',markercol='Species')
+    treepane = pn.pane.HTML(html)
+    cols = ['sample','HERD_NO','Animal_ID','Species','County']
+    table = pn.pane.DataFrame(sub[cols], styles=CARD_STYLE)
+    splitview = pn.Row(bokeh_plot.split_view(sub, col, sp, provider='CartoDB Positron'),height=400, styles=CARD_STYLE)
+
+    main = pn.Column(pn.Row(plot, treepane, height=500),table,splitview)
+    report = pn.Column(header, main)
+    return report
+
 def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
     """
     Dashboard app with panel for tracebtb.
@@ -99,7 +124,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
         lpis_cent: centroids from LPIS
     """
 
-    view_history = {}
+    view_history = []
     def update(event=None, sub=None):
         """Update selection"""
 
@@ -110,19 +135,18 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
         legend = legendbtn.value
 
         global selected
-
         if sub is None:
             sub = selected
-        else:
-            selected = sub
-        #if len(sub)>2000:
-        #    return
-        #filters
-        sub = apply_filters(sub)
+
         if len(sub[col].unique())>20:
             cmap=None
         sub['color'],c = tools.get_color_mapping(sub, col, cmap)
         sub['marker'] = sub.Species.map({'Bovine':'circle','Badger':'square'})
+        #set global selected
+        selected = sub
+        view_history.append(sub)
+        #filters
+        sub = apply_filters(sub)
 
         sp = parcels[parcels.SPH_HERD_N.isin(sub.HERD_NO)].copy()
         if len(sp.SPH_HERD_N.unique())>20:
@@ -139,12 +163,12 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
 
         if movesbtn.value == True:
             bokeh_plot.plot_moves(p, mov, lpis_cent)
-            #moves_pane.value = mov
+            moves_pane.value = mov.reset_index().drop(columns=['geometry'])
             #moves_pane.param.trigger('value')
         plot_pane.object = p
         plot_pane.param.trigger('object')
         #change selection table
-        #selected_pane.value = sub
+        selected_pane.value = sub.drop(columns=['geometry'])
         #timeline
         herdcolors = dict(zip(sp.SPH_HERD_N,sp.color))
         p = bokeh_plot.plot_moves_timeline(mov, herdcolors)
@@ -153,13 +177,16 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
         info_pane.object = f'{len(sub)} samples'
         if treebtn.value ==True:
             update_tree(sub=sub)
+        update_scatter()
         return
 
     def apply_filters(df):
+        """Filter from widgets"""
+
         minsize = clustersizeslider.value
         key = groupby_input.value
         groups = df[key].value_counts()
-        groups = groups[groups>minsize]
+        groups = groups[groups>=minsize]
         df = df[df[key].isin(groups.index)].copy()
         #print (df)
         start, end = timeslider.value
@@ -169,6 +196,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
         return df
 
     def set_provider(event=None):
+
         p = plot_pane.object
         #remove old tile
         p.renderers = [x for x in p.renderers if not str(x).startswith('TileRenderer')]
@@ -179,7 +207,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
         """change group choices"""
 
         groupby = groupby_input.value
-        vals = pd.DataFrame(meta[groupby].value_counts())#.reset_index()
+        vals = pd.DataFrame(meta[groupby].value_counts())
         groups_table.value = vals
         return
 
@@ -232,6 +260,8 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
 
     def update_tree(event=None, sub=None):
 
+        if len(sub)<=1:
+            return
         treefile = get_tree(sub.index)
         col = colorby_input.value
         #html = draw_tree(treefile, selected, col)
@@ -240,34 +270,48 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
         tree_pane.object = html
         return
 
+    def do_search(event=None):
+
+        query = search_input.value
+        col = searchcol_input.value
+        sub = meta[meta[col]==query]
+        update(sub=sub)
+        return
+
     def set_stop(event):
         global stop
         stop = True
         print ('STOP')
 
-    #p = bokeh_plot.test()
+    #main panes
     plot_pane = pn.pane.Bokeh()
     split_pane = pn.pane.Bokeh()
-    timeline_pane = pn.pane.Bokeh()
+    timeline_pane = pn.pane.Bokeh(sizing_mode='stretch_height')
     info_pane = pn.pane.Str('', styles={'font-size': '10pt'})
     #log_pane = pnw.TextAreaInput(disabled=True,height=600,width=400)
-    meta_pane = pnw.Tabulator(disabled=True,height=600,page_size=50,
-                              header_filters=True,frozen_columns=['sample'])
+    meta_pane = pnw.Tabulator(disabled=True,page_size=100,
+                              frozen_columns=['sample'],
+                              sizing_mode='stretch_both')
     selected_pane = pnw.Tabulator(show_index=False,disabled=True,
-                                  frozen_columns=['sample'],height=600)
+                                  frozen_columns=['sample'],sizing_mode='stretch_both')
     moves_pane = pnw.Tabulator(show_index=False,disabled=True,
-                                  frozen_columns=['tag'],height=600)
+                                  frozen_columns=['tag'],sizing_mode='stretch_both')
     tree_pane = pn.pane.HTML(height=400)
     network_pane = pn.pane.Bokeh()
     snpdist_pane = pn.pane.HTML(height=400)
 
     w=140
-    progress = pn.indicators.Progress(name='Progress', value=0, width=600, bar_color='primary')
+    #search bar
     cols = [None]+gui.get_ordinal_columns(meta)
-    #tables = pn.Column(pn.Tabs(('metadata',meta_pane),('selected',selected_pane)))
+    search_input = pnw.TextInput(name='Search',value='',width=200)
+    searchcol_input = pnw.Select(name='Column',options=cols,value='HERD_NO',width=w)
+    search_btn = pnw.Button(name='Submit', button_type='primary')
+    search_bar = pn.Column(search_input,searchcol_input,search_btn)
+    pn.bind(do_search, search_btn, watch=True)
 
+    #widgets
     groupby_input = pnw.Select(name='group by',options=cols,value='snp7',width=w)
-    groups_table = pnw.Tabulator(disabled=True, widths={'index': 70}, layout='fit_data',pagination=None, height=250, width=w)
+    groups_table = pnw.Tabulator(disabled=True, widths={'index': 70}, layout='fit_columns',pagination=None, height=250, width=w)
     colorby_input = pnw.Select(name='color by',options=cols,value='snp7',width=w)
     cmap_input = pnw.Select(name='colormap',options=gui.colormaps,value='Set1',width=w)
     provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
@@ -275,8 +319,8 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
     tiplabel_input = pnw.Select(name='tip label',options=list(meta.columns),value='sample',width=w)
     #showborders_input = pnw.Checkbox(name='Show counties', value=False)
     widgets = pn.Column(pn.WidgetBox(groupby_input,groups_table,colorby_input,cmap_input,tiplabel_input,
-                                     provider_input,markersize_input), width=w+30)
-
+                                     provider_input,markersize_input),info_pane,width=w+30)
+    #toolbar
     splitbtn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size='1.8em')
     selectregionbtn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size='1.8em')
     treebtn = pnw.Toggle(icon=get_icon('tree'), icon_size='1.8em')
@@ -292,7 +336,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
     clustersizeslider = pnw.IntSlider(name='Min. Cluster Size',width=150,
                     start=1, end=10, value=1, step=1)
     homebredbox = pnw.Checkbox(name='Homebred',value=False)
-    filters = pn.Row(timeslider,clustersizeslider,homebredbox,info_pane)
+    filters = pn.Row(timeslider,clustersizeslider,homebredbox)
 
     groupby_input.param.watch(update_groups, 'value')
     groups_table.param.watch(select_group, 'selection')
@@ -311,21 +355,21 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
     #pn.bind(update_tree, treebtn, watch=True)
     pn.bind(split_view, splitbtn, watch=True)
     pn.bind(select_region, selectregionbtn, watch=True)
-    #pn.bind(filter_selection, timeslider, watch=True)
 
-    #cat scatter plot
+    #categorical scatter plot pane
     scatter_pane = pn.pane.Bokeh(height=400)
-    row_input = pnw.Select(name='row',options=cols,width=w)
-    col_input = pnw.Select(name='col',options=cols,width=w)
-    scolor_input = pnw.Select(name='color',options=cols,width=w)
-    analysis_pane = pn.Column(scatter_pane,pn.Row(row_input,col_input,scolor_input))
+    row_input = pnw.Select(name='row',options=cols,value='Species',width=w)
+    col_input = pnw.Select(name='col',options=cols,value='Year',width=w)
+    mscat_input = pnw.IntSlider(name='size',start=1, end=20, value=5, step=1,width=w)
+    analysis_pane = pn.Column(scatter_pane,pn.Row(row_input,col_input,mscat_input),height=350)
     def update_scatter(event=None):
         global selected
-        p = bokeh_plot.cat_plot(selected, row_input.value, col_input.value, scolor_input.value)
+        p = bokeh_plot.cat_plot(selected, row_input.value, col_input.value,
+                                ms=mscat_input.value, marker='marker')
         scatter_pane.object = p
     row_input.param.watch(update_scatter, 'value')
     col_input.param.watch(update_scatter, 'value')
-    scolor_input.param.watch(update_scatter, 'value')
+    mscat_input.param.watch(update_scatter, 'value')
 
     app = pn.Column(
                 pn.Row(widgets,
@@ -336,6 +380,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
                             ('main table', meta_pane),
                             ('selected', selected_pane),
                             ('moves', moves_pane),
+                            ('search',search_bar),
                              sizing_mode='stretch_both'),
                           ),
                 pn.Column(pn.Tabs(('tree',tree_pane),('network',network_pane),

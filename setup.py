@@ -26,9 +26,11 @@ setup(
                       'PyQtWebEngine',
                       'toytree',
                       'networkx',
-                      'pygraphviz',
-                      'pydaidx',
+                      #'pygraphviz',
+                      'pyfaidx',
                       'matplotlib_scalebar'
+                      'bokeh==3.4.2',
+                      'panel==1.4.4'
                       ],
     entry_points = {
         'console_scripts': [
