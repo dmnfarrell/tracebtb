@@ -24,7 +24,7 @@ from bokeh.models import Arrow, NormalHead, OpenHead, VeeHead
 
 import panel as pn
 import panel.widgets as pnw
-pn.extension('tabulator', css_files=[pn.io.resources.CSS_URLS['font-awesome']])
+#pn.extension('tabulator', css_files=[pn.io.resources.CSS_URLS['font-awesome']])
 
 from tracebtb import gui, tools, plotting, trees, bokeh_plot
 
@@ -32,6 +32,7 @@ module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
 logoimg = os.path.join(module_path, 'logo.png')
 iconpath = os.path.join(module_path, 'icons')
+report_file = 'temp.html'
 
 def get_icon(name):
     """Get svg icon"""
@@ -41,6 +42,13 @@ def get_icon(name):
         data = f.read()
     svg_tag = re.search(r'(<svg[^>]*>.*?</svg>)', data, re.DOTALL).group(1)
     return svg_tag
+
+def get_tree(snpdist, idx):
+
+    treefile = 'tree.newick'
+    M = snpdist.loc[idx,idx]
+    trees.tree_from_distmatrix(M, treefile)
+    return treefile
 
 def draw_toytree(treefile, df, col, **kwargs):
     import toyplot
@@ -89,7 +97,7 @@ def draw_tree(treefile, df, col):
     """.format(n=newick_data)
     return html
 
-def create_report(sub, sp, mov, col='snp7'):
+def report(sub, sp, mov, col, lpis_cent, snpdist):
     """Save report"""
 
     from datetime import date
@@ -100,17 +108,19 @@ def create_report(sub, sp, mov, col='snp7'):
       "border-radius": "5px"
     }
     title = f'# TracebTB report. {len(sub)} samples. {date.today()}'
-    header = pn.pane.Markdown(title)
+    header = pn.pane.Markdown(title, styles=styles, margin=(5, 20))
     plot = bokeh_plot.plot_selection(sub, sp, legend=True)
     bokeh_plot.plot_moves(plot, mov, lpis_cent)
-    treefile = get_tree(sub.index)
+    treefile = get_tree(snpdist, sub.index)
     html = draw_toytree(treefile, sub, col, tiplabelcol='sample',markercol='Species')
     treepane = pn.pane.HTML(html)
-    cols = ['sample','HERD_NO','Animal_ID','Species','County']
+    cols = ['sample','HERD_NO','Animal_ID','Species','County','Homebred','IE_clade']
     table = pn.pane.DataFrame(sub[cols], styles=CARD_STYLE)
-    splitview = pn.Row(bokeh_plot.split_view(sub, col, sp, provider='CartoDB Positron'),height=400, styles=CARD_STYLE)
+    herdcolors = dict(zip(sp.SPH_HERD_N,sp.color))
+    timeline = pn.pane.Bokeh(bokeh_plot.plot_moves_timeline(mov, herdcolors, height=500),styles=CARD_STYLE)
+    splitview = pn.Row(bokeh_plot.split_view(sub, 'HERD_NO', sp, provider='CartoDB Positron'),height=800, styles=CARD_STYLE)
 
-    main = pn.Column(pn.Row(plot, treepane, height=500),table,splitview)
+    main = pn.Column(pn.Row(plot, treepane, height=600),pn.Row(table,timeline),splitview)
     report = pn.Column(header, main)
     return report
 
@@ -233,11 +243,6 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
         update(sub=sub)
         return
 
-    def export_selection(event):
-        """export selection to html file"""
-
-        return
-
     def split_view(event=None):
         """split view"""
 
@@ -251,18 +256,11 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
         split_pane.param.trigger('object')
         return
 
-    def get_tree(idx):
-        #replace this with just selecting tips on main tree?
-        treefile = 'tree.newick'
-        M = snpdist.loc[idx,idx]
-        trees.tree_from_distmatrix(M, treefile)
-        return treefile
-
     def update_tree(event=None, sub=None):
-
+        #replace this with just selecting tips on main tree?
         if len(sub)<=1:
             return
-        treefile = get_tree(sub.index)
+        treefile = get_tree(snpdist, sub.index)
         col = colorby_input.value
         #html = draw_tree(treefile, selected, col)
         html = draw_toytree(treefile, sub, col, cmap=cmap_input.value,
@@ -278,6 +276,18 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
         update(sub=sub)
         return
 
+    def create_report(event=None):
+
+        global selected
+        sub = selected
+        sp = parcels[parcels.SPH_HERD_N.isin(sub.HERD_NO)].copy()
+        sp['color'],c = tools.get_color_mapping(sp, 'SPH_HERD_N')
+        mov = gui.get_moves_bytag(sub, moves, lpis_cent)
+        col = colorby_input.value
+        result = report(selected, sp, mov, col, lpis_cent, snpdist)
+        result.save(report_file)
+        return
+
     def set_stop(event):
         global stop
         stop = True
@@ -285,7 +295,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
 
     #main panes
     plot_pane = pn.pane.Bokeh()
-    split_pane = pn.pane.Bokeh()
+    split_pane = pn.pane.Bokeh(sizing_mode='stretch_both')
     timeline_pane = pn.pane.Bokeh(sizing_mode='stretch_height')
     info_pane = pn.pane.Str('', styles={'font-size': '10pt'})
     #log_pane = pnw.TextAreaInput(disabled=True,height=600,width=400)
@@ -309,6 +319,13 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
     search_bar = pn.Column(search_input,searchcol_input,search_btn)
     pn.bind(do_search, search_btn, watch=True)
 
+    #reporting
+    doreport_btn = pnw.Button(name='Generate', button_type='primary')
+    savereport_btn = pnw.FileDownload(file=report_file, button_type='success', auto=False,
+                                    embed=False, name="Dowload Report")
+    report_pane = pn.Column(doreport_btn, savereport_btn)
+    pn.bind(create_report, doreport_btn, watch=True)
+
     #widgets
     groupby_input = pnw.Select(name='group by',options=cols,value='snp7',width=w)
     groups_table = pnw.Tabulator(disabled=True, widths={'index': 70}, layout='fit_columns',pagination=None, height=250, width=w)
@@ -327,9 +344,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
     parcelsbtn = pnw.Toggle(icon=get_icon('parcels'), icon_size='1.8em')
     movesbtn = pnw.Toggle(icon=get_icon('plot-moves'), icon_size='1.8em')
     legendbtn = pnw.Toggle(icon=get_icon('legend'), icon_size='1.8em')
-    reportbtn = pnw.Button(icon=get_icon('report'), description='report', icon_size='1.8em')
+    lockbtn = pnw.Toggle(icon=get_icon('lock'), icon_size='1.8em')
     toolbar = pn.Column(pn.WidgetBox(splitbtn,selectregionbtn,treebtn,
-                                     parcelsbtn,movesbtn,legendbtn,reportbtn),width=70)
+                                     parcelsbtn,movesbtn,legendbtn,lockbtn),width=70)
 
     timeslider = pnw.IntRangeSlider(name='Time',width=150,
                     start=2000, end=2024, value=(2000, 2024), step=1)
@@ -375,16 +392,18 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
                 pn.Row(widgets,
                        toolbar,
                 pn.Column(
-                    pn.Tabs(('map view',pn.Column(plot_pane,filters)),
-                            ('split view',pn.Column(split_pane)),
-                            ('main table', meta_pane),
-                            ('selected', selected_pane),
-                            ('moves', moves_pane),
-                            ('search',search_bar),
+                    pn.Tabs(('Map',pn.Column(plot_pane,filters)),
+                            ('Split View',pn.Column(split_pane, height=300)),
+                            ('Main Table', meta_pane),
+                            ('Selected', selected_pane),
+                            ('Moves', moves_pane),
+                            ('Search',search_bar),
+                            ('Reporting',report_pane),
                              sizing_mode='stretch_both'),
                           ),
-                pn.Column(pn.Tabs(('tree',tree_pane),('network',network_pane),
-                                  ('snpdist',snpdist_pane),('scatter',analysis_pane)),timeline_pane, width=500))
+                pn.Column(pn.Tabs(('Tree',tree_pane),('Network',network_pane),
+                                  ('SNPdist',snpdist_pane),('Summary I',analysis_pane)),timeline_pane, width=500)),
+             max_width=2000,min_height=600
     )
     app.sizing_mode='stretch_both'
     meta_pane.value = meta

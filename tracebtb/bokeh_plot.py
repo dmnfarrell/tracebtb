@@ -125,12 +125,14 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
                                             ("Animal_id", "@Animal_ID"),
                                             ("Herd", "@HERD_NO"),
                                             ("Homebred","@Homebred"),
-                                            ("Clade", "@IE_clade")
+                                            ("Clade", "@IE_clade"),
+                                            ('snp7',"@snp7")
                                            ]))
     p.add_tools(h2)
 
     if legend == True and col != None:
-        color_map = dict(zip(gdf[col],gdf.color))
+        vals = gdf[col].astype(str)
+        color_map = dict(zip(vals,gdf.color))
         legend_items = []
         x = (p.x_range.end-p.x_range.start)/2
         y = (p.y_range.end-p.y_range.start)/2

@@ -849,9 +849,9 @@ class App(QMainWindow):
 
         #self.foliumview = webwidgets.FoliumViewer(main)
         #self.foliumview.show()
-        self.bokehview = widgets.BokehPlotWidget(self)
+        #self.bokehview = widgets.BokehPlotWidget(self)
         #idx = self.tabs.addTab(self.foliumview, 'Interactive')
-        idx = self.tabs.addTab(self.bokehview, 'Interactive')
+        #idx = self.tabs.addTab(self.bokehview, 'Interactive')
 
         self.info = widgets.Editor(main, readOnly=True, fontsize=10)
         self.add_dock(self.info, 'log', 'right')
@@ -1753,11 +1753,11 @@ class App(QMainWindow):
             #self.show_folium()
 
         #update bokeh view
-        provider = self.mapproviderw.currentText()
-        if not self.movesb.isChecked() and self.moves is not None:
-            mov = None
-        self.bokehview.plot(gdf=self.sub, parcels=parcels, provider=provider,
-                            moves=mov, lpis_cent=self.lpis_cent)
+        #provider = self.mapproviderw.currentText()
+        #if not self.movesb.isChecked() and self.moves is not None:
+        #    mov = None
+        #self.bokehview.plot(gdf=self.sub, parcels=parcels, provider=provider,
+        #                    moves=mov, lpis_cent=self.lpis_cent)
         return
 
     '''def show_folium(self):
@@ -1844,8 +1844,8 @@ class App(QMainWindow):
     def export_selection(self):
         """Export view using bokeh html"""
 
-        f = self.bokehview.figure
-        bokeh_plot.save(f)
+        #f = self.bokehview.figure
+        #bokeh_plot.save(f)
         return
 
     def case_report(self):
