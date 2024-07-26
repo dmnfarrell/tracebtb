@@ -7,6 +7,7 @@
 """
 
 import sys,os,time,re
+from datetime import datetime
 import pickle
 import glob,io
 import json
@@ -16,15 +17,8 @@ import pandas as pd
 
 from bokeh.io import show
 from bokeh.plotting import figure
-from bokeh.models import ColumnDataSource, GeoJSONDataSource, GMapOptions, GMapPlot, TileSource, HoverTool, BoxZoomTool
-from bokeh.models.glyphs import Patches, Circle
-from bokeh.layouts import layout, column
-from shapely.geometry import Polygon, Point
-from bokeh.models import Arrow, NormalHead, OpenHead, VeeHead
-
 import panel as pn
 import panel.widgets as pnw
-#pn.extension('tabulator', css_files=[pn.io.resources.CSS_URLS['font-awesome']])
 
 from tracebtb import gui, tools, plotting, trees, bokeh_plot
 
@@ -32,7 +26,17 @@ module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
 logoimg = os.path.join(module_path, 'logo.png')
 iconpath = os.path.join(module_path, 'icons')
-report_file = 'temp.html'
+report_file = 'report.html'
+#report_file = f'report_{datetime.today().date()}.html'
+
+speciescolors = {'Bovine':'blue','Badger':'red','Ovine':'green'}
+card_style = {
+    'background': '#f9f9f9',
+    'border': '1px solid #bcbcbc',
+    'padding': '5px',
+    'margin': '5px',
+    'box-shadow': '4px 4px 4px #bcbcbc'
+}
 
 def get_icon(name):
     """Get svg icon"""
@@ -118,13 +122,13 @@ def report(sub, sp, mov, col, lpis_cent, snpdist):
     table = pn.pane.DataFrame(sub[cols], styles=CARD_STYLE)
     herdcolors = dict(zip(sp.SPH_HERD_N,sp.color))
     timeline = pn.pane.Bokeh(bokeh_plot.plot_moves_timeline(mov, herdcolors, height=500),styles=CARD_STYLE)
-    splitview = pn.Row(bokeh_plot.split_view(sub, 'HERD_NO', sp, provider='CartoDB Positron'),height=800, styles=CARD_STYLE)
+    splitview = pn.Row(bokeh_plot.split_view(sub, 'HERD_NO', sp, provider='Esri World Imagery'),height=800, styles=CARD_STYLE)
 
     main = pn.Column(pn.Row(plot, treepane, height=600),pn.Row(table,timeline),splitview)
     report = pn.Column(header, main)
     return report
 
-def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
+def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None, selections={}):
     """
     Dashboard app with panel for tracebtb.
     Args:
@@ -179,6 +183,11 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
         plot_pane.param.trigger('object')
         #change selection table
         selected_pane.value = sub.drop(columns=['geometry'])
+        def highlight(x):
+            color = speciescolors[x]
+            return 'background-color: %s' % color
+        selected_pane.style.apply(highlight, subset=['Species'], axis=1)
+
         #timeline
         herdcolors = dict(zip(sp.SPH_HERD_N,sp.color))
         p = bokeh_plot.plot_moves_timeline(mov, herdcolors)
@@ -187,7 +196,13 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
         info_pane.object = f'{len(sub)} samples'
         if treebtn.value ==True:
             update_tree(sub=sub)
+        #summary plots
         update_scatter()
+        #dist matrix
+        #dm = snpdist.loc[sub.index,sub.index]
+        #p = bokeh_plot.heatmap(dm)
+        #snpdist_pane.object = p
+        #snpdist_pane.param.trigger('object')
         return
 
     def apply_filters(df):
@@ -243,6 +258,28 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
         update(sub=sub)
         return
 
+    def select_from_table(event=None):
+
+        df = meta_pane.selected_dataframe
+        update(sub=df)
+        return
+
+    def select_related(event=None):
+        """Find related samples to selected indexes i.e. within n snps"""
+
+        #global selected
+        df = meta_pane.selected_dataframe
+        idx = list(df.index)
+        dist=7
+        names=[]
+        for i in idx:
+            found = tools.get_within_distance(snpdist, i, dist)
+            names.extend(found)
+        names = list(set(names))
+        sub = meta.loc[names]
+        update(sub=sub)
+        return
+
     def split_view(event=None):
         """split view"""
 
@@ -258,7 +295,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
 
     def update_tree(event=None, sub=None):
         #replace this with just selecting tips on main tree?
-        if len(sub)<=1:
+        if len(sub)<=1 or len(sub)>500:
+            html = '<h1><2 or too many samples</h1>'
+            tree_pane.object = html
             return
         treefile = get_tree(snpdist, sub.index)
         col = colorby_input.value
@@ -288,27 +327,40 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
         result.save(report_file)
         return
 
-    def set_stop(event):
-        global stop
-        stop = True
-        print ('STOP')
+    def load_selection(event=None):
+
+        global selected
+        name = selections_input.value
+        idx = selections[name]['indexes']
+        selected = meta.loc[idx]
+        update(sub=selected)
+        return
 
     #main panes
     plot_pane = pn.pane.Bokeh()
+    overview_pane = pn.pane.Bokeh()
     split_pane = pn.pane.Bokeh(sizing_mode='stretch_both')
     timeline_pane = pn.pane.Bokeh(sizing_mode='stretch_height')
     info_pane = pn.pane.Str('', styles={'font-size': '10pt'})
-    #log_pane = pnw.TextAreaInput(disabled=True,height=600,width=400)
+    #main table
     meta_pane = pnw.Tabulator(disabled=True,page_size=100,
                               frozen_columns=['sample'],
                               sizing_mode='stretch_both')
+    showselected_btn = pnw.Button(name='Select Samples', button_type='primary')
+    pn.bind(select_from_table, showselected_btn, watch=True)
+    selectregion_btn = pnw.Button(name='Find Related', button_type='primary')
+    pn.bind(select_region, selectregion_btn, watch=True)
+    table_widgets = pn.Row(showselected_btn, selectregion_btn)
+    table_pane = pn.Column(meta_pane,table_widgets,sizing_mode='stretch_both')
+
     selected_pane = pnw.Tabulator(show_index=False,disabled=True,
                                   frozen_columns=['sample'],sizing_mode='stretch_both')
+    #selected_pane.style.apply(highlight, subset=['Species'], axis=1)
     moves_pane = pnw.Tabulator(show_index=False,disabled=True,
                                   frozen_columns=['tag'],sizing_mode='stretch_both')
     tree_pane = pn.pane.HTML(height=400)
     network_pane = pn.pane.Bokeh()
-    snpdist_pane = pn.pane.HTML(height=400)
+    snpdist_pane = pn.pane.Bokeh(height=400)
 
     w=140
     #search bar
@@ -316,15 +368,25 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
     search_input = pnw.TextInput(name='Search',value='',width=200)
     searchcol_input = pnw.Select(name='Column',options=cols,value='HERD_NO',width=w)
     search_btn = pnw.Button(name='Submit', button_type='primary')
-    search_bar = pn.Column(search_input,searchcol_input,search_btn)
+    card1 = pn.Column('## Search', search_input,searchcol_input,search_btn,
+                       width=300, styles=card_style)
     pn.bind(do_search, search_btn, watch=True)
 
+    #saved selections
+    selections_input = pnw.Select(name='Selections',options=list(selections.keys()),value='',width=w)
+    loadselection_btn = pnw.Button(name='Load Selection', button_type='primary')
+    saveselection_btn = pnw.Button(name='Save Selection', button_type='primary')
+    pn.bind(load_selection, loadselection_btn, watch=True)
+    card2 = pn.Column('## Selections', selections_input, loadselection_btn, saveselection_btn,
+                       width=300, styles=card_style)
     #reporting
     doreport_btn = pnw.Button(name='Generate', button_type='primary')
     savereport_btn = pnw.FileDownload(file=report_file, button_type='success', auto=False,
-                                    embed=False, name="Dowload Report")
-    report_pane = pn.Column(doreport_btn, savereport_btn)
+                                    embed=False, name="Download Report")
+    card3 = pn.Column('## Reporting', doreport_btn, savereport_btn, width=300, styles=card_style)
     pn.bind(create_report, doreport_btn, watch=True)
+
+    utils_pane = pn.Column(card1, card2, card3, styles={'margin': '10px'}, sizing_mode='stretch_both')
 
     #widgets
     groupby_input = pnw.Select(name='group by',options=cols,value='snp7',width=w)
@@ -377,7 +439,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
     scatter_pane = pn.pane.Bokeh(height=400)
     row_input = pnw.Select(name='row',options=cols,value='Species',width=w)
     col_input = pnw.Select(name='col',options=cols,value='Year',width=w)
-    mscat_input = pnw.IntSlider(name='size',start=1, end=20, value=5, step=1,width=w)
+    mscat_input = pnw.IntSlider(name='point size',start=1, end=25, value=5, step=1,width=w)
     analysis_pane = pn.Column(scatter_pane,pn.Row(row_input,col_input,mscat_input),height=350)
     def update_scatter(event=None):
         global selected
@@ -394,15 +456,15 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None):
                 pn.Column(
                     pn.Tabs(('Map',pn.Column(plot_pane,filters)),
                             ('Split View',pn.Column(split_pane, height=300)),
-                            ('Main Table', meta_pane),
+                            ('Main Table', table_pane),
                             ('Selected', selected_pane),
                             ('Moves', moves_pane),
-                            ('Search',search_bar),
-                            ('Reporting',report_pane),
+                            ('Utilities',utils_pane),
                              sizing_mode='stretch_both'),
                           ),
-                pn.Column(pn.Tabs(('Tree',tree_pane),('Network',network_pane),
-                                  ('SNPdist',snpdist_pane),('Summary I',analysis_pane)),timeline_pane, width=500)),
+                pn.Column(pn.Tabs(('Tree',tree_pane),('Overview',overview_pane),
+                                  ('Network',network_pane),
+                                  ('Summary I',analysis_pane)),timeline_pane, width=500)),
              max_width=2000,min_height=600
     )
     app.sizing_mode='stretch_both'

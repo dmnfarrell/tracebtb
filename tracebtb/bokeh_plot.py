@@ -28,13 +28,16 @@ import geopandas as gpd
 try:
     from bokeh.io import show
     from bokeh.plotting import figure
-    from bokeh.models import (ColumnDataSource, GeoJSONDataSource, GMapOptions, GMapPlot,
-                               TileSource, FactorRange,
+    from bokeh.models import (ColumnDataSource, GeoJSONDataSource, GMapOptions, GMapPlot, TileSource, FactorRange,
                                 HoverTool, BoxZoomTool,
-                                Legend, LegendItem, GlyphRenderer,
+                                Legend, LegendItem, GlyphRenderer, ColorBar, LinearColorMapper, LabelSet,
                                 Arrow, NormalHead, OpenHead, VeeHead)
+    from bokeh.models.glyphs import Patches, Circle
+    from bokeh.layouts import layout, column
+    from shapely.geometry import Polygon, Point
+    #from bokeh.tile_providers import get_provider, Vendors
+    from bokeh.models import Arrow, NormalHead, OpenHead, VeeHead
     from bokeh.transform import jitter, factor_cmap
-    from bokeh.layouts import layout
     from bokeh.plotting import figure, output_file, save
 except:
     print ('bokeh not installed')
@@ -73,14 +76,14 @@ def save_figure(p):
     output_file(filename="test.html", title="Static HTML file")
     save(p)
 
-def init_figure(title=None, provider=None):
+def init_figure(title=None, provider=None, width=600, height=600):
     """Create base figure"""
 
     box_zoom = BoxZoomTool(match_aspect=True)
     p = figure(tools=['pan,wheel_zoom,reset,save',box_zoom], active_scroll="wheel_zoom",
             x_axis_type="mercator", y_axis_type="mercator",
             title=title,
-            width=600, height=600,
+            width=width, height=height,
             match_aspect=True)
     if provider in providers:
         p.add_tile(provider, retina=True)
@@ -272,4 +275,41 @@ def cat_plot(df, row, col, colorcol=None, ms=5, marker='circle', width=500, heig
     p.yaxis.axis_label = row
     p.xaxis.major_label_orientation = "vertical"
     p.toolbar.logo = None
+    return p
+
+def heatmap(df):
+    """Dataframe heatmap in bokeh"""
+
+    from bokeh.palettes import Blues256
+    from bokeh.transform import transform
+    d = df.stack()
+    d.index.names = ['row','column']
+    d = d.reset_index()
+    d.columns = ['row','column','value']
+    source = ColumnDataSource(d)
+    names = list(df.index)
+    mapper = LinearColorMapper(palette=Blues256, low=df.min().min(), high=df.max().max())
+
+    p = figure(x_axis_location="above", tools="hover,save",
+               x_range=names, y_range=names,
+               tooltips = [('samples', '@row, @column'), ('value', '@value')])
+
+    p.width = 600
+    p.height = 600
+    p.grid.grid_line_color = None
+    p.axis.axis_line_color = None
+    p.axis.major_tick_line_color = None
+    p.axis.major_label_text_font_size = "9px"
+    p.axis.major_label_standoff = 0
+    p.xaxis.major_label_orientation = np.pi/3
+    p.toolbar.logo = None
+
+    p.rect(x='row', y='column', width=1, height=1,
+           source=source,
+           fill_color=transform('value', mapper),
+           line_color=None)
+
+    # Add a color bar
+    color_bar = ColorBar(color_mapper=mapper, location=(0, 0))
+    p.add_layout(color_bar, 'right')
     return p
