@@ -30,6 +30,7 @@ report_file = 'report.html'
 #report_file = f'report_{datetime.today().date()}.html'
 
 speciescolors = {'Bovine':'blue','Badger':'red','Ovine':'green'}
+speciesmarkers = {'Bovine':'circle','Badger':'square','Ovine':'diamond',None:'x'}
 card_style = {
     'background': '#f9f9f9',
     'border': '1px solid #bcbcbc',
@@ -155,7 +156,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None, selection
         if len(sub[col].unique())>20:
             cmap=None
         sub['color'],c = tools.get_color_mapping(sub, col, cmap)
-        sub['marker'] = sub.Species.map({'Bovine':'circle','Badger':'square'})
+        sub['marker'] = sub.Species.map(speciesmarkers)
         #set global selected
         selected = sub
         view_history.append(sub)
@@ -180,7 +181,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None, selection
             moves_pane.value = mov.reset_index().drop(columns=['geometry'])
             #moves_pane.param.trigger('value')
         plot_pane.object = p
-        plot_pane.param.trigger('object')
+        #plot_pane.param.trigger('object')
         #change selection table
         selected_pane.value = sub.drop(columns=['geometry'])
         def highlight(x):
@@ -192,7 +193,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None, selection
         herdcolors = dict(zip(sp.SPH_HERD_N,sp.color))
         p = bokeh_plot.plot_moves_timeline(mov, herdcolors)
         timeline_pane.object = p
-        timeline_pane.param.trigger('object')
+        #timeline_pane.param.trigger('object')
         info_pane.object = f'{len(sub)} samples'
         if treebtn.value ==True:
             update_tree(sub=sub)
@@ -203,6 +204,20 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None, selection
         #p = bokeh_plot.heatmap(dm)
         #snpdist_pane.object = p
         #snpdist_pane.param.trigger('object')
+        update_overview(sub=sub)
+        return
+
+    def update_overview(event=None, sub=None):
+
+        fig,ax=plt.subplots(1,1)
+        bokeh_plot.counties_gdf.plot(color='#E7F7C3', edgecolor='gray',
+                           lw=1,alpha=0.7,
+                           ax=ax)
+        sub.plot(ax=ax,color=sub.color)
+        ax.axis('off')
+        plt.tight_layout()
+        overview_pane.object = fig
+        plt.close(fig)
         return
 
     def apply_filters(df):
@@ -254,6 +269,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None, selection
         p = plot_pane.object
         xmin, xmax = p.x_range.start, p.x_range.end
         ymin, ymax = p.y_range.start, p.y_range.end
+        print (xmin,xmax)
         sub = meta.cx[xmin:xmax, ymin:ymax]
         update(sub=sub)
         return
@@ -290,7 +306,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None, selection
         f = bokeh_plot.split_view(selected, col, parcels, provider)
         #print (f)
         split_pane.object = f
-        split_pane.param.trigger('object')
+        #split_pane.param.trigger('object')
         return
 
     def update_tree(event=None, sub=None):
@@ -336,9 +352,18 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None, selection
         update(sub=selected)
         return
 
+    def update_scatter(event=None):
+        """Update cat plot I"""
+        global selected
+        p = bokeh_plot.cat_plot(selected, row_input.value, col_input.value,
+                                ms=mscat_input.value, marker='marker')
+        scatter_pane.object = p
+        return
+
     #main panes
     plot_pane = pn.pane.Bokeh()
-    overview_pane = pn.pane.Bokeh()
+    #overview_pane = pn.pane.Bokeh(height=300)
+    overview_pane = pn.pane.Matplotlib(height=300)
     split_pane = pn.pane.Bokeh(sizing_mode='stretch_both')
     timeline_pane = pn.pane.Bokeh(sizing_mode='stretch_height')
     info_pane = pn.pane.Str('', styles={'font-size': '10pt'})
@@ -441,11 +466,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None, snpdist=None, selection
     col_input = pnw.Select(name='col',options=cols,value='Year',width=w)
     mscat_input = pnw.IntSlider(name='point size',start=1, end=25, value=5, step=1,width=w)
     analysis_pane = pn.Column(scatter_pane,pn.Row(row_input,col_input,mscat_input),height=350)
-    def update_scatter(event=None):
-        global selected
-        p = bokeh_plot.cat_plot(selected, row_input.value, col_input.value,
-                                ms=mscat_input.value, marker='marker')
-        scatter_pane.object = p
+
     row_input.param.watch(update_scatter, 'value')
     col_input.param.watch(update_scatter, 'value')
     mscat_input.param.watch(update_scatter, 'value')

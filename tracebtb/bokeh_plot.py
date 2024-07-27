@@ -53,6 +53,7 @@ providers = [
 module_path = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(module_path,'data')
 counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:3857")
+counties_gdf['geometry'] = counties_gdf.geometry.simplify(2000)
 
 def calculate_grid_dimensions(n):
     """Calculate the number of rows and columns that best approximate a square layout"""
@@ -91,7 +92,7 @@ def init_figure(title=None, provider=None, width=600, height=600):
     return p
 
 def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
-                   legend=False, title=None, ms=10):
+                   legend=False, title=None, ms=10, p=None):
     """
     Plot geodataframe selections with bokeh
     Args:
@@ -99,10 +100,12 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         parcels: land parcels geodataframe
         provider: context map provider
         ms: marker size
+        p: existing figure if needed
     """
 
     #create figure
-    p = init_figure(title, provider)
+    if p == None:
+        p = init_figure(title, provider)
 
     gdf = gdf[~gdf.geometry.is_empty]
     if len(gdf) == 0:
@@ -155,8 +158,9 @@ def plot_counties(p):
     geojson = counties_gdf.to_json()
     source = GeoJSONDataSource(geojson=geojson)
     r = p.patches('xs', 'ys', source=source,
-                  fill_color=None, line_width=1, line_color='gray')
-    return
+                  fill_color='#f9f9f9', line_width=1, line_color='gray')
+    p.grid.grid_line_color = None
+    return p
 
 def plot_moves(p, moves, lpis_cent):
     """Plot moves with bokeh)"""
