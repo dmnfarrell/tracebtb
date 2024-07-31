@@ -28,12 +28,12 @@ setup(
                       'networkx',
                       #'pygraphviz',
                       'pyfaidx',
-                      'matplotlib_scalebar'
+                      'matplotlib_scalebar',
                       'bokeh==3.4.2',
                       'panel==1.4.4'
                       ],
     entry_points = {
-        'console_scripts': [
+        'gui_scripts': [
             'tracebtb=tracebtb.gui:main',
             'tracebtb-web=tracebtb.dashboard:main']
             },

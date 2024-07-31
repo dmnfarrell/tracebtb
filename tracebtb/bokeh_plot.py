@@ -77,7 +77,7 @@ def save_figure(p):
     output_file(filename="test.html", title="Static HTML file")
     save(p)
 
-def init_figure(title=None, provider=None, width=600, height=600):
+def init_figure(title=None, provider=None, width=600, height=600, sizing_mode='stretch_both'):
     """Create base figure"""
 
     box_zoom = BoxZoomTool(match_aspect=True)
@@ -88,7 +88,7 @@ def init_figure(title=None, provider=None, width=600, height=600):
             match_aspect=True)
     if provider in providers:
         p.add_tile(provider, retina=True)
-    p.sizing_mode = 'stretch_both'
+    p.sizing_mode = sizing_mode
     return p
 
 def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
@@ -160,6 +160,20 @@ def plot_counties(p):
     r = p.patches('xs', 'ys', source=source,
                   fill_color='#f9f9f9', line_width=1, line_color='gray')
     p.grid.grid_line_color = None
+    return p
+
+def plot_lpis(gdf, p):
+    """Plot LPIS land parcels"""
+
+    if gdf is None:
+        return
+    gdf['color'] = gdf.apply(tools.random_grayscale_color, 1)
+    parcelsjson = gdf.to_crs('EPSG:3857').to_json()
+    poly_source = GeoJSONDataSource(geojson=parcelsjson)
+    r = p.patches('xs', 'ys', source=poly_source, fill_color='color',
+                           fill_alpha=0.3, line_width=1, line_color='black')
+    h = HoverTool(renderers=[r], tooltips=([("Herd", "@SPH_HERD_N")]))
+    p.add_tools(h)
     return p
 
 def plot_moves(p, moves, lpis_cent):
