@@ -102,6 +102,13 @@ def draw_tree(treefile, df, col):
     """.format(n=newick_data)
     return html
 
+def get_figure_coords(p):
+    """Coords of plot figure"""
+
+    xmin, xmax = p.x_range.start, p.x_range.end
+    ymin, ymax = p.y_range.start, p.y_range.end
+    return xmin, xmax, ymin, ymax
+
 def find_neighbours(gdf, dist, lpis_cent, lpis):
     """Find neighbours"""
 
@@ -117,7 +124,7 @@ def find_neighbours(gdf, dist, lpis_cent, lpis):
     x = x[~x.SPH_HERD_N.isin(gdf.HERD_NO)]
     return x
 
-def shared_borders(parcels):
+def shared_borders(parcels, lpis):
     """Find herds with shared borders"""
 
     found = []
@@ -186,6 +193,8 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         lpis_cent: centroids from LPIS
     """
 
+    lpis = None
+    coords = None
     view_history = []
     def update(event=None, sub=None):
         """Update selection"""
@@ -229,7 +238,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         if neighbours_btn.value == True and lpis is not None:
             #get neighbours
             #nbr = find_neighbours(sub, 800, lpis_cent, lpis)
-            shb = shared_borders(sp)
+            shb = shared_borders(sp, lpis)
             bokeh_plot.plot_lpis(shb, p)
 
         mov = gui.get_moves_bytag(sub, moves, lpis_cent)
@@ -238,6 +247,20 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
             moves_pane.value = mov.reset_index().drop(columns=['geometry'])
 
         plot_pane.object = p
+        #locked coords
+        '''global coords
+        if lockbtn.value == True:
+            if coords != None:
+                xmin, xmax, ymin, ymax = coords
+                p.x_range.start = xmin
+                p.x_range.end = xmax
+                p.y_range.start = ymin
+                p.y_range.end = ymax
+            else:
+                coords = get_figure_coords(p)
+                print (coords)
+        else:
+            coords = None'''
 
         #change selection table
         selected_pane.value = sub.drop(columns=['geometry'])
@@ -337,7 +360,8 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         """Select samples from table"""
 
         df = meta_pane.selected_dataframe
-        update(sub=df)
+        sub = meta.loc[df.index]
+        update(sub=sub)
         return
 
     def select_related(event=None, df=None):
@@ -385,9 +409,13 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     def do_search(event=None):
 
         query = search_input.value
-        col = searchcol_input.value
-        sub = meta[meta[col]==query]
-        update(sub=sub)
+        col = searchcol_select.value
+        found = meta[meta[col]==query]
+        meta_pane.value = found.drop(columns=['geometry'])
+        return
+
+    def reset_table(event=None):
+        meta_pane.value = meta
         return
 
     def create_report(event=None):
@@ -437,8 +465,19 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     pn.bind(select_from_table, showselected_btn, watch=True)
     selectrelated_btn = pnw.Button(name='Find Related', button_type='primary')
     pn.bind(select_related, selectrelated_btn, watch=True)
-    threshold_input = pnw.IntInput(name='Threshold', value=7, step=1, start=2, end=20,width=80)
-    table_widgets = pn.Row(showselected_btn, selectrelated_btn, threshold_input)
+    threshold_input = pnw.IntInput(name='Threshold', value=7, step=1, start=2, end=20,width=60)
+    #search
+    scols = ['sample','Year','HERD_NO','Animal_ID','Species','County']
+    search_input = pnw.TextInput(name="Search", value='',width=150)
+    searchcol_select = pnw.Select(name='Column',value='HERD_NO',options=scols,width=90)
+    search_btn = pnw.Button(icon=get_icon('search'), icon_size='1.8em')
+    pn.bind(do_search, search_btn, watch=True)
+    reset_btn = pnw.Button(icon=get_icon('refresh'), icon_size='1.8em')
+    pn.bind(reset_table, reset_btn, watch=True)
+
+    table_widgets = pn.Row(showselected_btn, selectrelated_btn, threshold_input,
+                           search_input, searchcol_select, search_btn, reset_btn,
+                           sizing_mode='stretch_width')
     table_pane = pn.Column(meta_pane,table_widgets,sizing_mode='stretch_both')
 
     #selected table
@@ -451,15 +490,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     network_pane = pn.pane.Bokeh()
     snpdist_pane = pn.pane.Bokeh(height=400)
 
-    #search bar
     cols = [None]+gui.get_ordinal_columns(meta)
-    search_input = pnw.TextInput(name='Search',value='',width=200)
-    searchcol_input = pnw.Select(name='Column',options=cols,value='HERD_NO',width=w)
-    search_btn = pnw.Button(name='Submit', button_type='primary')
-    card1 = pn.Column('## Search', search_input,searchcol_input,search_btn,
-                       width=300, styles=card_style)
-    pn.bind(do_search, search_btn, watch=True)
-
     #saved selections
     selections_input = pnw.Select(name='Selections',options=list(selections.keys()),value='',width=w)
     loadselection_btn = pnw.Button(name='Load Selection', button_type='primary')
@@ -480,7 +511,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     card4 = pn.Column('## LPIS', loadlpis_btn, width=300, styles=card_style)
 
     #utils_pane = pn.Column(card1, card2, card3, card4, styles={'margin': '10px'}, sizing_mode='stretch_both')
-    utils_pane = pn.FlexBox(*[card1, card2, card3, card4], flex_direction='column', min_height=400,
+    utils_pane = pn.FlexBox(*[card2, card3, card4], flex_direction='column', min_height=400,
                              styles={'margin': '10px'}, sizing_mode='stretch_both')
 
     #widgets

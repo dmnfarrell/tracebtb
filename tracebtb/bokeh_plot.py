@@ -169,8 +169,8 @@ def plot_lpis(gdf, p):
         return
     gdf['color'] = gdf.apply(tools.random_grayscale_color, 1)
     parcelsjson = gdf.to_crs('EPSG:3857').to_json()
-    poly_source = GeoJSONDataSource(geojson=parcelsjson)
-    r = p.patches('xs', 'ys', source=poly_source, fill_color='color',
+    source = GeoJSONDataSource(geojson=parcelsjson)
+    r = p.patches('xs', 'ys', source=source, fill_color='color',
                            fill_alpha=0.3, line_width=1, line_color='black')
     h = HoverTool(renderers=[r], tooltips=([("Herd", "@SPH_HERD_N")]))
     p.add_tools(h)
