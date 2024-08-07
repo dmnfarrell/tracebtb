@@ -121,8 +121,8 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
                        fill_alpha=0.5, line_width=1, line_color='black')
         #hover tool
         h1 = HoverTool(renderers=[r1], tooltips=([("Herd", "@SPH_HERD_N")
-                                               ]), mode='vline')
-        #p.add_tools(h1)
+                                               ]))
+        p.add_tools(h1)
 
     #draw points
     r2 = p.scatter('x', 'y', source=geo_source, color='color',

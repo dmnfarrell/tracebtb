@@ -18,6 +18,7 @@ import geopandas as gpd
 
 from bokeh.io import show
 from bokeh.plotting import figure
+from bokeh.models import Range1d
 import panel as pn
 import panel.widgets as pnw
 
@@ -27,7 +28,10 @@ module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
 logoimg = os.path.join(module_path, 'logo.png')
 iconpath = os.path.join(module_path, 'icons')
+home = os.path.expanduser("~")
+configpath = os.path.join(home, '.config','tracebtb')
 report_file = 'report.html'
+selections_file = os.path.join(configpath,'selections.json')
 
 speciescolors = {'Bovine':'blue','Badger':'red','Ovine':'green'}
 speciesmarkers = {'Bovine':'circle','Badger':'square','Ovine':'diamond',None:'x'}
@@ -219,10 +223,15 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         view_history.append(sub)
         #filters
         sub = apply_filters(sub)
-        info_pane.object = f'{len(sub)} samples'
+        info_pane.object = f'**{len(sub)} samples**'
         update_overview(sub=sub)
 
-        sp = parcels[parcels.SPH_HERD_N.isin(sub.HERD_NO)].copy()
+        #get moves first so we know which parcels to show
+        herds = list(sub.HERD_NO)
+        mov = gui.get_moves_bytag(sub, moves, lpis_cent)
+        if mov is not None and moves_btn.value == True:
+            herds.extend(mov.move_to)
+        sp = parcels[parcels.SPH_HERD_N.isin(herds)].copy()
         pcmap='tab20'
         if len(sp.SPH_HERD_N.unique())>20:
             pcmap=None
@@ -230,6 +239,8 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
 
         if parcels_btn.value == True:
             pcls=sp
+            if mov is not None:
+                herds.extend(mov.move_to)
         else:
             pcls=None
         p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms, col=col, legend=legend)
@@ -247,20 +258,6 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
             moves_pane.value = mov.reset_index().drop(columns=['geometry'])
 
         plot_pane.object = p
-        #locked coords
-        '''global coords
-        if lockbtn.value == True:
-            if coords != None:
-                xmin, xmax, ymin, ymax = coords
-                p.x_range.start = xmin
-                p.x_range.end = xmax
-                p.y_range.start = ymin
-                p.y_range.end = ymax
-            else:
-                coords = get_figure_coords(p)
-                print (coords)
-        else:
-            coords = None'''
 
         #change selection table
         selected_pane.value = sub.drop(columns=['geometry'])
@@ -284,6 +281,23 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         #p = bokeh_plot.heatmap(dm)
         #snpdist_pane.object = p
         #snpdist_pane.param.trigger('object')
+
+        #locked coords
+        '''global coords
+        if lockbtn.value == True:
+            if coords != None:
+                print (coords)
+                xmin, xmax, ymin, ymax = coords
+                p.x_range.start = xmin
+                p.x_range.end = xmax
+                #p.y_range.start = ymin
+                #p.y_range.end = ymax
+            else:
+                coords = get_figure_coords(p)
+                print (coords)
+        else:
+            coords = None'''
+
         return
 
     def update_overview(event=None, sub=None):
@@ -389,7 +403,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         f = bokeh_plot.split_view(selected, col, parcels, provider)
         #print (f)
         split_pane.object = f
-        #split_pane.param.trigger('object')
+        split_pane.param.trigger('object')
         return
 
     def update_tree(event=None, sub=None):
@@ -440,6 +454,20 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         update(sub=selected)
         return
 
+    def save_selection(event=None):
+        """Save a selection"""
+
+        global selected
+        name = selectionname_input.value
+        selections[name] = {}
+        selections[name]['indexes'] = list(selected.index)
+        #add to menu
+        selections_input.options = list(selections.keys())
+        #save to file
+        with open(selections_file,'w') as f:
+            f.write(json.dumps(selections))
+        return
+
     def update_scatter(event=None):
         """Update cat plot I"""
         global selected
@@ -455,24 +483,24 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     overview_pane = pn.pane.Matplotlib(height=300)
     split_pane = pn.pane.Bokeh(sizing_mode='stretch_both')
     timeline_pane = pn.pane.Bokeh(sizing_mode='stretch_height')
-    info_pane = pn.pane.Str('', styles={'font-size': '10pt'})
+    info_pane = pn.pane.Markdown('', styles={'color': "red"})
 
     #main table
     meta_pane = pnw.Tabulator(disabled=True,page_size=100,
                               frozen_columns=['sample'],
                               sizing_mode='stretch_both')
-    showselected_btn = pnw.Button(name='Select Samples', button_type='primary')
+    showselected_btn = pnw.Button(name='Select Samples', button_type='primary', align="end")
     pn.bind(select_from_table, showselected_btn, watch=True)
-    selectrelated_btn = pnw.Button(name='Find Related', button_type='primary')
+    selectrelated_btn = pnw.Button(name='Find Related', button_type='primary', align="end")
     pn.bind(select_related, selectrelated_btn, watch=True)
     threshold_input = pnw.IntInput(name='Threshold', value=7, step=1, start=2, end=20,width=60)
     #search
-    scols = ['sample','Year','HERD_NO','Animal_ID','Species','County']
+    scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','IE_clade','Region']
     search_input = pnw.TextInput(name="Search", value='',width=150)
-    searchcol_select = pnw.Select(name='Column',value='HERD_NO',options=scols,width=90)
-    search_btn = pnw.Button(icon=get_icon('search'), icon_size='1.8em')
+    searchcol_select = pnw.Select(name='Column',value='HERD_NO',options=scols,width=100)
+    search_btn = pnw.Button(icon=get_icon('search'), icon_size='1.8em', align="end")
     pn.bind(do_search, search_btn, watch=True)
-    reset_btn = pnw.Button(icon=get_icon('refresh'), icon_size='1.8em')
+    reset_btn = pnw.Button(icon=get_icon('refresh'), icon_size='1.8em', align="end")
     pn.bind(reset_table, reset_btn, watch=True)
 
     table_widgets = pn.Row(showselected_btn, selectrelated_btn, threshold_input,
@@ -494,21 +522,25 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     #saved selections
     selections_input = pnw.Select(name='Selections',options=list(selections.keys()),value='',width=w)
     loadselection_btn = pnw.Button(name='Load Selection', button_type='primary')
-    saveselection_btn = pnw.Button(name='Save Selection', button_type='primary')
     pn.bind(load_selection, loadselection_btn, watch=True)
-    card2 = pn.Column('## Selections', selections_input, loadselection_btn, saveselection_btn,
-                       width=300, styles=card_style)
+    saveselection_btn = pnw.Button(name='Save Selection', button_type='primary')
+    pn.bind(save_selection, saveselection_btn, watch=True)
+    selectionname_input = pnw.TextInput(value='',width=w)
+
+    card2 = pn.Column('## Selections', pn.Row(selections_input, loadselection_btn),
+                      pn.Row(selectionname_input, saveselection_btn),
+                       width=340, styles=card_style)
     #reporting
     doreport_btn = pnw.Button(name='Generate', button_type='primary')
     savereport_btn = pnw.FileDownload(file=report_file, button_type='success', auto=False,
                                     embed=False, name="Download Report")
-    card3 = pn.Column('## Reporting', doreport_btn, savereport_btn, width=300, styles=card_style)
+    card3 = pn.Column('## Reporting', doreport_btn, savereport_btn, width=340, styles=card_style)
     pn.bind(create_report, doreport_btn, watch=True)
 
     #lpis
     loadlpis_btn = pnw.Button(name='Load LPIS', button_type='primary')
     pn.bind(load_lpis, loadlpis_btn, watch=True)
-    card4 = pn.Column('## LPIS', loadlpis_btn, width=300, styles=card_style)
+    card4 = pn.Column('## LPIS', loadlpis_btn, width=340, styles=card_style)
 
     #utils_pane = pn.Column(card1, card2, card3, card4, styles={'margin': '10px'}, sizing_mode='stretch_both')
     utils_pane = pn.FlexBox(*[card2, card3, card4], flex_direction='column', min_height=400,
@@ -533,9 +565,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     moves_btn = pnw.Toggle(icon=get_icon('plot-moves'), icon_size='1.8em')
     legend_btn = pnw.Toggle(icon=get_icon('legend'), icon_size='1.8em')
     neighbours_btn = pnw.Toggle(icon=get_icon('neighbours'), icon_size='1.8em')
-    lockbtn = pnw.Toggle(icon=get_icon('lock'), icon_size='1.8em')
-    toolbar = pn.Column(pn.WidgetBox(split_btn,selectregion_btn,tree_btn,
-                                     parcels_btn,moves_btn,legend_btn,neighbours_btn,lockbtn),width=70)
+    #lockbtn = pnw.Toggle(icon=get_icon('lock'), icon_size='1.8em')
+    toolbar = pn.Column(pn.WidgetBox(selectregion_btn,tree_btn,
+                                     parcels_btn,moves_btn,legend_btn,neighbours_btn),width=70)
 
     timeslider = pnw.IntRangeSlider(name='Time',width=150,
                     start=2000, end=2024, value=(2000, 2024), step=1)
@@ -579,7 +611,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
                        toolbar,
                 pn.Column(
                     pn.Tabs(('Map',pn.Column(plot_pane,filters)),
-                            ('Split View',pn.Column(split_pane, height=300)),
+                            #('Split View',pn.Column(split_pane, height=300)),
                             ('Main Table', table_pane),
                             ('Selected', selected_pane),
                             ('Moves', moves_pane),
@@ -617,13 +649,18 @@ def main():
     lpis_master_file = data['lpis_master_file']
     parcels = data['parcels']
     snpdist = data['snpdist']
-    selections = data['selections']
-
+    #selections = data['selections']
+    print (selections_file)
+    if os.path.exists(selections_file):
+        selections = json.load(open(selections_file,'r'))
+    else:
+        selections = {}
     #create template
     bootstrap = pn.template.BootstrapTemplate(title='TracebTB Web',
                         favicon=logoimg,logo=logoimg,header_color='green')
     #pn.config.sizing_mode = 'stretch_width'
     app = dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections)
+    app.project_file = args.project
     bootstrap.main.append(app)
     bootstrap.servable()
     pn.serve(bootstrap, port=5010)

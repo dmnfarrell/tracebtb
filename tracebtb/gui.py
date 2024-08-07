@@ -1760,38 +1760,6 @@ class App(QMainWindow):
         #                    moves=mov, lpis_cent=self.lpis_cent)
         return
 
-    '''def show_folium(self):
-        """Update folium map"""
-
-        colorcol = self.colorbyw.currentText()
-        parcelscol = self.colorparcelsbyw.currentText()
-        cmap = self.cmapw.currentText()
-        if self.movesb.isChecked():
-            mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
-        else:
-            mov = None
-        herds = list(self.sub.HERD_NO)
-        p = None
-        np = None
-        if 'HERD_NO' in self.parcels.columns:
-            key = 'HERD_NO'
-        else:
-            key = 'SPH_HERD_N'
-        if self.parcelsb.isChecked():
-            if self.parcels is not None:
-                if mov is not None:
-                    herds.extend(mov.move_to)
-                p = self.parcels[self.parcels[key].isin(herds)]
-            else:
-                print ('no parcels found')
-            if self.neighbours is not None:
-                np = self.neighbours
-        self.foliumview.plot(sub=self.sub, parcels=p, neighbours=np, moves=mov,
-                             lpis_cent=self.lpis_cent,
-                             colorcol=colorcol, parcelscol=parcelscol,
-                             cmap=cmap)
-        return'''
-
     def split_view(self):
         """Split current selection by some column"""
 
@@ -1816,30 +1784,6 @@ class App(QMainWindow):
         self.splitview.split_view(gdf=self.sub, col=col,
                                   parcels=self.parcels, provider=provider)
         return
-
-    '''def plot_farms(self):
-        """Seperate farms view in grid"""
-
-        if self.sub is None or len(self.sub) == 0:
-            return
-        #source = providers[self.contextw.currentText()]
-
-        herds = list(self.sub.HERD_NO)
-        p = self.parcels[self.parcels.HERD_NO.isin(herds)]
-
-        if not hasattr(self, 'gridview'):
-            self.gridview = widgets.CustomPlotViewer(self, controls=False, app=self)
-            self.m.addWidget(self.gridview)
-            idx = self.tabs.addTab(self.gridview, 'Farms')
-            self.tabs.setCurrentIndex(idx)
-
-        def plot_completed():
-            self.gridview.redraw()
-            self.processing_completed()
-        def func(progress_callback):
-            axs = plot_grid(self.sub, p, fig=self.gridview.fig, source=source)
-        self.run_threaded_process(func, plot_completed)
-        return'''
 
     def export_selection(self):
         """Export view using bokeh html"""
