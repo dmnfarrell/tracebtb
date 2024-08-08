@@ -155,8 +155,10 @@ def plot_overview(df):
     plt.tight_layout()
     return fig
 
-def report(sub, sp, mov, col, lpis_cent, snpdist):
-    """Save report"""
+def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
+    """
+    Save a report with custom panes.
+    """
 
     from datetime import date
     styles={ "margin-top": "10px", "margin-bottom": "20px"}
@@ -167,21 +169,40 @@ def report(sub, sp, mov, col, lpis_cent, snpdist):
     }
     title = f'# TracebTB report. {len(sub)} samples. {date.today()}'
     header = pn.pane.Markdown(title, styles=styles, margin=(5, 20))
+
+    #prepare data
+    if len(sub[col].unique())>20:
+        cmap=None
+    sub['color'],c = tools.get_color_mapping(sub, col, cmap)
+    sub['marker'] = sub.Species.map(speciesmarkers)
+    herds = list(sub.HERD_NO)
+    mov = gui.get_moves_bytag(sub, moves, lpis_cent)
+    if mov is not None:
+        herds.extend(mov.move_to)
+    sp = parcels[parcels.SPH_HERD_N.isin(herds)].copy()
+    sp['color'],c = tools.get_color_mapping(sp, 'SPH_HERD_N')
+
+    #plot map
+    plot = bokeh_plot.plot_selection(sub, sp, col=col, legend=True)
+    bokeh_plot.plot_moves(plot, mov, lpis_cent)
+    #overview
     fig = plot_overview(sub)
     overview = pn.pane.Matplotlib(fig, width=250)
     plt.close(fig)
-    plot = bokeh_plot.plot_selection(sub, sp, legend=True)
-    bokeh_plot.plot_moves(plot, mov, lpis_cent)
+    #tree
     treefile = get_tree(snpdist, sub.index)
     html = draw_toytree(treefile, sub, col, tiplabelcol='sample',markercol='Species')
     treepane = pn.pane.HTML(html)
+    #table
     cols = ['sample','HERD_NO','Animal_ID','Species','County','Homebred','IE_clade']
     table = pn.pane.DataFrame(sub[cols], styles=CARD_STYLE)
     herdcolors = dict(zip(sp.SPH_HERD_N,sp.color))
+    #timeline
     timeline = pn.pane.Bokeh(bokeh_plot.plot_moves_timeline(mov, herdcolors, height=500),styles=CARD_STYLE)
-    splitview = pn.Row(bokeh_plot.split_view(sub, 'HERD_NO', sp, provider='Esri World Imagery'),height=800, styles=CARD_STYLE)
+    #splitview = pn.Row(bokeh_plot.split_view(sub, 'HERD_NO', sp),height=800, styles=CARD_STYLE)
 
-    main = pn.Column(pn.Row(plot, treepane, overview, height=600),pn.Row(table,timeline),splitview)
+    #main = pn.Column(pn.Row(plot, treepane, overview, height=600),pn.Row(table,timeline))
+    main = pn.FlexBox(pn.Row(overview, plot, treepane, height=600), table, timeline)
     report = pn.Column(header, main)
     return report
 
@@ -243,7 +264,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
                 herds.extend(mov.move_to)
         else:
             pcls=None
-        p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms, col=col, legend=legend)
+        labels = parcellabel_btn.value
+        p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms,
+                                      col=col, legend=legend, labels=labels)
 
         global lpis
         if neighbours_btn.value == True and lpis is not None:
@@ -276,6 +299,8 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
             update_tree(sub=sub)
         #summary plots
         update_scatter()
+        #herds
+        update_herds()
         #dist matrix
         #dm = snpdist.loc[sub.index,sub.index]
         #p = bokeh_plot.heatmap(dm)
@@ -298,6 +323,14 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         else:
             coords = None'''
 
+        return
+
+    def update_herds(event=None):
+        """herd summary"""
+
+        global selected
+        h = gui.herd_summary(selected, moves, snpdist)
+        herds_pane.object = h
         return
 
     def update_overview(event=None, sub=None):
@@ -565,9 +598,11 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     moves_btn = pnw.Toggle(icon=get_icon('plot-moves'), icon_size='1.8em')
     legend_btn = pnw.Toggle(icon=get_icon('legend'), icon_size='1.8em')
     neighbours_btn = pnw.Toggle(icon=get_icon('neighbours'), icon_size='1.8em')
+    parcellabel_btn = pnw.Toggle(icon=get_icon('parcel-label'), icon_size='1.8em')
     #lockbtn = pnw.Toggle(icon=get_icon('lock'), icon_size='1.8em')
     toolbar = pn.Column(pn.WidgetBox(selectregion_btn,tree_btn,
-                                     parcels_btn,moves_btn,legend_btn,neighbours_btn),width=70)
+                                     parcels_btn,parcellabel_btn,moves_btn,legend_btn,
+                                     neighbours_btn),width=70)
 
     timeslider = pnw.IntRangeSlider(name='Time',width=150,
                     start=2000, end=2024, value=(2000, 2024), step=1)
@@ -584,6 +619,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     tiplabel_input.param.watch(update, 'value')
     tree_btn.param.watch(update, 'value')
     parcels_btn.param.watch(update, 'value')
+    parcellabel_btn.param.watch(update, 'value')
     moves_btn.param.watch(update, 'value')
     legend_btn.param.watch(update, 'value')
     neighbours_btn.param.watch(update, 'value')
@@ -601,6 +637,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     col_input = pnw.Select(name='col',options=cols,value='Year',width=w)
     mscat_input = pnw.IntSlider(name='point size',start=1, end=25, value=5, step=1,width=w)
     analysis_pane = pn.Column(scatter_pane,pn.Row(row_input,col_input,mscat_input),height=350)
+    herds_pane = pn.pane.DataFrame(max_height=350)
 
     row_input.param.watch(update_scatter, 'value')
     col_input.param.watch(update_scatter, 'value')
@@ -620,7 +657,8 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
                           ),
                 pn.Column(pn.Tabs(('Overview',overview_pane),('Tree',tree_pane),
                                   ('Network',network_pane),
-                                  ('Summary I',analysis_pane)),timeline_pane, width=500)),
+                                  ('Summary I',analysis_pane),
+                                  ('Herds',herds_pane)),timeline_pane, width=500)),
              max_width=2000,min_height=600
     )
     app.sizing_mode='stretch_both'

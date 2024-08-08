@@ -451,6 +451,33 @@ def get_move_dates(df):
     df['end_date'] = df.move_date.shift(-1)
     return df[['move_date','end_date','move_to']][:-1]
 
+def herd_summary(df, moves, snpdist=None):
+
+    res=[]
+    for herd, sdf in df.groupby('HERD_NO'):
+        #print (herd)
+        clades = len(sdf.snp7.unique())
+        m = moves[moves.move_to == herd]
+        #only farm to farm moves
+        m = m[m.data_type=='F_to_F']
+        #get mean SNP dist within farm
+        idx = list(sdf.index)
+        if snpdist is not None:
+            D = snpdist.loc[idx,idx]
+            meandist = D.stack().mean().round(1)
+            mediandist = D.stack().median().round(1)
+        else:
+            meandist = None
+            mediandist = None
+        if 'Homebred' in sdf.columns:
+            hbred = len(sdf[sdf.Homebred=='yes'])
+        else:
+            hbred = None
+        res.append([herd,len(sdf),clades,len(m),meandist,mediandist,hbred])
+    res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves','mean_dist','median_dist','homebred'])
+    res = res.sort_values('strains',ascending=False)
+    return res
+
 class CustomTreeWidgetItem( QTreeWidgetItem ):
     def __init__(self, parent=None):
         QTreeWidgetItem.__init__(self, parent)
@@ -2337,29 +2364,8 @@ class App(QMainWindow):
     def herd_summary(self):
         """Summary by herd. We use snp7 to define a strain."""
 
-        res=[]
-        df = self.sub #self.meta_table.model.df
-        for herd, sdf in df.groupby('HERD_NO'):
-            #print (herd)
-            clades = len(sdf.snp7.unique())
-            m = self.moves[self.moves.move_to == herd]
-            #only farm to farm moves
-            m = m[m.data_type=='F_to_F']
-            #get mean SNP dist within farm
-            idx = list(sdf.index)
-            if hasattr(self, 'snpdist'):
-                D = self.snpdist.loc[idx,idx]
-                meandist = D.stack().mean().round(1)
-                mediandist = D.stack().median().round(1)
-            else:
-                meandist = None
-            if 'Homebred' in sdf.columns:
-                hbred = len(sdf[sdf.Homebred=='yes'])
-            else:
-                hbred = None
-            res.append([herd,len(sdf),clades,len(m),meandist,mediandist,hbred])
-        res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves','mean_dist','median_dist','homebred'])
-        res = res.sort_values('strains',ascending=False)
+        df = self.sub
+        herd_summary(df, self.moves, self.snpdist)
         w = tables.HerdTable(self, dataframe=res,
                     font=core.FONT, fontsize=core.FONTSIZE, app=self)
         self.show_dock_object(w, 'herd summary')

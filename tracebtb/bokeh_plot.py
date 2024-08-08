@@ -92,7 +92,7 @@ def init_figure(title=None, provider=None, width=600, height=600, sizing_mode='s
     return p
 
 def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
-                   legend=False, title=None, ms=10, p=None):
+                   legend=False, title=None, ms=10, labels=False, p=None):
     """
     Plot geodataframe selections with bokeh
     Args:
@@ -148,6 +148,16 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
             r.visible=False
         legend = Legend(items=legend_items, location="top_left", title=col)
         p.add_layout(legend, 'right')
+
+    if labels == True and parcels is not None:
+        from . import gui
+        cent = gui.calculate_parcel_centroids(parcels).to_crs('EPSG:3857')
+        cent['color'] = parcels.color
+        labels_source = GeoJSONDataSource(geojson=cent.to_json())
+        labels = LabelSet(x='x', y='y', text='SPH_HERD_N', source=labels_source,
+                          text_align='right', background_fill_color='color', background_fill_alpha=0.7,
+                          text_font_size = "20px")
+        p.add_layout(labels)
 
     p.axis.visible = False
     p.toolbar.logo = None
