@@ -60,6 +60,7 @@ def get_tree(snpdist, idx):
     return treefile
 
 def draw_toytree(treefile, df, col, **kwargs):
+
     import toyplot
     from tracebtb import trees
     canvas = trees.draw_tree(treefile, df, col=col, **kwargs)
@@ -68,8 +69,8 @@ def draw_toytree(treefile, df, col, **kwargs):
         html = f.read()
     return html
 
-def draw_tree(treefile, df, col):
-    """Draw newick tree with phylocanvas"""
+def phylocanvas_tree(treefile, df, col):
+    """Draw newick tree"""
 
     with open(treefile, 'r') as file:
         newick_data = file.read()
@@ -447,9 +448,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
             return
         treefile = get_tree(snpdist, sub.index)
         col = colorby_input.value
-        #html = draw_tree(treefile, selected, col)
         html = draw_toytree(treefile, sub, col, cmap=cmap_input.value,
                             tiplabelcol=tiplabel_input.value, markercol='Species', height=400)
+        #html = phylocanvas_tree(treefile, sub, col)
         tree_pane.object = html
         return
 

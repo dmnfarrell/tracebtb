@@ -156,7 +156,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         labels_source = GeoJSONDataSource(geojson=cent.to_json())
         labels = LabelSet(x='x', y='y', text='SPH_HERD_N', source=labels_source,
                           text_align='right', background_fill_color='color', background_fill_alpha=0.7,
-                          text_font_size = "20px")
+                          text_font_size = "18px")
         p.add_layout(labels)
 
     p.axis.visible = False
