@@ -63,7 +63,9 @@ def draw_toytree(treefile, df, col, **kwargs):
 
     import toyplot
     from tracebtb import trees
-    canvas = trees.draw_tree(treefile, df, col=col, **kwargs)
+    with open(treefile, 'r') as f:
+        s = f.read()
+    canvas = trees.draw_tree(s, df, col=col, **kwargs)
     toyplot.html.render(canvas, "temp.html")
     with open('temp.html', 'r') as f:
         html = f.read()
@@ -441,6 +443,8 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         return
 
     def update_tree(event=None, sub=None):
+        """Update with toytree"""
+
         #replace this with just selecting tips on a main tree using another package..
         if len(sub)<=1 or len(sub)>500:
             html = '<h1><2 or too many samples</h1>'
