@@ -22,7 +22,7 @@ from bokeh.models import Range1d
 import panel as pn
 import panel.widgets as pnw
 
-from tracebtb import gui, tools, plotting, trees, bokeh_plot
+from tracebtb import tools, plotting, trees, bokeh_plot
 
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
@@ -42,6 +42,8 @@ card_style = {
     'margin': '5px',
     'box-shadow': '4px 4px 4px #bcbcbc'
 }
+colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
+            'tab10', 'tab20', 'tab20b', 'tab20c']
 
 def get_icon(name):
     """Get svg icon"""
@@ -179,7 +181,7 @@ def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
     sub['color'],c = tools.get_color_mapping(sub, col, cmap)
     sub['marker'] = sub.Species.map(speciesmarkers)
     herds = list(sub.HERD_NO)
-    mov = gui.get_moves_bytag(sub, moves, lpis_cent)
+    mov = tools.get_moves_bytag(sub, moves, lpis_cent)
     if mov is not None:
         herds.extend(mov.move_to)
     sp = parcels[parcels.SPH_HERD_N.isin(herds)].copy()
@@ -252,7 +254,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
 
         #get moves first so we know which parcels to show
         herds = list(sub.HERD_NO)
-        mov = gui.get_moves_bytag(sub, moves, lpis_cent)
+        mov = tools.get_moves_bytag(sub, moves, lpis_cent)
         if mov is not None and moves_btn.value == True:
             herds.extend(mov.move_to)
         sp = parcels[parcels.SPH_HERD_N.isin(herds)].copy()
@@ -278,7 +280,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
             shb = shared_borders(sp, lpis)
             bokeh_plot.plot_lpis(shb, p)
 
-        mov = gui.get_moves_bytag(sub, moves, lpis_cent)
+        mov = tools.get_moves_bytag(sub, moves, lpis_cent)
         if moves_btn.value == True:
             bokeh_plot.plot_moves(p, mov, lpis_cent)
             moves_pane.value = mov.reset_index().drop(columns=['geometry'])
@@ -332,7 +334,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         """herd summary"""
 
         global selected
-        h = gui.herd_summary(selected, moves, snpdist)
+        h = tools.herd_summary(selected, moves, snpdist)
         herds_pane.object = h
         return
 
@@ -476,7 +478,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         sub = selected
         sp = parcels[parcels.SPH_HERD_N.isin(sub.HERD_NO)].copy()
         sp['color'],c = tools.get_color_mapping(sp, 'SPH_HERD_N')
-        mov = gui.get_moves_bytag(sub, moves, lpis_cent)
+        mov = tools.get_moves_bytag(sub, moves, lpis_cent)
         col = colorby_input.value
         result = report(selected, sp, mov, col, lpis_cent, snpdist)
         #report_file = f'report_{datetime.today().date()}.html'
@@ -556,7 +558,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     network_pane = pn.pane.Bokeh()
     snpdist_pane = pn.pane.Bokeh(height=400)
 
-    cols = [None]+gui.get_ordinal_columns(meta)
+    cols = [None]+tools.get_ordinal_columns(meta)
     #saved selections
     selections_input = pnw.Select(name='Selections',options=list(selections.keys()),value='',width=w)
     loadselection_btn = pnw.Button(name='Load Selection', button_type='primary')
@@ -588,7 +590,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     groupby_input = pnw.Select(name='group by',options=cols,value='snp7',width=w)
     groups_table = pnw.Tabulator(disabled=True, widths={'index': 70}, layout='fit_columns',pagination=None, height=250, width=w)
     colorby_input = pnw.Select(name='color by',options=cols,value='snp7',width=w)
-    cmap_input = pnw.Select(name='colormap',options=gui.colormaps,value='Set1',width=w)
+    cmap_input = pnw.Select(name='colormap',options=colormaps,value='Set1',width=w)
     provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
     markersize_input = pnw.FloatInput(name='marker size', value=10, step=1, start=2, end=100,width=w)
     tiplabel_input = pnw.Select(name='tip label',options=list(meta.columns),value='sample',width=w)

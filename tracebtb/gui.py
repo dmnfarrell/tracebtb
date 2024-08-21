@@ -90,19 +90,6 @@ dockstyle = '''
 
 #module level functions
 
-def get_ordinal_columns(df):
-    """Try to get ordinal columns from table"""
-
-    ignore = ['sample','Aliquot','geometry','Animal_ID','X_COORD','Y_COORD']
-    ocols = []
-    for col in df.columns:
-        count = df[col].nunique()
-        #print (col, count, len(df[col]))
-        if count==len(df[col]) or col in ignore:
-            continue
-        ocols.append(col)
-    return ocols
-
 def show_labels(df, col, ax):
     """Add labels to plot"""
 
@@ -426,57 +413,10 @@ def apply_jitter(gdf, radius=100):
         gdf.loc[group.index, 'geometry'] = jittered
     return gdf
 
-def get_moves_bytag(df, move_df, lpis_cent):
-    """
-    Get moves and coords for one or more samples.
-    """
-
-    cols=['Animal_ID']+list(move_df.columns)
-    t = df.merge(move_df,left_on='Animal_ID',right_on='tag',how='inner')[cols]
-    #print (t)
-    #merge result with parcel cents to get coords of moved_to farms
-    m = t.merge(lpis_cent,left_on='move_to',right_on='SPH_HERD_N', how='left')
-    if len(m)==0:
-        return
-    m = (m.drop_duplicates()
-        .drop(columns=['Animal_ID','id','event_type','rnk_final'], errors='ignore')
-        .sort_values(['tag','move_date'])
-        .set_index('tag',drop=True)
-        )
-    m = gpd.GeoDataFrame(m)
-    return m
-
 def get_move_dates(df):
 
     df['end_date'] = df.move_date.shift(-1)
     return df[['move_date','end_date','move_to']][:-1]
-
-def herd_summary(df, moves, snpdist=None):
-
-    res=[]
-    for herd, sdf in df.groupby('HERD_NO'):
-        #print (herd)
-        clades = len(sdf.snp7.unique())
-        m = moves[moves.move_to == herd]
-        #only farm to farm moves
-        m = m[m.data_type=='F_to_F']
-        #get mean SNP dist within farm
-        idx = list(sdf.index)
-        if snpdist is not None:
-            D = snpdist.loc[idx,idx]
-            meandist = D.stack().mean().round(1)
-            mediandist = D.stack().median().round(1)
-        else:
-            meandist = None
-            mediandist = None
-        if 'Homebred' in sdf.columns:
-            hbred = len(sdf[sdf.Homebred=='yes'])
-        else:
-            hbred = None
-        res.append([herd,len(sdf),clades,len(m),meandist,mediandist,hbred])
-    res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves','mean_dist','median_dist','homebred'])
-    res = res.sort_values('strains',ascending=False)
-    return res
 
 class CustomTreeWidgetItem( QTreeWidgetItem ):
     def __init__(self, parent=None):
@@ -822,7 +762,7 @@ class App(QMainWindow):
 
         df = self.meta_table.model.df
         cols = ['']+list(df.columns)
-        ocols = get_ordinal_columns(df)
+        ocols = tools.get_ordinal_columns(df)
 
         self.groupbyw.clear()
         self.groupbyw.addItems(ocols)
@@ -1313,7 +1253,7 @@ class App(QMainWindow):
 
         lpis = self.lpis_master
         #add farms that are in current moves data aswell
-        mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
+        mov = tools.get_moves_bytag(self.sub, self.moves, self.lpis_cent)
         m = lpis[lpis.SPH_HERD_N.isin(mov.SPH_HERD_N)]
         #combine both
         df = pd.concat([df,m])
@@ -1698,7 +1638,7 @@ class App(QMainWindow):
 
         #get moves here
         if hasattr(self, 'moves'):
-            mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
+            mov = tools.get_moves_bytag(self.sub, self.moves, self.lpis_cent)
         else:
             mov = None
 
@@ -1836,7 +1776,7 @@ class App(QMainWindow):
         legend = self.legendb.isChecked()
 
         if hasattr(self, 'moves'):
-            mov = get_moves_bytag(self.sub, self.moves, self.lpis_cent)
+            mov = tools.get_moves_bytag(self.sub, self.moves, self.lpis_cent)
         else:
             mov = None
         p=None
@@ -2365,7 +2305,7 @@ class App(QMainWindow):
         """Summary by herd. We use snp7 to define a strain."""
 
         df = self.sub
-        herd_summary(df, self.moves, self.snpdist)
+        tools.herd_summary(df, self.moves, self.snpdist)
         w = tables.HerdTable(self, dataframe=res,
                     font=core.FONT, fontsize=core.FONTSIZE, app=self)
         self.show_dock_object(w, 'herd summary')
