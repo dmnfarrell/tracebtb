@@ -30,6 +30,7 @@ logoimg = os.path.join(module_path, 'logo.png')
 iconpath = os.path.join(module_path, 'icons')
 home = os.path.expanduser("~")
 configpath = os.path.join(home, '.config','tracebtb')
+configfile = os.path.join(configpath, 'settings.json')
 report_file = 'report.html'
 selections_file = os.path.join(configpath,'selections.json')
 
@@ -687,11 +688,22 @@ def main():
         print ('please provide a project file')
         exit()
 
+    #load config file
+    if not os.path.exists(configfile):
+        d = {'dashboard':{'lpis_master_file':''}}
+        with open(configfile, "w") as outfile:
+            json.dump(d, outfile)
+        lpis_master_file = None
+    else:
+        with open(configfile) as f:
+            jsondata = json.load(f)
+        print('found settings file')
+        lpis_master_file = jsondata['dashboard']['lpis_master_file']
+
     data = pickle.load(open(args.project,'rb'))
     meta = data['meta']#.to_crs('EPSG:3857')
     moves = data['moves']
     lpis_cent = data['lpis_cent']
-    lpis_master_file = data['lpis_master_file']
     parcels = data['parcels']
     snpdist = data['snpdist']
     #selections = data['selections']

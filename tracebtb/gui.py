@@ -99,21 +99,6 @@ def show_labels(df, col, ax):
                     fontsize=8)
     return
 
-def get_largest_poly(x):
-    if type(x) is MultiPolygon:
-        return max(x.geoms, key=lambda a: a.area)
-    else:
-        return x
-
-def calculate_parcel_centroids(parcels):
-    """Get centroids of lpis parcels"""
-
-    largest = parcels.geometry.apply(get_largest_poly)
-    cent = largest.geometry.centroid
-    cent = gpd.GeoDataFrame(geometry=cent,crs='EPSG:29902')
-    cent['SPH_HERD_N'] = parcels.SPH_HERD_N
-    return cent
-
 def set_equal_aspect(ax):
     """Set axes to be equal regardless of selection"""
 
@@ -1211,7 +1196,7 @@ class App(QMainWindow):
             return
 
         def func(progress_callback):
-            self.lpis_cent = calculate_parcel_centroids(self.lpis_master)
+            self.lpis_cent = tools.calculate_parcel_centroids(self.lpis_master)
         print ('calculating centroids..')
         self.run_threaded_process(func, completed)
         return
@@ -1497,7 +1482,7 @@ class App(QMainWindow):
         print ('parcels loaded')
         #if no lpis_cent use parcel centroids - mainly to avoid errors
         if self.lpis_cent is None:
-            self.lpis_cent = calculate_parcel_centroids(self.parcels)
+            self.lpis_cent = tools.calculate_parcel_centroids(self.parcels)
         return
 
     def load_folder(self):

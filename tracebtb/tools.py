@@ -149,7 +149,7 @@ def get_color_mapping(df, col, cmap=None, seed=1):
         c_map = mpl.cm.get_cmap(cmap)
         clrs = [colors.rgb2hex(c_map(i)) for i in range(len(c))]
         #colors = gen_colors(cmap,len(c))
-     
+
     colormap = dict(zip(c, clrs))
     newcolors =  [colormap[i] if i in colormap else 'Black' for i in df[col]]
     return newcolors, colormap
@@ -425,3 +425,20 @@ def get_moves_bytag(df, move_df, lpis_cent):
         )
     m = gpd.GeoDataFrame(m)
     return m
+
+def get_largest_poly(x):
+    """Return largest poly of multipolygon"""
+
+    if type(x) is MultiPolygon:
+        return max(x.geoms, key=lambda a: a.area)
+    else:
+        return x
+
+def calculate_parcel_centroids(parcels):
+    """Get centroids of lpis parcels"""
+
+    largest = parcels.geometry.apply(get_largest_poly)
+    cent = largest.geometry.centroid
+    cent = gpd.GeoDataFrame(geometry=cent,crs='EPSG:29902')
+    cent['SPH_HERD_N'] = parcels.SPH_HERD_N
+    return cent
