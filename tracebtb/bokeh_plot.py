@@ -24,6 +24,9 @@ import numpy as np
 import pandas as pd
 import matplotlib as mpl
 import geopandas as gpd
+import matplotlib.dates as mdates
+from datetime import datetime
+import matplotlib.colors as mcolors
 
 try:
     from bokeh.io import show
@@ -53,7 +56,7 @@ providers = [
 module_path = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(module_path,'data')
 counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:3857")
-counties_gdf['geometry'] = counties_gdf.geometry.simplify(2000)
+counties_gdf['geometry'] = counties_gdf.geometry.simplify(300)
 
 def calculate_grid_dimensions(n):
     """Calculate the number of rows and columns that best approximate a square layout"""
@@ -110,6 +113,8 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
     gdf = gdf[~gdf.geometry.is_empty]
     if len(gdf) == 0:
         return p
+    if not 'color' in gdf.columns:
+        gdf['color'] = 'blue'
     geojson = gdf.to_crs('EPSG:3857').to_json()
     geo_source = GeoJSONDataSource(geojson=geojson)
 
@@ -150,8 +155,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         p.add_layout(legend, 'right')
 
     if labels == True and parcels is not None:
-        from . import gui
-        cent = gui.calculate_parcel_centroids(parcels).to_crs('EPSG:3857')
+        cent = tools.calculate_parcel_centroids(parcels).to_crs('EPSG:3857')
         cent['color'] = parcels.color
         labels_source = GeoJSONDataSource(geojson=cent.to_json())
         labels = LabelSet(x='x', y='y', text='SPH_HERD_N', source=labels_source,
@@ -168,8 +172,7 @@ def plot_counties(p):
     geojson = counties_gdf.to_json()
     source = GeoJSONDataSource(geojson=geojson)
     r = p.patches('xs', 'ys', source=source,
-                  fill_color='#f9f9f9', line_width=1, line_color='gray')
-    p.grid.grid_line_color = None
+                  line_width=3, line_color='red', fill_alpha=0)
     return p
 
 def plot_lpis(gdf, p):
@@ -242,13 +245,19 @@ def plot_moves_timeline(mov, herdcolors, height=300):
         return figure()
     cols = ['move_to','move_date','end_date','data_type','duration']
     new = []
+    #default end date if no death
+    end = datetime(2022, 12, 31)
     for tag,t in mov.groupby('tag'):
-        t=t.sort_values('move_date')
-        t['end_date'] = t.move_date.shift(-1)
+        if len(t)==1:
+            t['end_date'] = end
+        else:
+            t = t.sort_values('move_date')
+            t['end_date'] = t.move_date.shift(-1)
         t['duration'] = t.end_date-t.move_date
-        #print (t[cols])
         new.append(t[cols])
+
     df = pd.concat(new)
+    #print (df)
     df['color'] = df.move_to.map(herdcolors).fillna('grey')
     groups = df.groupby('tag')
     source = ColumnDataSource(df)
@@ -341,3 +350,117 @@ def heatmap(df):
     color_bar = ColorBar(color_mapper=mapper, location=(0, 0))
     p.add_layout(color_bar, 'right')
     return p
+
+def remove_outliers_zscore(gdf, threshold=3):
+    """
+    Remove outliers from a GeoDataFrame using the Z-score method.
+    :param gdf: GeoDataFrame with a 'geometry' column containing points.
+    :param threshold: Z-score threshold for identifying outliers.
+    :return: GeoDataFrame with outliers removed.
+    """
+    from scipy.stats import zscore
+    # Extract x and y coordinates
+    gdf['x'] = gdf.geometry.x
+    gdf['y'] = gdf.geometry.y
+    # Calculate Z-scores for x and y coordinates
+    gdf['zscore_x'] = zscore(gdf['x'])
+    gdf['zscore_y'] = zscore(gdf['y'])
+    # Filter based on the threshold
+    gdf_filtered = gdf[(np.abs(gdf['zscore_x']) < threshold) & (np.abs(gdf['zscore_y']) < threshold)]
+    # Drop the helper columns
+    gdf_filtered = gdf_filtered.drop(columns=['x', 'y', 'zscore_x', 'zscore_y'])
+    return gdf_filtered
+
+def adjust_brightness(color, factor):
+    # Convert the color from hex to RGB
+    rgb = np.array(mcolors.hex2color(color))
+
+    # Adjust the brightness by the given factor
+    # Clipping is used to ensure values stay within [0, 1]
+    adjusted_rgb = np.clip(rgb * factor, 0, 1)
+
+    # Convert back to hex
+    return mcolors.to_hex(adjusted_rgb)
+
+def create_linear_palette(base_color, n, light_factor=1.6, dark_factor=0.7):
+    """Create color palette around a base color"""
+
+    lighter_color = adjust_brightness(base_color, light_factor)
+    darker_color = adjust_brightness(base_color, dark_factor)
+    # Create a colormap from the lighter to the darker color
+    cmap = mcolors.LinearSegmentedColormap.from_list("custom_cmap", [lighter_color, darker_color])
+    # Generate `n` evenly spaced colors from the colormap
+    colors = [mcolors.to_hex(cmap(i/n)) for i in range(n)]
+    return colors
+
+def create_custom_palette(base_hex, num_colors=9):
+    """
+    Create a custom palette by generating darker variations of the base color while maintaining intensity.
+    :param base_hex: A string representing the base color in hex format (e.g., "#FF6347").
+    :param num_colors: The number of color variations to generate.
+    :return: A list of hex color codes.
+    """
+    # Convert hex to RGB and then to HSL
+    base_rgb = mcolors.hex2color(base_hex)
+    base_hsv = mcolors.rgb_to_hsv(base_rgb)
+
+    # Create a palette by darkening the base color while maintaining saturation
+    palette = []
+    for i in range(num_colors):
+        # Decrease lightness to make the color darker
+        factor = 1 - (i / num_colors)  # Linearly reduce brightness
+        # Maintain saturation to keep the color intense
+        darker_hsv = (base_hsv[0], base_hsv[1], base_hsv[2] * factor)
+        darker_rgb = mcolors.hsv_to_rgb(darker_hsv)
+        palette.append(mcolors.rgb2hex(darker_rgb))
+
+    return palette
+
+def kde(gdf, N):
+    """Get kde points of geodataframe"""
+
+    from scipy.stats import gaussian_kde
+    # Extract x and y coordinates from the GeoDataFrame
+    g = gdf.to_crs('EPSG:3857')
+    x = g.geometry.x
+    y = g.geometry.y
+    # Compute min and max for the grid
+    offset=x.max()-x.min()
+    xmin, xmax = x.min()-offset, x.max()+offset
+    ymin, ymax = y.min()-offset, y.max()+offset
+    # Create a grid of points where KDE will be evaluated
+    X, Y = np.mgrid[xmin:xmax:N*1j, ymin:ymax:N*1j]
+    positions = np.vstack([X.ravel(), Y.ravel()])
+    values = np.vstack([x, y])
+    # Perform KDE
+    kernel = gaussian_kde(values)
+    Z = np.reshape(kernel(positions).T, X.shape)
+    return X, Y, Z
+
+def kde_plot(gdf, p, levels=12):
+    """kde plot of points in map"""
+
+    x, y, z = kde(gdf, 100)
+    p.grid.level = "overlay"
+    palette = create_custom_palette('#4AA60E', num_colors=levels)
+    lvl = np.linspace(np.min(z), np.max(z), levels)
+    p.contour(x, y, z, lvl[1:], fill_color=palette, line_color=palette, fill_alpha=.4)
+    return
+
+def kde_plot_groups(gdf, p, col='snp12', min_samples=6):
+    """Kde plot of separate groups"""
+
+    for c,sub in gdf.groupby(col):
+        sub = sub[~sub.geometry.is_empty]
+        if len(sub)<min_samples:
+            continue
+        sub = remove_outliers_zscore(sub,3)
+        if len(sub) == 0:
+            continue
+        clr = sub.iloc[0].color
+        x, y, z = kde(sub, 200)
+        p.grid.level = "overlay"
+        palette = create_custom_palette(clr, num_colors=10)
+        levels = np.linspace(np.min(z), np.max(z), 10)
+        p.contour(x, y, z, levels[1:], fill_color=palette, line_color=palette, fill_alpha=.4)
+    return

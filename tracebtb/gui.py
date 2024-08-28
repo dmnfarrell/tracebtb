@@ -47,7 +47,7 @@ iconpath = os.path.join(module_path, 'icons')
 
 counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:29902")
 counties = ['Clare','Cork','Cavan','Monaghan','Louth','Kerry','Meath','Wicklow']
-cladelevels = ['snp3','snp7','snp12','snp20','snp50','snp200','snp500']
+cladelevels = ['snp3','snp5','snp7','snp12','snp20','snp50','snp200','snp500']
 colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
             'tab10', 'tab20', 'tab20b', 'tab20c']
 style = '''

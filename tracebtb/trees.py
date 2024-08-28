@@ -181,28 +181,32 @@ def draw_tree(filename, df=None, col=None, cmap=None, tiplabelcol=None, markerco
     import toytree
     tre = toytree.tree(filename)
     idx = tre.get_tip_labels()
-    if len(idx) > 100:
+    if len(idx) > 60:
         tiplabelcol = None
-    if df is not None and col not in [None, '']:
-        df = df.fillna('')
-        labels = df[col].unique()
-        if cmap == None:
-            cmap = ({c:tools.random_hex_color() if c in labels else 'black' for c in labels})
-        else:
-            c,cmap = tools.get_color_mapping(df, col, cmap)
-
-        df['color'] = df[col].apply(lambda x: cmap[x])
-        df = df.loc[idx]
-        tip_colors = list(df.color)
-        node_colors = [cmap[df.loc[n][col]] if n in df.index else 'black' for n in tre.get_node_values('name', True, True)]
-        node_sizes=[0 if i else 8 for i in tre.get_node_values(None, 1, 0)]
-    else:
+    if df is None:
         tip_colors = None
         node_colors = None
         node_sizes = None
-        tip_labels = False
-    if tiplabelcol not in [None, '']:
-        #tip_labels = list(df[tiplabelcol].astype(str))
+        tip_labels = False        
+    else:
+        if col not in [None, '']:
+            #get color from col
+            df = df.fillna('')
+            labels = df[col].unique()
+            if cmap == None:
+                cmap = ({c:tools.random_hex_color() if c in labels else 'black' for c in labels})
+            else:
+                c,cmap = tools.get_color_mapping(df, col, cmap)
+            df['color'] = df[col].apply(lambda x: cmap[x])
+        #if color column already present will use that or return
+        if 'color' not in df.columns:
+            return
+        df = df.loc[idx]
+        tip_colors = list(df.color)
+        node_colors = [df.loc[n]['color'] if n in df.index else 'black' for n in tre.get_node_values('name', True, True)]
+        node_sizes=[0 if i else 8 for i in tre.get_node_values(None, 1, 0)]
+
+    if tiplabelcol not in [None, '']:       
         tip_labels = [df.loc[n][tiplabelcol] if n in df.index else n for n in idx]
     else:
         tip_labels = False

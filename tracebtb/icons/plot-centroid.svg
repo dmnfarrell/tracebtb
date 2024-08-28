@@ -28,10 +28,10 @@
      showgrid="false"
      width="209mm"
      inkscape:zoom="0.32382505"
-     inkscape:cx="551.22357"
-     inkscape:cy="1230.6028"
-     inkscape:window-width="2560"
-     inkscape:window-height="1300"
+     inkscape:cx="515.71057"
+     inkscape:cy="1232.1468"
+     inkscape:window-width="2504"
+     inkscape:window-height="1305"
      inkscape:window-x="0"
      inkscape:window-y="0"
      inkscape:window-maximized="1"
@@ -58,15 +58,15 @@
        style="fill:#84e0fc;fill-opacity:1;stroke:#000300;stroke-width:0;stroke-linecap:round;stroke-miterlimit:4;stroke-dasharray:none"
        id="path1909"
        sodipodi:type="arc"
-       sodipodi:cx="118.47251"
-       sodipodi:cy="436.64697"
+       sodipodi:cx="122.55779"
+       sodipodi:cy="430.92758"
        sodipodi:rx="47.513912"
        sodipodi:ry="46.084057"
        sodipodi:start="5.9104179"
        sodipodi:end="5.8780944"
        sodipodi:open="true"
        sodipodi:arc-type="arc"
-       d="m 162.72331,419.86343 a 47.513912,46.084057 0 0 1 -26.58949,59.56566 47.513912,46.084057 0 0 1 -61.626675,-25.30715 47.513912,46.084057 0 0 1 25.593515,-59.97466 47.513912,46.084057 0 0 1 62.0403,24.33786" />
+       d="m 166.80859,414.14404 a 47.513912,46.084057 0 0 1 -26.58949,59.56566 47.513912,46.084057 0 0 1 -61.626674,-25.30715 47.513912,46.084057 0 0 1 25.593514,-59.97466 47.513912,46.084057 0 0 1 62.0403,24.33786" />
     <path
        style="fill:#0094ec;fill-opacity:1;stroke:#000300;stroke-width:0;stroke-linecap:round;stroke-miterlimit:4;stroke-dasharray:none"
        id="path1909-6"
@@ -120,7 +120,7 @@
        sodipodi:arc-type="arc"
        d="m 479.17857,224.58175 a 47.513912,46.084057 0 0 1 -26.5895,59.56566 47.513912,46.084057 0 0 1 -61.62667,-25.30714 47.513912,46.084057 0 0 1 25.59351,-59.97467 47.513912,46.084057 0 0 1 62.0403,24.33786" />
     <path
-       style="fill:none;fill-opacity:1;stroke:#090909;stroke-width:13.5;stroke-linecap:round;stroke-miterlimit:4;stroke-dasharray:54,54;stroke-dashoffset:24.30000114;stroke-opacity:1"
+       style="fill:none;fill-opacity:1;stroke:#090909;stroke-width:23.50000091;stroke-linecap:butt;stroke-miterlimit:4.30000019;stroke-dasharray:70.50000272,23.50000091;stroke-dashoffset:192.70001964;stroke-opacity:1"
        id="path1909-7-8-1"
        sodipodi:type="arc"
        sodipodi:cx="255.75337"

@@ -406,6 +406,31 @@ def herd_summary(df, moves, snpdist=None):
     res = res.sort_values('strains',ascending=False)
     return res
 
+def cluster_summary(df, col, min_size=5, snpdist=None):
+
+    res = []
+    for c,sub in df.groupby(col):
+        if len(sub)<min_size:
+            continue
+        herds = len(sub.HERD_NO.unique())
+        idx = list(sub.index)
+        if snpdist is not None:
+            D = snpdist.loc[idx,idx]
+            meandist = D.stack().mean().round(1)
+            mediandist = D.stack().median().round(1)
+        if 'Homebred' in sub.columns:
+            hbred = len(sub[sub.Homebred=='yes'])
+        else:
+            hbred = None
+        #species=sub.Species.value_counts()
+        badger = len(sub[sub.Species=='Badger'])
+        clade = sub.iloc[0].IE_clade
+        row = [c,len(sub),hbred,herds,badger,mediandist,clade]
+        res.append(row)
+    res=pd.DataFrame(res, columns=['cluster','isolates','homebred','herds','badger','median_dist','IE_clade'])
+    res=res.sort_values('isolates',ascending=False)
+    return res
+
 def get_moves_bytag(df, move_df, lpis_cent):
     """
     Get moves and coords for one or more samples.

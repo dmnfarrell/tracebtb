@@ -62,14 +62,17 @@ def get_tree(snpdist, idx):
     trees.tree_from_distmatrix(M, treefile)
     return treefile
 
-def draw_toytree(treefile, df, col, **kwargs):
+def draw_toytree(treefile, df, **kwargs):
 
     import toyplot
     from tracebtb import trees
     with open(treefile, 'r') as f:
         s = f.read()
-    canvas = trees.draw_tree(s, df, col=col, **kwargs)
-    toyplot.html.render(canvas, "temp.html")
+    if len(df)<800:
+        canvas = trees.draw_tree(s, df, **kwargs)
+        toyplot.html.render(canvas, "temp.html")
+    else:
+        return '<h2>too many tips</b>'
     with open('temp.html', 'r') as f:
         html = f.read()
     return html
@@ -151,12 +154,14 @@ def shared_borders(parcels, lpis):
     return found
 
 def plot_overview(df):
+    """Plot overview map"""
 
     fig,ax=plt.subplots(1,1)
     bokeh_plot.counties_gdf.plot(color='#E7F7C3', edgecolor='gray',
                         lw=1,alpha=0.7,
                         ax=ax)
-    df.to_crs('EPSG:3857').plot(ax=ax,color=df.color)
+    if len(df) != 0:
+        df.to_crs('EPSG:3857').plot(ax=ax,color=df.color)
     ax.axis('off')
     plt.tight_layout()
     return fig
@@ -197,7 +202,7 @@ def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
     plt.close(fig)
     #tree
     treefile = get_tree(snpdist, sub.index)
-    html = draw_toytree(treefile, sub, col, tiplabelcol='sample',markercol='Species')
+    html = draw_toytree(treefile, sub, tiplabelcol='sample', markercol='Species')
     treepane = pn.pane.HTML(html)
     #table
     cols = ['sample','HERD_NO','Animal_ID','Species','County','Homebred','IE_clade']
@@ -273,7 +278,10 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         labels = parcellabel_btn.value
         p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms,
                                       col=col, legend=legend, labels=labels)
-
+        if showcounties_btn.value == True:
+             bokeh_plot.plot_counties(p)
+        if kde_btn.value == True:
+            bokeh_plot.kde_plot_groups(sub, p, col, 6)
         global lpis
         if neighbours_btn.value == True and lpis is not None:
             #get neighbours
@@ -284,8 +292,10 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         mov = tools.get_moves_bytag(sub, moves, lpis_cent)
         if moves_btn.value == True:
             bokeh_plot.plot_moves(p, mov, lpis_cent)
+        if mov is not None:
             moves_pane.value = mov.reset_index().drop(columns=['geometry'])
-
+        else:
+            moves_pane.value = pd.DataFrame()
         plot_pane.object = p
 
         #change selection table
@@ -299,7 +309,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         herdcolors = dict(zip(sp.SPH_HERD_N,sp.color))
         p = bokeh_plot.plot_moves_timeline(mov, herdcolors)
         timeline_pane.object = p
-        #timeline_pane.param.trigger('object')
+        timeline_pane.param.trigger('object')
 
         if tree_btn.value ==True:
             update_tree(sub=sub)
@@ -307,6 +317,8 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         update_scatter()
         #herds
         update_herds()
+        #cluster summary
+        update_clusters()
         #dist matrix
         #dm = snpdist.loc[sub.index,sub.index]
         #p = bokeh_plot.heatmap(dm)
@@ -339,6 +351,13 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         herds_pane.object = h
         return
 
+    def update_clusters(event=None):
+        global selected
+        col = groupby_input.value
+        cl = tools.cluster_summary(selected, col, 5, snpdist)
+        clusters_pane.object = cl
+        return
+
     def update_overview(event=None, sub=None):
 
         fig = plot_overview(sub)
@@ -368,6 +387,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         return df
 
     def set_provider(event=None):
+        """Change map provider"""
 
         p = plot_pane.object
         #remove old tile
@@ -376,7 +396,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         p.add_tile(provider, retina=True)
 
     def update_groups(event=None):
-        """change group choices"""
+        """Change group choices"""
 
         groupby = groupby_input.value
         vals = pd.DataFrame(meta[groupby].value_counts())
@@ -406,6 +426,17 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         xmin, ymin = transformer_to_latlon.transform(xmin, ymin)
         xmax, ymax = transformer_to_latlon.transform(xmax, ymax)
         sub = meta.cx[xmin:xmax, ymin:ymax]
+        update(sub=sub)
+        return
+
+    def select_radius(event=None):
+        """Select within radius of a center"""
+
+        global selected
+        point = selected.union_all().centroid
+        distances = selected.geometry.apply(lambda x: x.distance(point))
+        radius = distances.median()
+        sub = meta[meta.geometry.distance(point) <= radius].copy()
         update(sub=sub)
         return
 
@@ -455,7 +486,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
             return
         treefile = get_tree(snpdist, sub.index)
         col = colorby_input.value
-        html = draw_toytree(treefile, sub, col, cmap=cmap_input.value,
+        html = draw_toytree(treefile, sub,
                             tiplabelcol=tiplabel_input.value, markercol='Species', height=400)
         #html = phylocanvas_tree(treefile, sub, col)
         tree_pane.object = html
@@ -595,27 +626,29 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
     markersize_input = pnw.FloatInput(name='marker size', value=10, step=1, start=2, end=100,width=w)
     tiplabel_input = pnw.Select(name='tip label',options=list(meta.columns),value='sample',width=w)
-    #showborders_input = pnw.Checkbox(name='Show counties', value=False)
     widgets = pn.Column(pn.WidgetBox(groupby_input,groups_table,colorby_input,cmap_input,tiplabel_input,
                                      provider_input,markersize_input),info_pane,width=w+30)
     #toolbar
-    split_btn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size='1.8em')
+    #split_btn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size='1.8em')
     selectregion_btn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size='1.8em')
+    selectradius_btn = pnw.Button(icon=get_icon('plot-centroid'), description='select within radius', icon_size='1.8em')
     tree_btn = pnw.Toggle(icon=get_icon('tree'), icon_size='1.8em')
     parcels_btn = pnw.Toggle(icon=get_icon('parcels'), icon_size='1.8em')
     moves_btn = pnw.Toggle(icon=get_icon('plot-moves'), icon_size='1.8em')
     legend_btn = pnw.Toggle(icon=get_icon('legend'), icon_size='1.8em')
     neighbours_btn = pnw.Toggle(icon=get_icon('neighbours'), icon_size='1.8em')
     parcellabel_btn = pnw.Toggle(icon=get_icon('parcel-label'), icon_size='1.8em')
+    showcounties_btn = pnw.Toggle(icon=get_icon('counties'), icon_size='1.8em')
+    kde_btn = pnw.Toggle(icon=get_icon('contour'), icon_size='1.8em')
     #lockbtn = pnw.Toggle(icon=get_icon('lock'), icon_size='1.8em')
-    toolbar = pn.Column(pn.WidgetBox(selectregion_btn,tree_btn,
-                                     parcels_btn,parcellabel_btn,moves_btn,legend_btn,
-                                     neighbours_btn),width=70)
+    toolbar = pn.Column(pn.WidgetBox(selectregion_btn,selectradius_btn,tree_btn,
+                                     parcels_btn,parcellabel_btn,showcounties_btn,moves_btn,legend_btn,
+                                     neighbours_btn,kde_btn),width=70)
 
     timeslider = pnw.IntRangeSlider(name='Time',width=150,
                     start=2000, end=2024, value=(2000, 2024), step=1)
     clustersizeslider = pnw.IntSlider(name='Min. Cluster Size',width=150,
-                    start=1, end=10, value=1, step=1)
+                    start=1, end=20, value=1, step=1)
     homebredbox = pnw.Checkbox(name='Homebred',value=False)
     filters = pn.Row(timeslider,clustersizeslider,homebredbox)
 
@@ -628,16 +661,19 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     tree_btn.param.watch(update, 'value')
     parcels_btn.param.watch(update, 'value')
     parcellabel_btn.param.watch(update, 'value')
+    showcounties_btn.param.watch(update, 'value')
     moves_btn.param.watch(update, 'value')
     legend_btn.param.watch(update, 'value')
     neighbours_btn.param.watch(update, 'value')
+    kde_btn.param.watch(update, 'value')
     timeslider.param.watch(update, 'value')
     clustersizeslider.param.watch(update, 'value')
     homebredbox.param.watch(update, 'value')
 
     #pn.bind(update_tree, treebtn, watch=True)
-    pn.bind(split_view, split_btn, watch=True)
+    #pn.bind(split_view, split_btn, watch=True)
     pn.bind(select_region, selectregion_btn, watch=True)
+    pn.bind(select_radius, selectradius_btn, watch=True)
 
     #categorical scatter plot pane
     scatter_pane = pn.pane.Bokeh(height=400)
@@ -646,6 +682,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     mscat_input = pnw.IntSlider(name='point size',start=1, end=25, value=5, step=1,width=w)
     analysis_pane = pn.Column(scatter_pane,pn.Row(row_input,col_input,mscat_input),height=350)
     herds_pane = pn.pane.DataFrame(max_height=350)
+    clusters_pane = pn.pane.DataFrame(max_height=350)
 
     row_input.param.watch(update_scatter, 'value')
     col_input.param.watch(update_scatter, 'value')
@@ -661,12 +698,14 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
                             ('Selected', selected_pane),
                             ('Moves', moves_pane),
                             ('Tools',utils_pane),
+                             dynamic=True,
                              sizing_mode='stretch_both'),
                           ),
                 pn.Column(pn.Tabs(('Overview',overview_pane),('Tree',tree_pane),
-                                  ('Network',network_pane),
+                                  #('Network',network_pane),
                                   ('Summary I',analysis_pane),
-                                  ('Herds',herds_pane)),timeline_pane, width=500)),
+                                  ('Herds',herds_pane),('Groups',clusters_pane)
+                                  ),timeline_pane, width=500)),
              max_width=2000,min_height=600
     )
     app.sizing_mode='stretch_both'
