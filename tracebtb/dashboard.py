@@ -7,6 +7,7 @@
 """
 
 import sys,os,time,re
+import platform
 from datetime import datetime
 import pickle
 import glob,io
@@ -29,7 +30,10 @@ data_path = os.path.join(module_path,'data')
 logoimg = os.path.join(module_path, 'logo.png')
 iconpath = os.path.join(module_path, 'icons')
 home = os.path.expanduser("~")
-configpath = os.path.join(home, '.config','tracebtb')
+if platform.system() == 'Windows':
+    configpath = os.path.join(os.environ['APPDATA'], 'tracebtb')
+else:
+    configpath = os.path.join(home, '.config','tracebtb')
 configfile = os.path.join(configpath, 'settings.json')
 report_file = 'report.html'
 selections_file = os.path.join(configpath,'selections.json')
@@ -56,6 +60,7 @@ def get_icon(name):
     return svg_tag
 
 def get_tree(snpdist, idx):
+    """Get tree from snpdist"""
 
     treefile = 'tree.newick'
     M = snpdist.loc[idx,idx]
@@ -63,6 +68,7 @@ def get_tree(snpdist, idx):
     return treefile
 
 def draw_toytree(treefile, df, **kwargs):
+    """Toytree plot"""
 
     import toyplot
     from tracebtb import trees

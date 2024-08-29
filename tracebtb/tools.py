@@ -407,6 +407,7 @@ def herd_summary(df, moves, snpdist=None):
     return res
 
 def cluster_summary(df, col, min_size=5, snpdist=None):
+    """Group summary e.g. by cluster"""
 
     res = []
     for c,sub in df.groupby(col):
