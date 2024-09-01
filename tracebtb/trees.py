@@ -187,7 +187,7 @@ def draw_tree(filename, df=None, col=None, cmap=None, tiplabelcol=None, markerco
         tip_colors = None
         node_colors = None
         node_sizes = None
-        tip_labels = False        
+        tip_labels = False
     else:
         if col not in [None, '']:
             #get color from col
@@ -206,7 +206,7 @@ def draw_tree(filename, df=None, col=None, cmap=None, tiplabelcol=None, markerco
         node_colors = [df.loc[n]['color'] if n in df.index else 'black' for n in tre.get_node_values('name', True, True)]
         node_sizes=[0 if i else 8 for i in tre.get_node_values(None, 1, 0)]
 
-    if tiplabelcol not in [None, '']:       
+    if tiplabelcol not in [None, '']:
         tip_labels = [df.loc[n][tiplabelcol] if n in df.index else n for n in idx]
     else:
         tip_labels = False

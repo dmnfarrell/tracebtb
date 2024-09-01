@@ -20,7 +20,9 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 """
 
-import sys,os,subprocess,glob,shutil,re,random,time
+import sys,os,subprocess,glob,shutil,re
+import random,time
+import json
 import platform
 import numpy as np
 import pandas as pd
@@ -32,6 +34,9 @@ from Bio import SeqIO
 from Bio import Phylo, AlignIO, Align
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
+
+module_path = os.path.dirname(os.path.abspath(__file__))
+data_path = os.path.join(module_path,'data')
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -468,3 +473,35 @@ def calculate_parcel_centroids(parcels):
     cent = gpd.GeoDataFrame(geometry=cent,crs='EPSG:29902')
     cent['SPH_HERD_N'] = parcels.SPH_HERD_N
     return cent
+
+def get_county(x):
+
+    counties = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:3857")
+    if x.geometry.is_empty:
+        return 'NA'
+    found = counties[counties.contains(x.geometry)]
+    if len(found)>0:
+        return found.iloc[0].NAME_TAG
+
+def get_year(x, key='sample'):
+
+    if not str(x[key]).startswith('TB') or len(x[key])>11:
+        return
+    yr = x[key].split('-')[0][2:]
+    return int('20'+yr)
+
+def add_to_json(filename, obj, key):
+    """
+    Append an object to existing dict in json file.
+    Used for saving selections for example. Adds object to root dict.
+    """
+
+    if os.path.exists(filename):
+        data = json.load(open(filename,'r'))
+    else:
+        data = {}
+    data[key] = obj
+    #save file
+    with open(filename,'w') as f:
+        f.write(json.dumps(data))
+    return

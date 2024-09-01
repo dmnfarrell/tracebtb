@@ -34,6 +34,8 @@ if platform.system() == 'Windows':
     configpath = os.path.join(os.environ['APPDATA'], 'tracebtb')
 else:
     configpath = os.path.join(home, '.config','tracebtb')
+if not os.path.exists(configpath):
+    os.makedirs(configpath, exist_ok=True)
 configfile = os.path.join(configpath, 'settings.json')
 report_file = 'report.html'
 selections_file = os.path.join(configpath,'selections.json')
@@ -215,7 +217,7 @@ def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
     table = pn.pane.DataFrame(sub[cols], styles=CARD_STYLE)
     herdcolors = dict(zip(sp.SPH_HERD_N,sp.color))
     #timeline
-    timeline = pn.pane.Bokeh(bokeh_plot.plot_moves_timeline(mov, herdcolors, height=500),styles=CARD_STYLE)
+    timeline = pn.pane.Bokeh(bokeh_plot.plot_moves_timeline(mov, herdcolors, height=500))
     #splitview = pn.Row(bokeh_plot.split_view(sub, 'HERD_NO', sp),height=800, styles=CARD_STYLE)
 
     #main = pn.Column(pn.Row(plot, treepane, overview, height=600),pn.Row(table,timeline))
@@ -320,11 +322,11 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         if tree_btn.value ==True:
             update_tree(sub=sub)
         #summary plots
-        update_scatter()
+        update_catplot(sub=sub)
         #herds
-        update_herds()
+        update_herd_summary()
         #cluster summary
-        update_clusters()
+        update_cluster_summary()
         #dist matrix
         #dm = snpdist.loc[sub.index,sub.index]
         #p = bokeh_plot.heatmap(dm)
@@ -349,19 +351,20 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
 
         return
 
-    def update_herds(event=None):
+    def update_herd_summary(event=None):
         """herd summary"""
 
         global selected
         h = tools.herd_summary(selected, moves, snpdist)
-        herds_pane.object = h
+        herds_pane.value = h
         return
 
-    def update_clusters(event=None):
+    def update_cluster_summary(event=None):
+
         global selected
         col = groupby_input.value
         cl = tools.cluster_summary(selected, col, 5, snpdist)
-        clusters_pane.object = cl
+        clusters_pane.value = cl
         return
 
     def update_overview(event=None, sub=None):
@@ -469,6 +472,16 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         update(sub=sub)
         return
 
+    def find_related(event=None):
+        """Find related samples"""
+
+        global selected
+        col = groupby_input.value
+        cl = list(selected[col].unique())
+        sub = meta[(meta[col].isin(cl))].copy()
+        update(sub=sub)
+        return
+
     def split_view(event=None):
         """split view"""
 
@@ -532,11 +545,24 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         update(sub=selected)
         return
 
+    def delete_selection(event=None):
+
+        global selected
+        name = selections_input.value
+        del (selections[name])
+        selections_input.options = list(selections.keys())
+        with open(selections_file,'w') as f:
+            f.write(json.dumps(selections))
+        return
+
     def save_selection(event=None):
         """Save a selection"""
 
         global selected
         name = selectionname_input.value
+        if name == '':
+            print ('empty name')
+            return
         selections[name] = {}
         selections[name]['indexes'] = list(selected.index)
         #add to menu
@@ -546,12 +572,33 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
             f.write(json.dumps(selections))
         return
 
-    def update_scatter(event=None):
-        """Update cat plot I"""
+    '''def update_scatter(event=None):
+        """Update categorical strip plot"""
+
         global selected
         p = bokeh_plot.cat_plot(selected, row_input.value, col_input.value,
                                 ms=mscat_input.value, marker='marker')
         scatter_pane.object = p
+        return'''
+
+    def update_catplot(event=None, sub=None):
+        """Update categorical plot"""
+
+        if sub is None:
+            global selected
+            sub = selected
+        x = catx_input.value
+        y = caty_input.value
+        hue = cathue_input.value
+        kind = catkind_input.value
+        cmap = cmap_input.value
+        row = None
+        import seaborn as sns
+        cg = sns.catplot(data=sub, x=x, y=y, hue=hue, kind=kind, aspect=2,
+                         palette=cmap, dodge=True)
+        catplot_pane.object = cg.fig
+        plt.close(cg.fig)
+        #print (fig)
         return
 
     w=140
@@ -587,26 +634,33 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     table_pane = pn.Column(meta_pane,table_widgets,sizing_mode='stretch_both')
 
     #selected table
-    selected_pane = pnw.Tabulator(show_index=False,disabled=True,
+    selected_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
                                   frozen_columns=['sample'],sizing_mode='stretch_both')
 
-    moves_pane = pnw.Tabulator(show_index=False,disabled=True,
+    moves_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
                                   frozen_columns=['tag'],sizing_mode='stretch_both')
+    herds_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
+                               frozen_columns=['HERD_NO'],sizing_mode='stretch_both')
+    clusters_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
+                                  frozen_columns=['cluster'],sizing_mode='stretch_both')
+
     tree_pane = pn.pane.HTML(height=400)
     network_pane = pn.pane.Bokeh()
     snpdist_pane = pn.pane.Bokeh(height=400)
 
     cols = [None]+tools.get_ordinal_columns(meta)
-    #saved selections
+    #selections pane
     selections_input = pnw.Select(name='Selections',options=list(selections.keys()),value='',width=w)
-    loadselection_btn = pnw.Button(name='Load Selection', button_type='primary')
+    loadselection_btn = pnw.Button(name='Load Selection', button_type='primary',width=w)
     pn.bind(load_selection, loadselection_btn, watch=True)
-    saveselection_btn = pnw.Button(name='Save Selection', button_type='primary')
+    deleteselection_btn = pnw.Button(name='Delete Selection', button_type='primary',width=w)
+    pn.bind(delete_selection, deleteselection_btn, watch=True)
+    saveselection_btn = pnw.Button(name='Save Selection', button_type='primary',width=w)
     pn.bind(save_selection, saveselection_btn, watch=True)
     selectionname_input = pnw.TextInput(value='',width=w)
 
-    card2 = pn.Column('## Selections', pn.Row(selections_input, loadselection_btn),
-                      pn.Row(selectionname_input, saveselection_btn),
+    card2 = pn.Column('## Selections', pn.Row(pn.Column(selections_input, selectionname_input),
+                      pn.Column(loadselection_btn, deleteselection_btn, saveselection_btn)),
                        width=340, styles=card_style)
     #reporting
     doreport_btn = pnw.Button(name='Generate', button_type='primary')
@@ -620,7 +674,6 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     pn.bind(load_lpis, loadlpis_btn, watch=True)
     card4 = pn.Column('## LPIS', loadlpis_btn, width=340, styles=card_style)
 
-    #utils_pane = pn.Column(card1, card2, card3, card4, styles={'margin': '10px'}, sizing_mode='stretch_both')
     utils_pane = pn.FlexBox(*[card2, card3, card4], flex_direction='column', min_height=400,
                              styles={'margin': '10px'}, sizing_mode='stretch_both')
 
@@ -651,12 +704,16 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
                                      parcels_btn,parcellabel_btn,showcounties_btn,moves_btn,legend_btn,
                                      neighbours_btn,kde_btn),width=70)
 
+    #option below plot
     timeslider = pnw.IntRangeSlider(name='Time',width=150,
                     start=2000, end=2024, value=(2000, 2024), step=1)
     clustersizeslider = pnw.IntSlider(name='Min. Cluster Size',width=150,
                     start=1, end=20, value=1, step=1)
     homebredbox = pnw.Checkbox(name='Homebred',value=False)
-    filters = pn.Row(timeslider,clustersizeslider,homebredbox)
+    findrelated_btn = pnw.Button(name='Find Related', button_type='primary', align="end")
+    pn.bind(find_related, findrelated_btn, watch=True)
+
+    filters = pn.Row(findrelated_btn,timeslider,clustersizeslider,homebredbox)
 
     groupby_input.param.watch(update_groups, 'value')
     groups_table.param.watch(select_group, 'selection')
@@ -681,18 +738,21 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     pn.bind(select_region, selectregion_btn, watch=True)
     pn.bind(select_radius, selectradius_btn, watch=True)
 
-    #categorical scatter plot pane
-    scatter_pane = pn.pane.Bokeh(height=400)
-    row_input = pnw.Select(name='row',options=cols,value='Species',width=w)
-    col_input = pnw.Select(name='col',options=cols,value='Year',width=w)
-    mscat_input = pnw.IntSlider(name='point size',start=1, end=25, value=5, step=1,width=w)
-    analysis_pane = pn.Column(scatter_pane,pn.Row(row_input,col_input,mscat_input),height=350)
-    herds_pane = pn.pane.DataFrame(max_height=350)
-    clusters_pane = pn.pane.DataFrame(max_height=350)
-
-    row_input.param.watch(update_scatter, 'value')
-    col_input.param.watch(update_scatter, 'value')
-    mscat_input.param.watch(update_scatter, 'value')
+    #categorical plot widget
+    catplot_pane = pn.pane.Matplotlib(height=350,sizing_mode='stretch_both')
+    catx_input = pnw.Select(name='x',options=cols,value='Species',width=w)
+    caty_input = pnw.Select(name='y',options=cols,value=None,width=w)
+    cathue_input = pnw.Select(name='hue',options=cols,value=None,width=w)
+    kinds = ['count','bar','strip','swarm']
+    catkind_input = pnw.Select(name='kind',options=kinds,
+                               value='count',width=w)
+    cathue_input = pnw.Select(name='hue',options=cols,value='County',width=w)
+    catx_input.param.watch(update_catplot, 'value')
+    caty_input.param.watch(update_catplot, 'value')
+    cathue_input.param.watch(update_catplot, 'value')
+    catkind_input.param.watch(update_catplot, 'value')
+    analysis_pane1 = pn.Column(pn.Row(catx_input,caty_input,cathue_input,catkind_input),
+                               catplot_pane,height=600)
 
     app = pn.Column(
                 pn.Row(widgets,
@@ -700,20 +760,22 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
                 pn.Column(
                     pn.Tabs(('Map',pn.Column(plot_pane,filters)),
                             #('Split View',pn.Column(split_pane, height=300)),
+                            ('Summary I',analysis_pane1),
                             ('Main Table', table_pane),
                             ('Selected', selected_pane),
                             ('Moves', moves_pane),
+                            ('Herds',herds_pane),('Groups',clusters_pane),
                             ('Tools',utils_pane),
                              dynamic=True,
                              sizing_mode='stretch_both'),
                           ),
-                pn.Column(pn.Tabs(('Overview',overview_pane),('Tree',tree_pane),
+                pn.Column(pn.Tabs(('Overview',overview_pane),
+                                  ('Tree',tree_pane),
                                   #('Network',network_pane),
-                                  ('Summary I',analysis_pane),
-                                  ('Herds',herds_pane),('Groups',clusters_pane)
-                                  ),timeline_pane, width=500)),
+                                  dynamic=True,width=500),
+                                  timeline_pane, width=500),
              max_width=2000,min_height=600
-    )
+    ))
     app.sizing_mode='stretch_both'
     meta_pane.value = meta
     update_groups()
@@ -758,7 +820,7 @@ def main():
     else:
         selections = {}
     #create template
-    bootstrap = pn.template.BootstrapTemplate(title='TracebTB Web',
+    bootstrap = pn.template.BootstrapTemplate(title='TracebTB',
                         favicon=logoimg,logo=logoimg,header_color='green')
     #pn.config.sizing_mode = 'stretch_width'
     app = dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections)

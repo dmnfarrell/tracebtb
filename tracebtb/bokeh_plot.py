@@ -277,7 +277,7 @@ def plot_moves_timeline(mov, herdcolors, height=300):
         p.yaxis.visible = False
     return p
 
-def cat_plot(df, row, col, colorcol=None, ms=5, marker='circle', width=500, height=300):
+def cat_plot(df, row, col, colorcol=None, ms=5, marker='circle', width=500, height=400):
     """Categorical scatter plot"""
 
     from bokeh.palettes import Spectral7
@@ -296,8 +296,8 @@ def cat_plot(df, row, col, colorcol=None, ms=5, marker='circle', width=500, heig
     xrange = df.groupby(col)
     yrange = df.groupby(row)
 
-    p = figure(width=width, height=height, x_range=xrange, y_range=yrange,
-               title="Category Plot")
+    p = figure(x_range=xrange, y_range=yrange,
+               title="Category Plot", width=width, height=height)
     r = p.scatter(x=jitter(col, width=0.2, range=p.x_range), y=jitter(row, width=0.6, range=p.y_range),
                   source=source, alpha=0.7, size=ms, color='color', marker=marker)
     if len(df)<100:
@@ -406,12 +406,17 @@ def create_custom_palette(base_hex, num_colors=9):
 
     # Create a palette by darkening the base color while maintaining saturation
     palette = []
+    hue = base_hsv[0]
     for i in range(num_colors):
         # Decrease lightness to make the color darker
         factor = 1 - (i / num_colors)  # Linearly reduce brightness
         # Maintain saturation to keep the color intense
-        darker_hsv = (base_hsv[0], base_hsv[1], base_hsv[2] * factor)
+        s = base_hsv[1]
+        v = base_hsv[2] * factor
+        #if s>.9: s=.9
+        darker_hsv = (hue, s, v)
         darker_rgb = mcolors.hsv_to_rgb(darker_hsv)
+        #print (darker_hsv)
         palette.append(mcolors.rgb2hex(darker_rgb))
 
     return palette
@@ -437,12 +442,15 @@ def kde(gdf, N):
     Z = np.reshape(kernel(positions).T, X.shape)
     return X, Y, Z
 
-def kde_plot(gdf, p, levels=12):
+def kde_plot(gdf, p, color='#4AA60E', levels=10):
     """kde plot of points in map"""
 
     x, y, z = kde(gdf, 100)
+    z_range = np.max(z) - np.min(z)
+    #levels = int((x.max()-x.min())/20000)
+    #print (levels)
     p.grid.level = "overlay"
-    palette = create_custom_palette('#4AA60E', num_colors=levels)
+    palette = create_custom_palette(color, num_colors=levels)
     lvl = np.linspace(np.min(z), np.max(z), levels)
     p.contour(x, y, z, lvl[1:], fill_color=palette, line_color=palette, fill_alpha=.4)
     return
@@ -454,13 +462,9 @@ def kde_plot_groups(gdf, p, col='snp12', min_samples=6):
         sub = sub[~sub.geometry.is_empty]
         if len(sub)<min_samples:
             continue
-        sub = remove_outliers_zscore(sub,3)
+        sub = remove_outliers_zscore(sub,2)
         if len(sub) == 0:
             continue
         clr = sub.iloc[0].color
-        x, y, z = kde(sub, 200)
-        p.grid.level = "overlay"
-        palette = create_custom_palette(clr, num_colors=10)
-        levels = np.linspace(np.min(z), np.max(z), 10)
-        p.contour(x, y, z, levels[1:], fill_color=palette, line_color=palette, fill_alpha=.4)
+        kde_plot(sub, p, color=clr, levels=15)
     return
