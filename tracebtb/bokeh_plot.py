@@ -95,7 +95,7 @@ def init_figure(title=None, provider=None, width=600, height=600, sizing_mode='s
     return p
 
 def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
-                   legend=False, title=None, ms=10, labels=False, p=None):
+                   legend=False, legend_fontsize=12, title=None, ms=10, labels=False, p=None):
     """
     Plot geodataframe selections with bokeh
     Args:
@@ -110,7 +110,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
     if p == None:
         p = init_figure(title, provider)
 
-    gdf = gdf[~gdf.geometry.is_empty]
+    gdf = gdf[~gdf.geometry.is_empty].sort_values('color')
     if len(gdf) == 0:
         return p
     if not 'color' in gdf.columns:
@@ -153,6 +153,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
             r.visible=False
         legend = Legend(items=legend_items, location="top_left", title=col)
         p.add_layout(legend, 'right')
+        p.legend.label_text_font_size = f'{legend_fontsize}pt'
 
     if labels == True and parcels is not None:
         cent = tools.calculate_parcel_centroids(parcels).to_crs('EPSG:3857')
@@ -212,18 +213,20 @@ def plot_moves(p, moves, lpis_cent):
 
     return p
 
-def split_view(gdf, col, parcels=None, provider=None, limit=8):
+def split_view(gdf, col, parcels=None, provider=None, limit=9):
     """Plot selection split by a column"""
 
     from bokeh.layouts import gridplot
-
+    groups = gdf.groupby(col)
+    if len(groups)>limit or len(groups)<2:
+        return figure()
     common = gdf[col].value_counts().index[:limit]
     l = len(common)
     if len(common) < 2: return
     nr, nc = calculate_grid_dimensions(l)
     i=0
     figures=[]
-    for c, sub in gdf.groupby(col):
+    for c, sub in groups:
         if c in common:
             title  = f'{col}={c} len={len(sub)}'
             if parcels is not None:
@@ -247,7 +250,12 @@ def plot_moves_timeline(mov, herdcolors, height=300):
     new = []
     #default end date if no death
     end = datetime(2022, 12, 31)
-    for tag,t in mov.groupby('tag'):
+    groups = mov.groupby('tag')
+    if len(groups)>300:
+        p=figure()
+        p.text('too many samples for timeline')
+        return p
+    for tag,t in groups:
         if len(t)==1:
             t['end_date'] = end
         else:

@@ -218,7 +218,6 @@ def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
     herdcolors = dict(zip(sp.SPH_HERD_N,sp.color))
     #timeline
     timeline = pn.pane.Bokeh(bokeh_plot.plot_moves_timeline(mov, herdcolors, height=500))
-    #splitview = pn.Row(bokeh_plot.split_view(sub, 'HERD_NO', sp),height=800, styles=CARD_STYLE)
 
     #main = pn.Column(pn.Row(plot, treepane, overview, height=600),pn.Row(table,timeline))
     main = pn.FlexBox(pn.Row(overview, plot, treepane, height=600), table, timeline)
@@ -284,8 +283,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         else:
             pcls=None
         labels = parcellabel_btn.value
+        legsize = legendsize_input.value
         p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms,
-                                      col=col, legend=legend, labels=labels)
+                                      col=col, legend=legend, legend_fontsize=legsize, labels=labels)
         if showcounties_btn.value == True:
              bokeh_plot.plot_counties(p)
         if kde_btn.value == True:
@@ -356,7 +356,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
 
         global selected
         h = tools.herd_summary(selected, moves, snpdist)
-        herds_pane.value = h
+        herds_table.value = h
         return
 
     def update_cluster_summary(event=None):
@@ -364,7 +364,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         global selected
         col = groupby_input.value
         cl = tools.cluster_summary(selected, col, 5, snpdist)
-        clusters_pane.value = cl
+        clusters_table.value = cl
         return
 
     def update_overview(event=None, sub=None):
@@ -476,9 +476,24 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         """Find related samples"""
 
         global selected
-        col = groupby_input.value
+        col = related_col_input.value
         cl = list(selected[col].unique())
         sub = meta[(meta[col].isin(cl))].copy()
+        update(sub=sub)
+        return
+
+    def select_herds(event=None):
+
+        df = herds_table.selected_dataframe
+        sub = meta[(meta.HERD_NO.isin(df.HERD_NO))].copy()
+        update(sub=sub)
+        return
+
+    def select_clusters(event=None):
+
+        df = clusters_table.selected_dataframe
+        col = groupby_input.value
+        sub = meta[(meta[col].isin(df.cluster))].copy()
         update(sub=sub)
         return
 
@@ -490,9 +505,11 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         col = colorby_input.value
         global selected
         f = bokeh_plot.split_view(selected, col, parcels, provider)
-        #print (f)
         split_pane.object = f
-        split_pane.param.trigger('object')
+        def update_pane(f):
+            split_pane.object = f
+        #pn.io.schedule_on_load(lambda: update_pane(f))
+        #split_pane.param.trigger('object')
         return
 
     def update_tree(event=None, sub=None):
@@ -512,6 +529,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         return
 
     def do_search(event=None):
+        """Search main table"""
 
         query = search_input.value
         col = searchcol_select.value
@@ -524,6 +542,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         return
 
     def create_report(event=None):
+        """Standard report"""
 
         global selected
         sub = selected
@@ -537,6 +556,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         return
 
     def load_selection(event=None):
+        """Load a selection"""
 
         global selected
         name = selections_input.value
@@ -546,6 +566,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         return
 
     def delete_selection(event=None):
+        """Delete a selection"""
 
         global selected
         name = selections_input.value
@@ -553,6 +574,25 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         selections_input.options = list(selections.keys())
         with open(selections_file,'w') as f:
             f.write(json.dumps(selections))
+        return
+
+    def import_selections(event=None):
+        """Import a selection"""
+
+        global selections
+        data = upload_selection_input.value
+        #print(filename)
+        new = json.load(data)
+        selections.update(new)
+        return
+
+    def export_selections(event=None):
+
+        #file_download = pn.widgets.FileDownload(
+        #                file='test', button_type='success', auto=True,
+        #                embed=False, name="Download")
+
+        #pn.layout.FloatPanel('HELLO', name="Export", contained=False, position='center')
         return
 
     def save_selection(event=None):
@@ -620,7 +660,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     pn.bind(select_related, selectrelated_btn, watch=True)
     threshold_input = pnw.IntInput(name='Threshold', value=7, step=1, start=2, end=20,width=60)
     #search
-    scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','IE_clade','Region']
+    scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','IE_clade','snp7','snp12','snp20']
     search_input = pnw.TextInput(name="Search", value='',width=150)
     searchcol_select = pnw.Select(name='Column',value='HERD_NO',options=scols,width=100)
     search_btn = pnw.Button(icon=get_icon('search'), icon_size='1.8em', align="end")
@@ -636,13 +676,21 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     #selected table
     selected_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
                                   frozen_columns=['sample'],sizing_mode='stretch_both')
-
+    #moves table
     moves_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
                                   frozen_columns=['tag'],sizing_mode='stretch_both')
-    herds_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
+    #herds table
+    herds_table = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
                                frozen_columns=['HERD_NO'],sizing_mode='stretch_both')
-    clusters_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
+    selectherds_btn = pnw.Button(name='Select Herds', button_type='primary', align="end")
+    pn.bind(select_herds, selectherds_btn, watch=True)
+    herds_pane = pn.Column(herds_table, pn.Row(selectherds_btn))
+
+    clusters_table = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
                                   frozen_columns=['cluster'],sizing_mode='stretch_both')
+    selectclusters_btn = pnw.Button(name='Select Groups', button_type='primary', align="end")
+    pn.bind(select_clusters, selectclusters_btn, watch=True)
+    clusters_pane = pn.Column(clusters_table, pn.Row(selectclusters_btn))
 
     tree_pane = pn.pane.HTML(height=400)
     network_pane = pn.pane.Bokeh()
@@ -658,23 +706,38 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     saveselection_btn = pnw.Button(name='Save Selection', button_type='primary',width=w)
     pn.bind(save_selection, saveselection_btn, watch=True)
     selectionname_input = pnw.TextInput(value='',width=w)
+    #importselections_btn = pnw.Button(name='Import Selections', button_type='success',width=200)
+    upload_label = pn.pane.Markdown("### Import Selections")
+    upload_selection_input = pnw.FileInput(accept='.json')
+    upload_selection_input.param.watch(import_selections, 'value')
 
-    card2 = pn.Column('## Selections', pn.Row(pn.Column(selections_input, selectionname_input),
+    exportselections_btn = pnw.Button(name='Export Selections', button_type='success',width=200)
+    pn.bind(export_selections, exportselections_btn, watch=True)
+
+    card1 = pn.Column('## Selections', pn.Row(pn.Column(selections_input, selectionname_input),
                       pn.Column(loadselection_btn, deleteselection_btn, saveselection_btn)),
+                                pn.Column(upload_label,upload_selection_input,
+                                          exportselections_btn,styles=dict(background='#ECECEC'),
+                                          sizing_mode='stretch_width'),
                        width=340, styles=card_style)
     #reporting
     doreport_btn = pnw.Button(name='Generate', button_type='primary')
     savereport_btn = pnw.FileDownload(file=report_file, button_type='success', auto=False,
                                     embed=False, name="Download Report")
-    card3 = pn.Column('## Reporting', doreport_btn, savereport_btn, width=340, styles=card_style)
+    card2 = pn.Column('## Reporting', doreport_btn, savereport_btn, width=340, styles=card_style)
     pn.bind(create_report, doreport_btn, watch=True)
 
     #lpis
     loadlpis_btn = pnw.Button(name='Load LPIS', button_type='primary')
     pn.bind(load_lpis, loadlpis_btn, watch=True)
-    card4 = pn.Column('## LPIS', loadlpis_btn, width=340, styles=card_style)
+    card3 = pn.Column('## LPIS', loadlpis_btn, width=340, styles=card_style)
 
-    utils_pane = pn.FlexBox(*[card2, card3, card4], flex_direction='column', min_height=400,
+    #settings
+    markersize_input = pnw.FloatInput(name='marker size', value=10, step=1, start=2, end=100,width=w)
+    legendsize_input = pnw.FloatInput(name='legend size', value=10, step=1, start=2, end=100,width=w)
+    card4 = pn.Column('## Settings', markersize_input,legendsize_input, width=340, styles=card_style)
+
+    utils_pane = pn.FlexBox(*[card1,card2, card3, card4], flex_direction='column', min_height=400,
                              styles={'margin': '10px'}, sizing_mode='stretch_both')
 
     #widgets
@@ -683,12 +746,12 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     colorby_input = pnw.Select(name='color by',options=cols,value='snp7',width=w)
     cmap_input = pnw.Select(name='colormap',options=colormaps,value='Set1',width=w)
     provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
-    markersize_input = pnw.FloatInput(name='marker size', value=10, step=1, start=2, end=100,width=w)
+    #markersize_input = pnw.FloatInput(name='marker size', value=10, step=1, start=2, end=100,width=w)
     tiplabel_input = pnw.Select(name='tip label',options=list(meta.columns),value='sample',width=w)
     widgets = pn.Column(pn.WidgetBox(groupby_input,groups_table,colorby_input,cmap_input,tiplabel_input,
                                      provider_input,markersize_input),info_pane,width=w+30)
     #toolbar
-    #split_btn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size='1.8em')
+    split_btn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size='1.8em')
     selectregion_btn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size='1.8em')
     selectradius_btn = pnw.Button(icon=get_icon('plot-centroid'), description='select within radius', icon_size='1.8em')
     tree_btn = pnw.Toggle(icon=get_icon('tree'), icon_size='1.8em')
@@ -702,7 +765,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     #lockbtn = pnw.Toggle(icon=get_icon('lock'), icon_size='1.8em')
     toolbar = pn.Column(pn.WidgetBox(selectregion_btn,selectradius_btn,tree_btn,
                                      parcels_btn,parcellabel_btn,showcounties_btn,moves_btn,legend_btn,
-                                     neighbours_btn,kde_btn),width=70)
+                                     neighbours_btn,kde_btn,split_btn),width=70)
 
     #option below plot
     timeslider = pnw.IntRangeSlider(name='Time',width=150,
@@ -712,8 +775,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     homebredbox = pnw.Checkbox(name='Homebred',value=False)
     findrelated_btn = pnw.Button(name='Find Related', button_type='primary', align="end")
     pn.bind(find_related, findrelated_btn, watch=True)
+    related_col_input = pnw.Select(options=cols,value='snp7',width=90)
 
-    filters = pn.Row(findrelated_btn,timeslider,clustersizeslider,homebredbox)
+    filters = pn.Row(findrelated_btn,related_col_input,timeslider,clustersizeslider,homebredbox)
 
     groupby_input.param.watch(update_groups, 'value')
     groups_table.param.watch(select_group, 'selection')
@@ -734,12 +798,12 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     homebredbox.param.watch(update, 'value')
 
     #pn.bind(update_tree, treebtn, watch=True)
-    #pn.bind(split_view, split_btn, watch=True)
+    pn.bind(split_view, split_btn, watch=True)
     pn.bind(select_region, selectregion_btn, watch=True)
     pn.bind(select_radius, selectradius_btn, watch=True)
 
     #categorical plot widget
-    catplot_pane = pn.pane.Matplotlib(height=350,sizing_mode='stretch_both')
+    catplot_pane = pn.pane.Matplotlib(sizing_mode='stretch_both')
     catx_input = pnw.Select(name='x',options=cols,value='Species',width=w)
     caty_input = pnw.Select(name='y',options=cols,value=None,width=w)
     cathue_input = pnw.Select(name='hue',options=cols,value=None,width=w)
@@ -752,14 +816,14 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     cathue_input.param.watch(update_catplot, 'value')
     catkind_input.param.watch(update_catplot, 'value')
     analysis_pane1 = pn.Column(pn.Row(catx_input,caty_input,cathue_input,catkind_input),
-                               catplot_pane,height=600)
+                               catplot_pane)
 
     app = pn.Column(
                 pn.Row(widgets,
                        toolbar,
                 pn.Column(
                     pn.Tabs(('Map',pn.Column(plot_pane,filters)),
-                            #('Split View',pn.Column(split_pane, height=300)),
+                            ('Split View',split_pane),
                             ('Summary I',analysis_pane1),
                             ('Main Table', table_pane),
                             ('Selected', selected_pane),
@@ -827,7 +891,7 @@ def main():
     app.project_file = args.project
     bootstrap.main.append(app)
     bootstrap.servable()
-    pn.serve(bootstrap, port=5010)
+    pn.serve(bootstrap, port=5010, websocket_origin=["bola.ucd.ie","localhost:5010"])
              #basic_auth={'guest':"mbovis"}, cookie_secret='cookie_secret')
              #websocket_origin=['bola.ucd.ie:80','localhost:5010'])
 
