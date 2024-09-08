@@ -52,6 +52,9 @@ card_style = {
 colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
             'tab10', 'tab20', 'tab20b', 'tab20c']
 
+view_history = []
+current_index = 0
+
 def get_icon(name):
     """Get svg icon"""
 
@@ -238,7 +241,8 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
 
     lpis = None
     coords = None
-    view_history = []
+    #view_history = []
+
     def update(event=None, sub=None):
         """Update selection"""
 
@@ -259,7 +263,6 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         sub['marker'] = sub.Species.map(speciesmarkers)
         #set global selected
         selected = sub
-        view_history.append(sub)
         #filters
         sub = apply_filters(sub)
         info_pane.object = f'**{len(sub)} samples**'
@@ -283,9 +286,11 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         else:
             pcls=None
         labels = parcellabel_btn.value
+        labelsize = labelsize_input.value
         legsize = legendsize_input.value
         p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms,
-                                      col=col, legend=legend, legend_fontsize=legsize, labels=labels)
+                                      col=col, legend=legend, labels=labels,
+                                      legend_fontsize=legsize, label_fontsize=labelsize)
         if showcounties_btn.value == True:
              bokeh_plot.plot_counties(p)
         if kde_btn.value == True:
@@ -322,7 +327,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         if tree_btn.value ==True:
             update_tree(sub=sub)
         #summary plots
-        update_catplot(sub=sub)
+        #update_catplot(sub=sub)
         #herds
         update_herd_summary()
         #cluster summary
@@ -422,6 +427,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         key = groupby_input.value
         sub = meta[meta[key].isin(groups)].copy()
         update(sub=sub)
+        add_to_history()
         return
 
     def select_region(event=None):
@@ -436,6 +442,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         xmax, ymax = transformer_to_latlon.transform(xmax, ymax)
         sub = meta.cx[xmin:xmax, ymin:ymax]
         update(sub=sub)
+        add_to_history()
         return
 
     def select_radius(event=None):
@@ -447,6 +454,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         radius = distances.median()
         sub = meta[meta.geometry.distance(point) <= radius].copy()
         update(sub=sub)
+        add_to_history()
         return
 
     def select_from_table(event=None):
@@ -455,6 +463,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         df = meta_pane.selected_dataframe
         sub = meta.loc[df.index]
         update(sub=sub)
+        add_to_history()
         return
 
     def select_related(event=None, df=None):
@@ -470,6 +479,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         names = list(set(names))
         sub = meta.loc[names]
         update(sub=sub)
+        add_to_history()
         return
 
     def find_related(event=None):
@@ -480,6 +490,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         cl = list(selected[col].unique())
         sub = meta[(meta[col].isin(cl))].copy()
         update(sub=sub)
+        add_to_history()
         return
 
     def select_herds(event=None):
@@ -487,7 +498,17 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         df = herds_table.selected_dataframe
         sub = meta[(meta.HERD_NO.isin(df.HERD_NO))].copy()
         update(sub=sub)
+        add_to_history()
         return
+
+    def herds_file():
+        """Return herds table for export"""
+
+        df = herds_table.value
+        sio = io.StringIO()
+        df.to_csv(sio,index=False)
+        sio.seek(0)
+        return sio
 
     def select_clusters(event=None):
 
@@ -503,8 +524,12 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         provider = provider_input.value
         cmap = cmap_input.value
         col = colorby_input.value
+        labels = parcellabel_btn.value
+        labelsize = labelsize_input.value
+        legsize = legendsize_input.value
         global selected
-        f = bokeh_plot.split_view(selected, col, parcels, provider)
+        f = bokeh_plot.split_view(selected, col, parcels, provider, labels=labels,
+                                      legend_fontsize=legsize, label_fontsize=labelsize)
         split_pane.object = f
         def update_pane(f):
             split_pane.object = f
@@ -587,13 +612,14 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         return
 
     def export_selections(event=None):
+        """Selections export"""
 
-        #file_download = pn.widgets.FileDownload(
-        #                file='test', button_type='success', auto=True,
-        #                embed=False, name="Download")
-
-        #pn.layout.FloatPanel('HELLO', name="Export", contained=False, position='center')
-        return
+        selections
+        sio = io.StringIO()
+        #df.to_csv(sio,index=False)
+        json.dump(selections, sio)
+        sio.seek(0)
+        return sio
 
     def save_selection(event=None):
         """Save a selection"""
@@ -610,6 +636,43 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         #save to file
         with open(selections_file,'w') as f:
             f.write(json.dumps(selections))
+        return
+
+    def add_to_history():
+        """Add to history"""
+
+        global selected
+        global current_index
+        view_history.append(selected.index)
+        if len(view_history) > 20:
+            view_history.pop(0)
+        # Move the current index to the new end
+        current_index = len(view_history)-1
+        return
+
+    def back(event=None):
+        """Go back"""
+
+        global current_index
+        if len(view_history) == 0:
+            return
+        if current_index <= 0:
+            return
+        current_index -= 1
+        idx = view_history[current_index]
+        sub = meta.loc[idx]
+        update(sub=sub)
+        return
+
+    def forward(event=None):
+
+        global current_index
+        if len(view_history) == 0 or current_index >= len(view_history)-1:
+            return
+        current_index += 1
+        idx = view_history[current_index]
+        sub = meta.loc[idx]
+        update(sub=sub)
         return
 
     '''def update_scatter(event=None):
@@ -661,10 +724,11 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     threshold_input = pnw.IntInput(name='Threshold', value=7, step=1, start=2, end=20,width=60)
     #search
     scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','IE_clade','snp7','snp12','snp20']
-    search_input = pnw.TextInput(name="Search", value='',width=150)
+    search_input = pnw.TextInput(name="Search", value='',sizing_mode='stretch_width')
     searchcol_select = pnw.Select(name='Column',value='HERD_NO',options=scols,width=100)
     search_btn = pnw.Button(icon=get_icon('search'), icon_size='1.8em', align="end")
     pn.bind(do_search, search_btn, watch=True)
+
     reset_btn = pnw.Button(icon=get_icon('refresh'), icon_size='1.8em', align="end")
     pn.bind(reset_table, reset_btn, watch=True)
 
@@ -684,7 +748,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
                                frozen_columns=['HERD_NO'],sizing_mode='stretch_both')
     selectherds_btn = pnw.Button(name='Select Herds', button_type='primary', align="end")
     pn.bind(select_herds, selectherds_btn, watch=True)
-    herds_pane = pn.Column(herds_table, pn.Row(selectherds_btn))
+    downloadherds_btn = pnw.FileDownload(callback=pn.bind(herds_file),
+                                         filename='herds.csv', button_type='success')
+    herds_pane = pn.Column(herds_table, pn.Row(selectherds_btn,downloadherds_btn))
 
     clusters_table = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
                                   frozen_columns=['cluster'],sizing_mode='stretch_both')
@@ -711,8 +777,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     upload_selection_input = pnw.FileInput(accept='.json')
     upload_selection_input.param.watch(import_selections, 'value')
 
-    exportselections_btn = pnw.Button(name='Export Selections', button_type='success',width=200)
-    pn.bind(export_selections, exportselections_btn, watch=True)
+    #exportselections_btn = pnw.Button(name='Export Selections', button_type='success',width=200)
+    exportselections_btn = pnw.FileDownload(name='Export Selections', callback=pn.bind(export_selections),
+                                         filename='selections.json', button_type='success')
 
     card1 = pn.Column('## Selections', pn.Row(pn.Column(selections_input, selectionname_input),
                       pn.Column(loadselection_btn, deleteselection_btn, saveselection_btn)),
@@ -733,12 +800,20 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     card3 = pn.Column('## LPIS', loadlpis_btn, width=340, styles=card_style)
 
     #settings
-    markersize_input = pnw.FloatInput(name='marker size', value=10, step=1, start=2, end=100,width=w)
-    legendsize_input = pnw.FloatInput(name='legend size', value=10, step=1, start=2, end=100,width=w)
-    card4 = pn.Column('## Settings', markersize_input,legendsize_input, width=340, styles=card_style)
+    markersize_input = pnw.IntSlider(name='marker size', value=10, start=2, end=80,width=w)
+    labelsize_input = pnw.IntSlider(name='label size', value=15, start=6, end=80,width=w)
+    legendsize_input = pnw.IntSlider(name='legend size', value=12, start=6, end=40,width=w)
+    card4 = pn.Column('## Settings', markersize_input,labelsize_input,legendsize_input, width=340, styles=card_style)
 
     utils_pane = pn.FlexBox(*[card1,card2, card3, card4], flex_direction='column', min_height=400,
                              styles={'margin': '10px'}, sizing_mode='stretch_both')
+
+    #nav buttons
+    prev_btn = pnw.Button(icon=get_icon('arrow-left'), description='back', icon_size='1.6em',width=60)
+    next_btn = pnw.Button(icon=get_icon('arrow-right'), description='forward', icon_size='1.6em',width=60)
+    pn.bind(back, prev_btn, watch=True)
+    pn.bind(forward, next_btn, watch=True)
+    nav_pane = pn.Row(prev_btn,next_btn)
 
     #widgets
     groupby_input = pnw.Select(name='group by',options=cols,value='snp7',width=w)
@@ -746,10 +821,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     colorby_input = pnw.Select(name='color by',options=cols,value='snp7',width=w)
     cmap_input = pnw.Select(name='colormap',options=colormaps,value='Set1',width=w)
     provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
-    #markersize_input = pnw.FloatInput(name='marker size', value=10, step=1, start=2, end=100,width=w)
     tiplabel_input = pnw.Select(name='tip label',options=list(meta.columns),value='sample',width=w)
-    widgets = pn.Column(pn.WidgetBox(groupby_input,groups_table,colorby_input,cmap_input,tiplabel_input,
-                                     provider_input,markersize_input),info_pane,width=w+30)
+    widgets = pn.Column(pn.WidgetBox(nav_pane,groupby_input,groups_table,colorby_input,cmap_input,tiplabel_input,
+                                     provider_input),info_pane,width=w+30)
     #toolbar
     split_btn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size='1.8em')
     selectregion_btn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size='1.8em')
@@ -811,11 +885,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     catkind_input = pnw.Select(name='kind',options=kinds,
                                value='count',width=w)
     cathue_input = pnw.Select(name='hue',options=cols,value='County',width=w)
-    catx_input.param.watch(update_catplot, 'value')
-    caty_input.param.watch(update_catplot, 'value')
-    cathue_input.param.watch(update_catplot, 'value')
-    catkind_input.param.watch(update_catplot, 'value')
-    analysis_pane1 = pn.Column(pn.Row(catx_input,caty_input,cathue_input,catkind_input),
+    catupdate_btn = pnw.Button(name='Update', button_type='primary',align='end')
+    pn.bind(update_catplot, catupdate_btn, watch=True)
+    analysis_pane1 = pn.Column(pn.Row(catx_input,caty_input,cathue_input,catkind_input,catupdate_btn),
                                catplot_pane)
 
     app = pn.Column(

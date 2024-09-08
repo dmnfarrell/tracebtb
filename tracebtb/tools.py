@@ -406,8 +406,13 @@ def herd_summary(df, moves, snpdist=None):
             hbred = len(sdf[sdf.Homebred=='yes'])
         else:
             hbred = None
-        res.append([herd,len(sdf),clades,len(m),meandist,mediandist,hbred])
-    res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves','mean_dist','median_dist','homebred'])
+        if 'County' in sdf.columns:
+            cty = ';'.join(list(sdf.dropna(subset='County').County.unique()))
+        if 'snp7' in sdf.columns:
+            cl = ';'.join(list(sdf.snp7.unique()))
+        res.append([herd,len(sdf),clades,len(m),mediandist,hbred,cl,cty])
+    res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves',
+                                     'median_dist','homebred','snp7_cl','County'])
     res = res.sort_values('strains',ascending=False)
     return res
 

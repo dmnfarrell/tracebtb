@@ -1716,7 +1716,7 @@ class App(QMainWindow):
         """Split current selection by some column"""
 
         df = self.sub
-        cols = get_ordinal_columns(df)
+        cols = tools.get_ordinal_columns(df)
         col, ok = QInputDialog.getItem(self, 'Grouping column', 'Group by:', cols, 0, False)
         if not ok:
             return

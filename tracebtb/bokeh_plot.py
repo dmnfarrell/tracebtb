@@ -92,10 +92,13 @@ def init_figure(title=None, provider=None, width=600, height=600, sizing_mode='s
     if provider in providers:
         p.add_tile(provider, retina=True)
     p.sizing_mode = sizing_mode
+    if title != None:
+        p.title.text_font_size = '12pt'
     return p
 
 def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
-                   legend=False, legend_fontsize=12, title=None, ms=10, labels=False, p=None):
+                   legend=False, legend_fontsize=12,  label_fontsize=14,
+                   title=None, ms=10, labels=False, p=None):
     """
     Plot geodataframe selections with bokeh
     Args:
@@ -137,7 +140,8 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
                                             ("Herd", "@HERD_NO"),
                                             ("Homebred","@Homebred"),
                                             ("Clade", "@IE_clade"),
-                                            ('snp7',"@snp7")
+                                            ('snp7',"@snp7"),
+                                            ('snp12',"@snp12")
                                            ]))
     p.add_tools(h2)
 
@@ -161,7 +165,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         labels_source = GeoJSONDataSource(geojson=cent.to_json())
         labels = LabelSet(x='x', y='y', text='SPH_HERD_N', source=labels_source,
                           text_align='right', background_fill_color='color', background_fill_alpha=0.7,
-                          text_font_size = "18px")
+                          text_font_size = f"{label_fontsize}px")
         p.add_layout(labels)
 
     p.axis.visible = False
@@ -213,7 +217,7 @@ def plot_moves(p, moves, lpis_cent):
 
     return p
 
-def split_view(gdf, col, parcels=None, provider=None, limit=9):
+def split_view(gdf, col, parcels=None, provider=None, limit=9, **kwargs):
     """Plot selection split by a column"""
 
     from bokeh.layouts import gridplot
@@ -233,7 +237,7 @@ def split_view(gdf, col, parcels=None, provider=None, limit=9):
                 pcl = parcels[parcels.SPH_HERD_N.isin(sub.HERD_NO)].copy()
             else:
                 pcl = None
-            s = plot_selection(sub, pcl, provider=provider, title=title)
+            s = plot_selection(sub, pcl, provider=provider, title=title, **kwargs)
             figures.append(s)
             i+=1
 
