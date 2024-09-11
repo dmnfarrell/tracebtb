@@ -297,6 +297,23 @@ def get_coords_data(df):
     coords = df[:-1].apply(lambda x: LineString([x.geometry,x.P2]),1)
     return coords
 
+def pca(matrix):
+    """Perform PCA"""
+
+    import sklearn
+    from sklearn import decomposition
+    from sklearn import manifold
+
+    pca = decomposition.PCA(n_components=3)
+    mds = manifold.MDS(n_components=3)
+    pos = mds.fit(matrix).embedding_
+    X = pca.fit_transform(pos)
+    #X = pca.transform(C)
+    idx = list(matrix.index)
+    df = pd.DataFrame(X,index=idx)
+    #df.columns = matrix.columns
+    return df
+
 def get_dataframe_memory(df):
     """get dataframe memory in MB"""
 
@@ -510,3 +527,47 @@ def add_to_json(filename, obj, key):
     with open(filename,'w') as f:
         f.write(json.dumps(data))
     return
+
+def mean_distance_between_sets(distance_matrix, indices1, indices2):
+    """
+    Calculates the mean distance between two sets of rows in a distance matrix.
+    
+    Parameters:
+        distance_matrix (numpy.ndarray): A 2D square matrix of distances.
+        set1_indices (list of int): Indices representing the first set of rows.
+        set2_indices (list of int): Indices representing the second set of rows.
+        
+    Returns:
+        float: The mean distance between the two sets of rows.
+    """
+    # Extract the submatrix of distances between the two sets
+    submatrix = distance_matrix.loc[indices1, indices2]    
+    # Compute the mean of all elements in the submatrix
+    mean_distance = np.mean(submatrix)    
+    return mean_distance  
+
+def mean_geo_dist(gdf1, gdf2):
+    """Compute the distance between 2 GeoDataFrames"""
+    
+    centroid1 = gdf1.geometry.centroid.union_all().centroid
+    centroid2 = gdf2.geometry.centroid.union_all().centroid   
+    distance = centroid1.distance(centroid2)
+    return distance
+
+def compare_cluster_distances(df,snpdist,col,min_size=5):
+    """Compare mean cluster vs geo distances"""
+    
+    grouped = df.groupby(col)
+    filtered_groups = {name: group for name, group in grouped if len(group) >= min_size}
+    unique_groups = list(filtered_groups.keys())
+    from itertools import combinations
+    res=[]
+    for group1, group2 in combinations(unique_groups, 2):
+        # Get the data for the two groups
+        sub1 = filtered_groups[group1]
+        sub2 = filtered_groups[group2]
+        sd = mean_distance_between_sets(snpdist, sub1.index, sub2.index)
+        gd = mean_geo_dist(sub1, sub2)
+        res.append((sd,gd))    
+    res=pd.DataFrame(res,columns=['snpdist','geodist'])
+    return res

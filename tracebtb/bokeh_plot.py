@@ -112,7 +112,6 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
     #create figure
     if p == None:
         p = init_figure(title, provider)
-
     gdf = gdf[~gdf.geometry.is_empty].sort_values('color')
     if len(gdf) == 0:
         return p

@@ -195,6 +195,7 @@ def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
     #prepare data
     if len(sub[col].unique())>20:
         cmap=None
+
     sub['color'],c = tools.get_color_mapping(sub, col, cmap)
     sub['marker'] = sub.Species.map(speciesmarkers)
     herds = list(sub.HERD_NO)
@@ -367,7 +368,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     def update_cluster_summary(event=None):
 
         global selected
-        col = groupby_input.value
+        col = colorby_input.value
         cl = tools.cluster_summary(selected, col, 5, snpdist)
         clusters_table.value = cl
         return
@@ -393,9 +394,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         groups = df[key].value_counts()
         groups = groups[groups>=minsize]
         df = df[df[key].isin(groups.index)].copy()
-        #print (df)
+
         start, end = timeslider.value
-        df = df[(df.Year>=start) & (df.Year<=end)].copy()
+        df = df[(df.Year>=start) & (df.Year<=end) | (df.Year.isnull())].copy()
         if homebredbox.value == True:
             df = df[df.Homebred=='yes'].copy()
         return df
@@ -407,7 +408,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         #remove old tile
         p.renderers = [x for x in p.renderers if not str(x).startswith('TileRenderer')]
         provider = provider_input.value
-        p.add_tile(provider, retina=True)
+        if provider in bokeh_plot.providers:
+            p.add_tile(provider, retina=True)
+        return
 
     def update_groups(event=None):
         """Change group choices"""
@@ -513,7 +516,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     def select_clusters(event=None):
 
         df = clusters_table.selected_dataframe
-        col = groupby_input.value
+        col = colorby_input.value
         sub = meta[(meta[col].isin(df.cluster))].copy()
         update(sub=sub)
         return
@@ -528,8 +531,10 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         labelsize = labelsize_input.value
         legsize = legendsize_input.value
         global selected
-        f = bokeh_plot.split_view(selected, col, parcels, provider, labels=labels,
-                                      legend_fontsize=legsize, label_fontsize=labelsize)
+        split_pane.object = None
+        #f = bokeh_plot.split_view(selected, col, parcels, provider, labels=labels,
+        #                              legend_fontsize=legsize, label_fontsize=labelsize)
+        f = bokeh_plot.plot_selection(selected, None, col)
         split_pane.object = f
         def update_pane(f):
             split_pane.object = f
@@ -704,6 +709,30 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         #print (fig)
         return
 
+    def about():
+        try:
+            from . import core
+            VERSION = core.git_version()
+        except:
+            from . import __version__ as VERSION
+        pandasver = pd.__version__
+        gpdver = gpd.__version__
+        import bokeh
+        bokehver = bokeh.__version__
+        m="# TracebTB\n"
+        m+="This software is developed as part of a DAFM PSSRC grant (2022PSS113)\n"
+        m+="Licensed under the GPL v.3.0\n"
+        m+="## Software\n"
+        m+=f"* Version {VERSION}\n"
+        m+=f"* pandas v{pandasver}\n"
+        m+=f"* panel v{pn.__version__}\n"
+        m+=f"* bokeh v{bokehver}\n"
+        m+=f"* geopandas v{gpdver}\n"
+        m+="## Links\n"
+        m+="* [Homepage](https://github.com/dmnfarrell/tracebtb)\n"
+        about_pane.object = m
+        return
+
     w=140
     #main panes
     plot_pane = pn.pane.Bokeh()
@@ -844,6 +873,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     #option below plot
     timeslider = pnw.IntRangeSlider(name='Time',width=150,
                     start=2000, end=2024, value=(2000, 2024), step=1)
+    #timebound = pn.bind(update, timeslider.param.value_throttled)
     clustersizeslider = pnw.IntSlider(name='Min. Cluster Size',width=150,
                     start=1, end=20, value=1, step=1)
     homebredbox = pnw.Checkbox(name='Homebred',value=False)
@@ -890,6 +920,10 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     analysis_pane1 = pn.Column(pn.Row(catx_input,caty_input,cathue_input,catkind_input,catupdate_btn),
                                catplot_pane)
 
+    styles={ "margin-top": "10px", "font-size": "15px"}
+    about_pane = pn.pane.Markdown('',styles=styles)
+    about()
+
     app = pn.Column(
                 pn.Row(widgets,
                        toolbar,
@@ -902,6 +936,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
                             ('Moves', moves_pane),
                             ('Herds',herds_pane),('Groups',clusters_pane),
                             ('Tools',utils_pane),
+                            ('About',about_pane),
                              dynamic=True,
                              sizing_mode='stretch_both'),
                           ),
@@ -950,20 +985,39 @@ def main():
     parcels = data['parcels']
     snpdist = data['snpdist']
     #selections = data['selections']
-    print (selections_file)
+    #print (selections_file)
     if os.path.exists(selections_file):
         selections = json.load(open(selections_file,'r'))
     else:
         selections = {}
+
     #create template
-    bootstrap = pn.template.BootstrapTemplate(title='TracebTB',
-                        favicon=logoimg,logo=logoimg,header_color='green')
+    #bootstrap = pn.template.BootstrapTemplate(title='TracebTB',
+    #                    favicon=logoimg,logo=logoimg,header_color='green')
     #pn.config.sizing_mode = 'stretch_width'
-    app = dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections)
-    app.project_file = args.project
-    bootstrap.main.append(app)
-    bootstrap.servable()
-    pn.serve(bootstrap, port=5010, websocket_origin=["bola.ucd.ie","localhost:5010"])
+    #app = dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections)
+    #app.project_file = args.project
+    #bootstrap.main.append(app)
+    #bootstrap.servable()
+
+    # Create a session-specific app function
+    def create_app():
+        #create template
+        bootstrap = pn.template.BootstrapTemplate(
+            title='TracebTB',
+            favicon=logoimg,
+            logo=logoimg,
+            header_color='green'
+        )
+        # Generate a new dashboard instance per session
+        app = dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections)
+        app.project_file = args.project
+        bootstrap.main.append(app)
+        bootstrap.servable()
+        return bootstrap
+
+    pn.serve(create_app, port=5010, #prefix='tracebtb',
+             websocket_origin=["bola.ucd.ie","localhost:5010"])
              #basic_auth={'guest':"mbovis"}, cookie_secret='cookie_secret')
              #websocket_origin=['bola.ucd.ie:80','localhost:5010'])
 

@@ -111,7 +111,7 @@ def show_colors(colors):
     return
 
 def get_color_mapping(df, col, cmap=None, seed=1):
-    """Get random color map for categorcical dataframe column"""
+    """Get random color map for categorical dataframe column"""
 
     c = df[col].unique()
     if cmap == None:
