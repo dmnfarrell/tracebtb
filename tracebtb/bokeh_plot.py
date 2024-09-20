@@ -39,7 +39,7 @@ try:
     from bokeh.layouts import layout, column
     from shapely.geometry import Polygon, Point
     #from bokeh.tile_providers import get_provider, Vendors
-    from bokeh.models import Arrow, NormalHead, OpenHead, VeeHead
+    from bokeh.models import Arrow, NormalHead, OpenHead, VeeHead, Label
     from bokeh.transform import jitter, factor_cmap
     from bokeh.plotting import figure, output_file, save
 except:
@@ -163,7 +163,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         cent['color'] = parcels.color
         labels_source = GeoJSONDataSource(geojson=cent.to_json())
         labels = LabelSet(x='x', y='y', text='SPH_HERD_N', source=labels_source,
-                          text_align='right', background_fill_color='color', background_fill_alpha=0.7,
+                          text_align='right', background_fill_color='color', background_fill_alpha=0.6,
                           text_font_size = f"{label_fontsize}px")
         p.add_layout(labels)
 
@@ -216,13 +216,28 @@ def plot_moves(p, moves, lpis_cent):
 
     return p
 
+def error_message(msg=''):
+    """Return plot with message"""
+
+    p = figure(x_range=(-1, 1), y_range=(-1, 1))
+    x_center = (p.x_range.start + p.x_range.end) / 2
+    y_center = (p.y_range.start + p.y_range.end) / 2
+    label = Label(x=x_center, y=y_center, text=msg, text_align='center',
+                  text_baseline='middle', text_font_size='12pt', text_font_style="bold")
+    p.add_layout(label)
+    p.toolbar.logo = None
+    p.xaxis.visible = False
+    p.yaxis.visible = False
+    return p
+
 def split_view(gdf, col, parcels=None, provider=None, limit=9, **kwargs):
     """Plot selection split by a column"""
 
     from bokeh.layouts import gridplot
     groups = gdf.groupby(col)
     if len(groups)>limit or len(groups)<2:
-        return figure()
+        p = error_message('too many groups to display')
+        return p
     common = gdf[col].value_counts().index[:limit]
     l = len(common)
     if len(common) < 2: return
@@ -244,7 +259,7 @@ def split_view(gdf, col, parcels=None, provider=None, limit=9, **kwargs):
     grid.sizing_mode = 'stretch_both'
     return grid
 
-def plot_moves_timeline(mov, herdcolors, height=300):
+def plot_moves_timeline(mov, herdcolors, limit=300, height=300):
     """Plot movement timeline"""
 
     if mov is None:
@@ -254,9 +269,8 @@ def plot_moves_timeline(mov, herdcolors, height=300):
     #default end date if no death
     end = datetime(2022, 12, 31)
     groups = mov.groupby('tag')
-    if len(groups)>300:
-        p=figure()
-        p.text('too many samples for timeline')
+    if len(groups)>limit:
+        p=error_message('too many samples for timeline')
         return p
     for tag,t in groups:
         if len(t)==1:

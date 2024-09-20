@@ -1398,7 +1398,7 @@ class App(QMainWindow):
                             width=250,height=150)
         dlg.exec_()
         if not dlg.accepted:
-            return
+            return df
         kwds = dlg.values
         x=kwds['X']
         y=kwds['Y']

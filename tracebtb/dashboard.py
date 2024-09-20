@@ -390,7 +390,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         """Filter from widgets"""
 
         minsize = clustersizeslider.value
-        key = groupby_input.value
+        key = colorby_input.value
         groups = df[key].value_counts()
         groups = groups[groups>=minsize]
         df = df[df[key].isin(groups.index)].copy()
@@ -531,15 +531,12 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         labelsize = labelsize_input.value
         legsize = legendsize_input.value
         global selected
-        split_pane.object = None
-        #f = bokeh_plot.split_view(selected, col, parcels, provider, labels=labels,
-        #                              legend_fontsize=legsize, label_fontsize=labelsize)
-        f = bokeh_plot.plot_selection(selected, None, col)
-        split_pane.object = f
-        def update_pane(f):
-            split_pane.object = f
-        #pn.io.schedule_on_load(lambda: update_pane(f))
-        #split_pane.param.trigger('object')
+        sub = apply_filters(selected)
+        f = bokeh_plot.split_view(sub, col, parcels, provider, labels=labels,
+                                    legend_fontsize=legsize, label_fontsize=labelsize,
+                                    limit=9)
+        split_pane.objects.clear()
+        split_pane.append(pn.pane.Bokeh(f))
         return
 
     def update_tree(event=None, sub=None):
@@ -709,6 +706,14 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         #print (fig)
         return
 
+    def current_data_info():
+        """Currently loaded data summary"""
+
+        m=f"{len(meta)} rows loaded\n"
+        empty = len(meta[meta.geometry.is_empty])
+        m+=f"{empty} rows with no geometry\n"
+        return m
+
     def about():
         try:
             from . import core
@@ -730,6 +735,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         m+=f"* geopandas v{gpdver}\n"
         m+="## Links\n"
         m+="* [Homepage](https://github.com/dmnfarrell/tracebtb)\n"
+
+        m+="## Current data\n"
+        m+=current_data_info()
         about_pane.object = m
         return
 
@@ -738,7 +746,8 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     plot_pane = pn.pane.Bokeh()
     #overview_pane = pn.pane.Bokeh(height=300)
     overview_pane = pn.pane.Matplotlib(height=300)
-    split_pane = pn.pane.Bokeh(sizing_mode='stretch_both')
+    #split_pane = pn.pane.Bokeh(sizing_mode='stretch_both')
+    split_pane = pn.Column(sizing_mode='stretch_both')
     timeline_pane = pn.pane.Bokeh(sizing_mode='stretch_height')
     info_pane = pn.pane.Markdown('', styles={'color': "red"})
 
@@ -945,7 +954,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
                                   #('Network',network_pane),
                                   dynamic=True,width=500),
                                   timeline_pane, width=500),
-             max_width=2000,min_height=600
+             max_width=2600,min_height=600
     ))
     app.sizing_mode='stretch_both'
     meta_pane.value = meta
@@ -1007,7 +1016,7 @@ def main():
             title='TracebTB',
             favicon=logoimg,
             logo=logoimg,
-            header_color='green'
+            header_color='white'
         )
         # Generate a new dashboard instance per session
         app = dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections)
