@@ -76,6 +76,27 @@ def test():
     p.scatter(x, y, fill_color="red", size=10)
     return p
 
+def random_circles(n=20):
+    """Plot renadom circles"""
+
+    def random_color():
+        return "#{:06x}".format(random.randint(0, 0xFFFFFF))
+
+    x = np.random.rand(n) * 10
+    y = np.random.rand(n) * 10
+    radius = np.random.rand(n) * 0.5 + 0.1
+    #color = np.random.choice(['red', 'blue', 'green', 'purple', 'orange'], n)
+    color = [random_color() for _ in range(n)]
+    source = ColumnDataSource(data=dict(x=x, y=y, radius=radius, color=color))
+    p = figure(title="Random Circles", x_range=(0, 10), y_range=(0, 10))
+    p.circle(x='x', y='y', radius='radius', fill_color='color', fill_alpha=0.6,
+              line_color="color", source=source)
+    p.sizing_mode = 'stretch_both'
+    p.axis.visible = False
+    p.toolbar.logo = None
+    #p.background_fill_color = 'gray'
+    return p
+
 def save_figure(p):
     output_file(filename="test.html", title="Static HTML file")
     save(p)
@@ -176,7 +197,7 @@ def plot_counties(p):
     geojson = counties_gdf.to_json()
     source = GeoJSONDataSource(geojson=geojson)
     r = p.patches('xs', 'ys', source=source,
-                  line_width=3, line_color='red', fill_alpha=0)
+                  line_width=2, line_color='red', fill_alpha=0)
     return p
 
 def plot_lpis(gdf, p):
@@ -219,7 +240,7 @@ def plot_moves(p, moves, lpis_cent):
 def error_message(msg=''):
     """Return plot with message"""
 
-    p = figure(x_range=(-1, 1), y_range=(-1, 1))
+    p = figure(x_range=(-1, 1), y_range=(-1, 1), match_aspect=True)
     x_center = (p.x_range.start + p.x_range.end) / 2
     y_center = (p.y_range.start + p.y_range.end) / 2
     label = Label(x=x_center, y=y_center, text=msg, text_align='center',
@@ -493,3 +514,37 @@ def kde_plot_groups(gdf, p, col='snp12', min_samples=6):
         clr = sub.iloc[0].color
         kde_plot(sub, p, color=clr, levels=15)
     return
+
+def hexbin(gdf, n_bins=10, p=None):
+    """Hex bin plot of point counts"""
+
+    from bokeh.transform import linear_cmap
+    from bokeh.palettes import Reds256, OrRd9
+    from bokeh.util.hex import hexbin
+
+    if p is None:
+        p = init_figure(provider='CartoDB Positron')
+
+    gdf = gdf.to_crs('EPSG:3857')
+    gdf['x'] = gdf.geometry.x
+    gdf['y'] = gdf.geometry.y
+    x = gdf['x'].values
+    y = gdf['y'].values
+
+    width = x.max() - x.min()
+    hex_size = width/n_bins
+    bins = hexbin(x, y, hex_size)
+    source = ColumnDataSource(data=dict(
+        q=bins.q, r=bins.r, counts=bins.counts
+    ))
+    #color mapper for coloring hexagons based on point counts
+    color_mapper = linear_cmap(field_name='counts', palette=Reds256[::-1], low=min(bins.counts), high=max(bins.counts))
+    tiles = p.hex_tile(q="q", r="r", size=hex_size, line_color='black', source=source,
+               fill_alpha=0.7, fill_color=color_mapper)
+    hover = HoverTool(
+        tooltips=[("Count", "@counts")],  # Display the 'counts' field from ColumnDataSource
+        mode="mouse",  # Display hover info wherever the mouse is over a tile
+        renderers=[tiles]  # Apply hover tool to hex tiles
+    )
+    p.add_tools(hover)
+    return p

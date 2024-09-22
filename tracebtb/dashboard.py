@@ -294,6 +294,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
                                       legend_fontsize=legsize, label_fontsize=labelsize)
         if showcounties_btn.value == True:
              bokeh_plot.plot_counties(p)
+        if hex_btn.value == True:
+            bins = hexbins_input.value
+            bokeh_plot.hexbin(sub, n_bins=bins, p=p)
         if kde_btn.value == True:
             bokeh_plot.kde_plot_groups(sub, p, col, 6)
         global lpis
@@ -742,6 +745,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         return
 
     w=140
+    pn.config.throttled = True
     #main panes
     plot_pane = pn.pane.Bokeh()
     #overview_pane = pn.pane.Bokeh(height=300)
@@ -838,10 +842,12 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     card3 = pn.Column('## LPIS', loadlpis_btn, width=340, styles=card_style)
 
     #settings
-    markersize_input = pnw.IntSlider(name='marker size', value=10, start=2, end=80,width=w)
+    markersize_input = pnw.IntSlider(name='marker size', value=10, start=0, end=80,width=w)
     labelsize_input = pnw.IntSlider(name='label size', value=15, start=6, end=80,width=w)
     legendsize_input = pnw.IntSlider(name='legend size', value=12, start=6, end=40,width=w)
-    card4 = pn.Column('## Settings', markersize_input,labelsize_input,legendsize_input, width=340, styles=card_style)
+    hexbins_input = pnw.IntSlider(name='hex bins', value=10, start=5, end=100,width=w)
+    card4 = pn.Column('## Settings', markersize_input,labelsize_input,legendsize_input,
+                       hexbins_input, width=340, styles=card_style)
 
     utils_pane = pn.FlexBox(*[card1,card2, card3, card4], flex_direction='column', min_height=400,
                              styles={'margin': '10px'}, sizing_mode='stretch_both')
@@ -862,7 +868,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     tiplabel_input = pnw.Select(name='tip label',options=list(meta.columns),value='sample',width=w)
     widgets = pn.Column(pn.WidgetBox(nav_pane,groupby_input,groups_table,colorby_input,cmap_input,tiplabel_input,
                                      provider_input),info_pane,width=w+30)
-    #toolbar
+    #button toolbar
     split_btn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size='1.8em')
     selectregion_btn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size='1.8em')
     selectradius_btn = pnw.Button(icon=get_icon('plot-centroid'), description='select within radius', icon_size='1.8em')
@@ -874,15 +880,15 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     parcellabel_btn = pnw.Toggle(icon=get_icon('parcel-label'), icon_size='1.8em')
     showcounties_btn = pnw.Toggle(icon=get_icon('counties'), icon_size='1.8em')
     kde_btn = pnw.Toggle(icon=get_icon('contour'), icon_size='1.8em')
+    hex_btn = pnw.Toggle(icon=get_icon('hexbin'), icon_size='1.8em')
     #lockbtn = pnw.Toggle(icon=get_icon('lock'), icon_size='1.8em')
     toolbar = pn.Column(pn.WidgetBox(selectregion_btn,selectradius_btn,tree_btn,
                                      parcels_btn,parcellabel_btn,showcounties_btn,moves_btn,legend_btn,
-                                     neighbours_btn,kde_btn,split_btn),width=70)
+                                     neighbours_btn,kde_btn,hex_btn,split_btn),width=70)
 
     #option below plot
     timeslider = pnw.IntRangeSlider(name='Time',width=150,
                     start=2000, end=2024, value=(2000, 2024), step=1)
-    #timebound = pn.bind(update, timeslider.param.value_throttled)
     clustersizeslider = pnw.IntSlider(name='Min. Cluster Size',width=150,
                     start=1, end=20, value=1, step=1)
     homebredbox = pnw.Checkbox(name='Homebred',value=False)
@@ -906,7 +912,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     legend_btn.param.watch(update, 'value')
     neighbours_btn.param.watch(update, 'value')
     kde_btn.param.watch(update, 'value')
+    hex_btn.param.watch(update, 'value')
     timeslider.param.watch(update, 'value')
+    #pn.bind(update, timeslider.param.value_throttled)
     clustersizeslider.param.watch(update, 'value')
     homebredbox.param.watch(update, 'value')
 
@@ -963,72 +971,87 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     update(sub=selected)
     return app
 
+def test_app():
+    """test app"""
+    bootstrap = pn.template.BootstrapTemplate(
+        title='Testing'
+    )
+
+    def update_plot(event=None):
+        plot_pane.object = bokeh_plot.random_circles(n=50)
+
+    plot_pane = pn.pane.Bokeh(bokeh_plot.random_circles(n=50))
+    button = pn.widgets.Button(name="TEST", button_type="primary")
+    button.on_click(update_plot)
+    app = pn.Column(plot_pane, button)
+
+    bootstrap.main.append(app)
+    bootstrap.servable()
+    return bootstrap
+
 def main():
     "Run the application"
     from argparse import ArgumentParser
     parser = ArgumentParser(description='TracebTB')
     parser.add_argument("-p", "--proj", dest="project",default=None,
                             help="load project file", metavar="FILE")
+    parser.add_argument("-t", "--test", dest="test", action="store_true",
+                        help="dummy test app")
     args = parser.parse_args()
-    #load data
-    if args.project == None:
+
+    if args.test == True:
+        pn.serve(test_app, port=5010, prefix='testapp',
+                 basic_auth='credentials.json',cookie_secret='cookie_secret',
+                 websocket_origin=["bola.ucd.ie","localhost:5010"])
+    elif args.project == None:
         print ('please provide a project file')
         exit()
-
-    #load config file
-    if not os.path.exists(configfile):
-        d = {'dashboard':{'lpis_master_file':''}}
-        with open(configfile, "w") as outfile:
-            json.dump(d, outfile)
-        lpis_master_file = None
     else:
-        with open(configfile) as f:
-            jsondata = json.load(f)
-        print('found settings file')
-        lpis_master_file = jsondata['dashboard']['lpis_master_file']
+        #load config file
+        if not os.path.exists(configfile):
+            d = {'dashboard':{'lpis_master_file':''}}
+            with open(configfile, "w") as outfile:
+                json.dump(d, outfile)
+            lpis_master_file = None
+        else:
+            with open(configfile) as f:
+                jsondata = json.load(f)
+            print('found settings file')
+            lpis_master_file = jsondata['dashboard']['lpis_master_file']
 
-    data = pickle.load(open(args.project,'rb'))
-    meta = data['meta']#.to_crs('EPSG:3857')
-    moves = data['moves']
-    lpis_cent = data['lpis_cent']
-    parcels = data['parcels']
-    snpdist = data['snpdist']
-    #selections = data['selections']
-    #print (selections_file)
-    if os.path.exists(selections_file):
-        selections = json.load(open(selections_file,'r'))
-    else:
-        selections = {}
+        data = pickle.load(open(args.project,'rb'))
+        meta = data['meta']#.to_crs('EPSG:3857')
+        moves = data['moves']
+        lpis_cent = data['lpis_cent']
+        parcels = data['parcels']
+        snpdist = data['snpdist']
+        #selections = data['selections']
+        #print (selections_file)
+        if os.path.exists(selections_file):
+            selections = json.load(open(selections_file,'r'))
+        else:
+            selections = {}
 
-    #create template
-    #bootstrap = pn.template.BootstrapTemplate(title='TracebTB',
-    #                    favicon=logoimg,logo=logoimg,header_color='green')
-    #pn.config.sizing_mode = 'stretch_width'
-    #app = dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections)
-    #app.project_file = args.project
-    #bootstrap.main.append(app)
-    #bootstrap.servable()
+        # Create a session-specific app function
+        def create_app():
+            #create template
+            bootstrap = pn.template.BootstrapTemplate(
+                title='TracebTB',
+                favicon=logoimg,
+                logo=logoimg,
+                header_color='white'
+            )
+            # Generate a new dashboard instance per session
+            app = dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections)
+            app.project_file = args.project
+            bootstrap.main.append(app)
+            bootstrap.servable()
+            return bootstrap
 
-    # Create a session-specific app function
-    def create_app():
-        #create template
-        bootstrap = pn.template.BootstrapTemplate(
-            title='TracebTB',
-            favicon=logoimg,
-            logo=logoimg,
-            header_color='white'
-        )
-        # Generate a new dashboard instance per session
-        app = dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections)
-        app.project_file = args.project
-        bootstrap.main.append(app)
-        bootstrap.servable()
-        return bootstrap
-
-    pn.serve(create_app, port=5010, #prefix='tracebtb',
-             websocket_origin=["bola.ucd.ie","localhost:5010"])
-             #basic_auth={'guest':"mbovis"}, cookie_secret='cookie_secret')
-             #websocket_origin=['bola.ucd.ie:80','localhost:5010'])
+        pn.serve(create_app, port=5010, #prefix='tracebtb',
+                websocket_origin=["bola.ucd.ie","localhost:5010"])
+                #basic_auth='credentials.json', cookie_secret='cookie_secret')
+                #websocket_origin=['bola.ucd.ie:80','localhost:5010'])
 
 if __name__ == '__main__':
     main()
