@@ -259,3 +259,75 @@ def get_clusters(tree):
     clusts = pd.pivot_table(pd.concat(c),index='SequenceName',columns='d',values='ClusterNumber').reset_index()
     return clusts
 
+def biopython_tree(tree, tip_labels=True, tip_colors=None, color='blue', s=10, ax=None):
+    """Plot tree with biopython Phylo"""
+
+    from Bio import Phylo
+    if ax==None:
+        fig,ax=plt.subplots(1,1,figsize=(8,4))
+
+    if tip_labels==True:
+        func = lambda x: x.name if x.is_terminal() else None
+    else:
+        func = lambda x: None
+    Phylo.draw(tree, label_func=func, axes=ax,
+            show_confidence=False, do_show=False)#, fontsize={'fontsize':'5'})
+
+    for line in ax.lines:
+        line.set_linewidth(.1)
+    tip_positions = calculate_tip_positions(tree)
+    tip_labels = list(tip_positions.keys())
+
+    # Create a list of colors for the tips
+    #tip_colors = [color_mapping.get(label, 'black') for label in tip_labels]
+
+    if tip_colors != None:
+        # Color the tips according to the mapping
+        for label, color in zip(tip_labels, tip_colors):
+            x, y = tip_positions[label]
+            ax.scatter(x, y, color=color, s=s)
+    else:
+        for label in tip_labels:
+            x, y = tip_positions[label]
+            #print (x,y)
+            ax.scatter(x, y,color=color, s=s)
+    ax.axis('off')
+    return
+
+def phylocanvas_tree(treefile, df=None, col=None):
+    """Draw newick tree"""
+
+    with open(treefile, 'r') as file:
+        newick_data = file.read()
+    #color_mapping = df[col].to_dict()
+    #color_json = json.dumps(color_mapping)
+
+    html = """
+
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Phylocanvas Tree Example</title>
+            <script src="https://unpkg.com/@phylocanvas/phylocanvas.gl@latest/dist/bundle.min.js"></script>
+
+        </head>
+        <body>
+            <h1> TEST </h1>
+            <div id="demo" style="border: 1px solid lightgray"></div>
+
+            <script>
+            const phylotree = new phylocanvas.PhylocanvasGL(
+            document.querySelector("#demo"),
+            {{
+                showLabels: true,
+                showLeafLabels: true,
+                size: {{ width: 400, height: 500 }},
+                source: `{n}`,
+            }},
+            );
+            </script>
+        </body>
+        </html>
+    """.format(n=newick_data)
+    return html

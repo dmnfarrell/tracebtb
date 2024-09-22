@@ -88,44 +88,6 @@ def draw_toytree(treefile, df, **kwargs):
         html = f.read()
     return html
 
-def phylocanvas_tree(treefile, df, col):
-    """Draw newick tree"""
-
-    with open(treefile, 'r') as file:
-        newick_data = file.read()
-    #color_mapping = df[col].to_dict()
-    #color_json = json.dumps(color_mapping)
-
-    html = """
-
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Phylocanvas Tree Example</title>
-            <script src="https://unpkg.com/@phylocanvas/phylocanvas.gl@latest/dist/bundle.min.js"></script>
-
-        </head>
-        <body>
-            <h1> TEST </h1>
-            <div id="demo" style="border: 1px solid lightgray"></div>
-
-            <script>
-            const phylotree = new phylocanvas.PhylocanvasGL(
-            document.querySelector("#demo"),
-            {{
-                showLabels: true,
-                showLeafLabels: true,
-                size: {{ width: 400, height: 500 }},
-                source: `{n}`,
-            }},
-            );
-            </script>
-        </body>
-        </html>
-    """.format(n=newick_data)
-    return html
-
 def get_figure_coords(p):
     """Coords of plot figure"""
 

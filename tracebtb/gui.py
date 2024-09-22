@@ -131,40 +131,44 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
 
     minx, miny, maxx, maxy = df.total_bounds
     if len(df) == 1:
-        minx-=1000
-        miny-=1000
-        maxx+=1000
-        maxy+=1000
+        minx -= 1000
+        miny -= 1000
+        maxx += 1000
+        maxy += 1000
     else:
-        maxx+=10
-        maxy+=10
+        maxx += 10
+        maxy += 10
 
-    #map color to col here properly?
+    # map color to col here first
     if 'color' not in df.columns:
-        df['color'] = 'blue'
+        if col is None or col == '':
+            df['color'] = 'blue'
+        else:
+            df['color'],c = tools.get_color_mapping(df, col, cmap)
+
     ncols = 1
-    if col in df.columns and len(df.groupby(col).groups)>15:
-        ncols=2
-    legfmt = {'title':col,'fontsize':'small','frameon':False,'draggable':True,'ncol':ncols}
-    if col == None or col == '':
-        df.plot(color=df.color,ax=ax,alpha=0.6,markersize=ms,linewidth=.5,
-                legend=legend,legend_kwds=legfmt)
-    else:
-        df.plot(column=col,ax=ax,alpha=0.6,markersize=ms,linewidth=.5,cmap=cmap,
-                legend=legend,legend_kwds=legfmt)
-    cow = df[df.Species=='Bovine']
-    badger = df[df.Species=='Badger']
-    #cow.plot(column=col,ax=ax,alpha=0.6,markersize=ms,linewidth=1,ec='black',cmap=cmap,legend=legend)
-    #outline badgers with shape
-    if len(badger)>0:
-        badger.plot(color='none',ax=ax,alpha=0.8,marker='^',markersize=ms+40,linewidth=.5,ec='black')
+    if col in df.columns and len(df.groupby(col).groups) > 15:
+        ncols = 2
+    legfmt = {'title': col, 'fontsize': 'small', 'frameon': False, 'draggable': True, 'ncol': ncols}
+
+    # Split the dataframe by species
+    cows = df[df.Species == 'Bovine']
+    badgers = df[df.Species == 'Badger']
+    if not cows.empty:
+        cows.plot(color=cows.color, ax=ax, alpha=0.6, markersize=ms, linewidth=.5,
+                      legend=legend, legend_kwds=legfmt)
+    if not badgers.empty:
+        if col is None or col == '':
+            badgers.plot(color=badgers.color, ax=ax, alpha=0.6, marker='s', markersize=ms, linewidth=.5)
+
     ax.set_title(title)
     ax.axis('off')
-    if margin == None:
-        margin = (maxx-minx)*0.3
-    ax.set_xlim(minx-margin,maxx+margin)
-    ax.set_ylim(miny-margin,maxy+margin)
-    ax.add_artist(ScaleBar(dx=1,location=3))
+
+    if margin is None:
+        margin = (maxx - minx) * 0.3
+    ax.set_xlim(minx - margin, maxx + margin)
+    ax.set_ylim(miny - margin, maxy + margin)
+    ax.add_artist(ScaleBar(dx=1, location=3))
     return
 
 def calculate_grid_dimensions(n):
@@ -1573,7 +1577,7 @@ class App(QMainWindow):
         """Phylogeny from sequence alignment file"""
 
         try:
-            utils.run_fasttree(infile, treefile, bootstraps=50)
+            trees.run_fasttree(infile, treefile, bootstraps=50)
         except Exception as e:
             print ('fasttree error')
             print(e)
@@ -1581,7 +1585,7 @@ class App(QMainWindow):
         from Bio import SeqIO, AlignIO
         aln = AlignIO.read(infile,'fasta')
         ls = len(aln[0])
-        utils.convert_branch_lengths(treefile, treefile, ls)
+        trees.convert_branch_lengths(treefile, treefile, ls)
         return
 
     def set_background(self, color='lightgray'):
@@ -1978,17 +1982,6 @@ class App(QMainWindow):
         self.plotview.redraw()
         return
 
-    def add_context_map(self, source=None):
-        """Contextily background map"""
-
-        gdf = self.meta_table.model.df
-        if source == None:
-            return
-        ax = self.plotview.ax
-        cx.add_basemap(ax, crs=gdf.crs, zoom=9,
-                attribution=False, source=source)
-        return
-
     def show_moves_timeline(self, df, herdcolors, order=None):
         """Show moves timeline plot"""
 
@@ -2095,7 +2088,7 @@ class App(QMainWindow):
         """Binned plots for overviews"""
 
         df = self.meta_table.model.df
-        ocols = get_ordinal_columns(df)
+        ocols = tools.get_ordinal_columns(df)
         opts = {'column':{'type':'combobox','default':'snp50','items':ocols},
                 'function':{'type':'combobox','default':'sum','items':['sum']},
                 'bins':{'type':'entry','default':10}
@@ -2290,7 +2283,7 @@ class App(QMainWindow):
         """Summary by herd. We use snp7 to define a strain."""
 
         df = self.sub
-        tools.herd_summary(df, self.moves, self.snpdist)
+        res = tools.herd_summary(df, self.moves, self.snpdist)
         w = tables.HerdTable(self, dataframe=res,
                     font=core.FONT, fontsize=core.FONTSIZE, app=self)
         self.show_dock_object(w, 'herd summary')
