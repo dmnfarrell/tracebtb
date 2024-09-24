@@ -25,8 +25,9 @@ import pandas as pd
 import matplotlib as mpl
 import geopandas as gpd
 import matplotlib.dates as mdates
-from datetime import datetime
 import matplotlib.colors as mcolors
+from datetime import datetime
+from collections import OrderedDict
 
 try:
     from bokeh.io import show
@@ -53,6 +54,9 @@ providers = [
     "OpenStreetMap Mapnik",
     "Esri World Imagery"
 ]
+speciesmarkers = {'Bovine':'circle','Badger':'square',
+                  'Deer':'triangle','Ovine':'diamond',None:'x'}
+
 module_path = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(module_path,'data')
 counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:3857")
@@ -130,14 +134,14 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         p: existing figure if needed
     """
 
-    #create figure
     if p == None:
         p = init_figure(title, provider)
-    gdf = gdf[~gdf.geometry.is_empty].sort_values('color')
+    gdf = gdf[~gdf.geometry.is_empty].sort_values(col)
     if len(gdf) == 0:
         return p
     if not 'color' in gdf.columns:
         gdf['color'] = 'blue'
+    gdf['marker'] = gdf.Species.map(speciesmarkers)
     geojson = gdf.to_crs('EPSG:3857').to_json()
     geo_source = GeoJSONDataSource(geojson=geojson)
 
@@ -158,6 +162,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
     h2 = HoverTool(renderers=[r2], tooltips=([("Sample", "@sample"),
                                             ("Animal_id", "@Animal_ID"),
                                             ("Herd", "@HERD_NO"),
+                                            ("Year", "@Year"),
                                             ("Homebred","@Homebred"),
                                             ("Clade", "@IE_clade"),
                                             ('snp7',"@snp7"),
@@ -166,18 +171,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
     p.add_tools(h2)
 
     if legend == True and col != None:
-        vals = gdf[col].astype(str)
-        color_map = dict(zip(vals,gdf.color))
-        legend_items = []
-        x = (p.x_range.end-p.x_range.start)/2
-        y = (p.y_range.end-p.y_range.start)/2
-        for c, color in color_map.items():
-            r = p.scatter(x=[x], y=[y], color=color, size=5)
-            legend_items.append(LegendItem(label=c,renderers=[r]))
-            r.visible=False
-        legend = Legend(items=legend_items, location="top_left", title=col)
-        p.add_layout(legend, 'right')
-        p.legend.label_text_font_size = f'{legend_fontsize}pt'
+        add_legend(p, gdf, col, legend_fontsize)
 
     if labels == True and parcels is not None:
         cent = tools.calculate_parcel_centroids(parcels).to_crs('EPSG:3857')
@@ -191,6 +185,23 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
     p.axis.visible = False
     p.toolbar.logo = None
     return p
+
+def add_legend(p, gdf, col, fontsize=14):
+    """Add legend to figure given gdf and col color"""
+
+    vals = gdf[col].astype(str)
+    color_map = OrderedDict(zip(vals,gdf.color))
+    legend_items = []
+    x = (p.x_range.end-p.x_range.start)/2
+    y = (p.y_range.end-p.y_range.start)/2
+    for c, color in color_map.items():
+        r = p.scatter(x=[x], y=[y], color=color, size=5)
+        legend_items.append(LegendItem(label=c,renderers=[r]))
+        r.visible=False
+    legend = Legend(items=legend_items, location="top_left", title=col)
+    p.add_layout(legend, 'right')
+    p.legend.label_text_font_size = f'{fontsize}pt'
+    return
 
 def plot_counties(p):
 
@@ -464,7 +475,6 @@ def create_custom_palette(base_hex, num_colors=9):
         darker_rgb = mcolors.hsv_to_rgb(darker_hsv)
         #print (darker_hsv)
         palette.append(mcolors.rgb2hex(darker_rgb))
-
     return palette
 
 def kde(gdf, N):
@@ -488,7 +498,7 @@ def kde(gdf, N):
     Z = np.reshape(kernel(positions).T, X.shape)
     return X, Y, Z
 
-def kde_plot(gdf, p, color='#4AA60E', levels=10):
+def kde_plot(gdf, p, color='#4AA60E', levels=10, alpha=0.5):
     """kde plot of points in map"""
 
     x, y, z = kde(gdf, 100)
@@ -498,10 +508,10 @@ def kde_plot(gdf, p, color='#4AA60E', levels=10):
     p.grid.level = "overlay"
     palette = create_custom_palette(color, num_colors=levels)
     lvl = np.linspace(np.min(z), np.max(z), levels)
-    p.contour(x, y, z, lvl[1:], fill_color=palette, line_color=palette, fill_alpha=.4)
+    p.contour(x, y, z, lvl[1:], fill_color=palette, line_color=palette, fill_alpha=alpha)
     return
 
-def kde_plot_groups(gdf, p, col='snp12', min_samples=6):
+def kde_plot_groups(gdf, p, col='snp12', min_samples=6, alpha=0.5):
     """Kde plot of separate groups"""
 
     for c,sub in gdf.groupby(col):
@@ -512,7 +522,7 @@ def kde_plot_groups(gdf, p, col='snp12', min_samples=6):
         if len(sub) == 0:
             continue
         clr = sub.iloc[0].color
-        kde_plot(sub, p, color=clr, levels=15)
+        kde_plot(sub, p, color=clr, levels=15, alpha=alpha)
     return
 
 def hexbin(gdf, n_bins=10, p=None):
@@ -547,4 +557,55 @@ def hexbin(gdf, n_bins=10, p=None):
         renderers=[tiles]  # Apply hover tool to hex tiles
     )
     p.add_tools(hover)
+    return p
+
+def scatter_pie(gdf, groupby='HERD_NO', col='snp12', colormap=None,
+                radius=2000, legend=True, legend_fontsize=12, provider='CartoDB Positron', p=None):
+    """Draw wedges colored by proportion of points in a group"""
+
+    from sklearn.cluster import KMeans
+    from bokeh.transform import cumsum
+    from bokeh.models import Wedge
+
+    gdf = gdf.to_crs('EPSG:3857')
+    if p == None:
+        p = init_figure('', provider)
+    #if groupby == 'cl':
+    #    gdf = tools.spatial_cluster(gdf,2000)
+    groups = gdf.groupby(groupby)
+
+    rend = []
+    for herd, group in groups:
+        if len(group) <= 1:
+            continue
+        geo_source = GeoJSONDataSource(geojson=group.to_json())
+        pt = group.union_all().centroid
+        x, y = pt.x,pt.y
+
+        #summarize group
+        summary = group.groupby(col).size()
+        summary = summary.reset_index(name='value').sort_values(by=col)
+        summary['angle'] = summary['value'] / summary['value'].sum() * 2 * np.pi
+        summary['color'] = summary[col].map(colormap)
+        summary['radius'] = len(group)*200+200
+        summary['size'] = len(group)
+        row = group.iloc[0]
+        summary['herd'] = row.HERD_NO
+
+        #print (summary)
+        source = ColumnDataSource(summary)
+
+        r = p.wedge(x=x, y=y, radius='radius', source=source,
+                start_angle=cumsum('angle', include_zero=True), end_angle=cumsum('angle'),
+                color='color', line_color="black", fill_alpha=0.5)
+        rend.append(r)
+
+    h = HoverTool(renderers=rend, tooltips=([(col, f"@{col}"),
+                                            ('herd',"@herd"),
+                                            ('size',"@size")]))
+    p.add_tools(h)
+    if legend == True and col != None:
+        add_legend(p, gdf, col, legend_fontsize)
+    p.axis.visible = False
+    p.toolbar.logo = None
     return p

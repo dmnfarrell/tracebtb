@@ -531,32 +531,32 @@ def add_to_json(filename, obj, key):
 def mean_distance_between_sets(distance_matrix, indices1, indices2):
     """
     Calculates the mean distance between two sets of rows in a distance matrix.
-    
+
     Parameters:
         distance_matrix (numpy.ndarray): A 2D square matrix of distances.
         set1_indices (list of int): Indices representing the first set of rows.
         set2_indices (list of int): Indices representing the second set of rows.
-        
+
     Returns:
         float: The mean distance between the two sets of rows.
     """
     # Extract the submatrix of distances between the two sets
-    submatrix = distance_matrix.loc[indices1, indices2]    
+    submatrix = distance_matrix.loc[indices1, indices2]
     # Compute the mean of all elements in the submatrix
-    mean_distance = np.mean(submatrix)    
-    return mean_distance  
+    mean_distance = np.mean(submatrix)
+    return mean_distance
 
 def mean_geo_dist(gdf1, gdf2):
     """Compute the distance between 2 GeoDataFrames"""
-    
+
     centroid1 = gdf1.geometry.centroid.union_all().centroid
-    centroid2 = gdf2.geometry.centroid.union_all().centroid   
+    centroid2 = gdf2.geometry.centroid.union_all().centroid
     distance = centroid1.distance(centroid2)
     return distance
 
 def compare_cluster_distances(df,snpdist,col,min_size=5):
     """Compare mean cluster vs geo distances"""
-    
+
     grouped = df.groupby(col)
     filtered_groups = {name: group for name, group in grouped if len(group) >= min_size}
     unique_groups = list(filtered_groups.keys())
@@ -568,6 +568,17 @@ def compare_cluster_distances(df,snpdist,col,min_size=5):
         sub2 = filtered_groups[group2]
         sd = mean_distance_between_sets(snpdist, sub1.index, sub2.index)
         gd = mean_geo_dist(sub1, sub2)
-        res.append((sd,gd))    
+        res.append((sd,gd))
     res=pd.DataFrame(res,columns=['snpdist','geodist'])
     return res
+
+def spatial_cluster(gdf, eps=3000):
+    """Spatially cluster points"""
+
+    import sklearn.cluster as skc
+    coordinates = gdf['geometry'].apply(lambda p: np.hstack(p.xy)).values
+    coordinates = np.vstack(coordinates)
+    clusterer = skc.DBSCAN(eps=eps).fit(coordinates)
+    nclusters = clusterer.p
+    gdf = gdf.assign(cl=clusterer.labels_)
+    return gdf

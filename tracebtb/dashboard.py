@@ -41,7 +41,7 @@ report_file = 'report.html'
 selections_file = os.path.join(configpath,'selections.json')
 
 speciescolors = {'Bovine':'blue','Badger':'red','Ovine':'green'}
-speciesmarkers = {'Bovine':'circle','Badger':'square','Ovine':'diamond',None:'x'}
+
 card_style = {
     'background': '#f9f9f9',
     'border': '1px solid #bcbcbc',
@@ -159,7 +159,6 @@ def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
         cmap=None
 
     sub['color'],c = tools.get_color_mapping(sub, col, cmap)
-    sub['marker'] = sub.Species.map(speciesmarkers)
     herds = list(sub.HERD_NO)
     mov = tools.get_moves_bytag(sub, moves, lpis_cent)
     if mov is not None:
@@ -222,8 +221,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
 
         if len(sub[col].unique())>20:
             cmap=None
-        sub['color'],c = tools.get_color_mapping(sub, col, cmap)
-        sub['marker'] = sub.Species.map(speciesmarkers)
+        sub['color'],cm1 = tools.get_color_mapping(sub, col, cmap)
         #set global selected
         selected = sub
         #filters
@@ -240,7 +238,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         pcmap='tab20'
         if len(sp.SPH_HERD_N.unique())>20:
             pcmap=None
-        sp['color'],c = tools.get_color_mapping(sp, 'SPH_HERD_N',pcmap)
+        sp['color'],cm2 = tools.get_color_mapping(sp, 'SPH_HERD_N',pcmap)
 
         if parcels_btn.value == True:
             pcls=sp
@@ -251,9 +249,14 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         labels = parcellabel_btn.value
         labelsize = labelsize_input.value
         legsize = legendsize_input.value
-        p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms,
+        if pointstyle_input.value == 'default':
+            p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms,
                                       col=col, legend=legend, labels=labels,
                                       legend_fontsize=legsize, label_fontsize=labelsize)
+        else:
+            p = bokeh_plot.scatter_pie(sub, 'HERD_NO', col, cm1,
+                                       legend=legend, legend_fontsize=legsize)
+
         if showcounties_btn.value == True:
              bokeh_plot.plot_counties(p)
         if hex_btn.value == True:
@@ -826,10 +829,11 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     groups_table = pnw.Tabulator(disabled=True, widths={'index': 70}, layout='fit_columns',pagination=None, height=250, width=w)
     colorby_input = pnw.Select(name='color by',options=cols,value='snp7',width=w)
     cmap_input = pnw.Select(name='colormap',options=colormaps,value='Set1',width=w)
-    provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
     tiplabel_input = pnw.Select(name='tip label',options=list(meta.columns),value='sample',width=w)
+    provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
+    pointstyle_input = pnw.Select(name='points display',options=['default','pie'],value='default',width=w)
     widgets = pn.Column(pn.WidgetBox(nav_pane,groupby_input,groups_table,colorby_input,cmap_input,tiplabel_input,
-                                     provider_input),info_pane,width=w+30)
+                                     provider_input,pointstyle_input),info_pane,width=w+30)
     #button toolbar
     split_btn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size='1.8em')
     selectregion_btn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size='1.8em')
@@ -843,6 +847,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     showcounties_btn = pnw.Toggle(icon=get_icon('counties'), icon_size='1.8em')
     kde_btn = pnw.Toggle(icon=get_icon('contour'), icon_size='1.8em')
     hex_btn = pnw.Toggle(icon=get_icon('hexbin'), icon_size='1.8em')
+    #pie_btn = pnw.Toggle(icon=get_icon('scatter-pie'), icon_size='1.8em')
     #lockbtn = pnw.Toggle(icon=get_icon('lock'), icon_size='1.8em')
     toolbar = pn.Column(pn.WidgetBox(selectregion_btn,selectradius_btn,tree_btn,
                                      parcels_btn,parcellabel_btn,showcounties_btn,moves_btn,legend_btn,
@@ -866,6 +871,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     colorby_input.param.watch(update, 'value')
     cmap_input.param.watch(update, 'value')
     tiplabel_input.param.watch(update, 'value')
+    pointstyle_input.param.watch(update, 'value')
     tree_btn.param.watch(update, 'value')
     parcels_btn.param.watch(update, 'value')
     parcellabel_btn.param.watch(update, 'value')
