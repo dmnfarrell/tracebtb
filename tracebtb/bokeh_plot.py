@@ -33,7 +33,7 @@ try:
     from bokeh.io import show
     from bokeh.plotting import figure
     from bokeh.models import (ColumnDataSource, GeoJSONDataSource, GMapOptions, GMapPlot, TileSource, FactorRange,
-                                HoverTool, BoxZoomTool,
+                                HoverTool, BoxZoomTool, TapTool, CustomJS,
                                 Legend, LegendItem, GlyphRenderer, ColorBar, LinearColorMapper, LabelSet,
                                 Arrow, NormalHead, OpenHead, VeeHead)
     from bokeh.models.glyphs import Patches, Circle
@@ -121,9 +121,58 @@ def init_figure(title=None, provider=None, width=600, height=600, sizing_mode='s
         p.title.text_font_size = '12pt'
     return p
 
+def add_scalebar(p):
+    """Add a scale bar to a map plot"""
+
+    scale_source = ColumnDataSource(data={'x': [], 'y': []})
+    scale_bar = p.line('x', 'y', source=scale_source, line_width=5, color='black')
+    scale_label = Label(x=0, y=0, text=' ', text_font_size='11pt', text_font_style='bold')
+    p.add_layout(scale_label)
+
+    # CustomJS callback for updating scale bar on zoom/pan
+    callback = CustomJS(args=dict(scale_source=scale_source, scale_label=scale_label, plot=p), code="""
+        // Get the current extents of the x_range and y_range
+        var x_range = plot.x_range;
+        var y_range = plot.y_range;
+
+        // Compute the scale bar length as approximately 1/4 of the x range
+        var scale_length = (x_range.end - x_range.start) / 4;
+
+        // Round the scale length to a nice number (significant digits)
+        var nice_scale = Math.pow(10, Math.floor(Math.log10(scale_length)));
+        scale_length = Math.round(scale_length / nice_scale) * nice_scale;
+
+        // Compute the bottom-left corner position for the scale bar
+        var x_start = x_range.start + (x_range.end - x_range.start) * 0.05;
+        var x_end = x_start + scale_length;
+        var y_pos = y_range.start + (y_range.end - y_range.start) * 0.05;
+
+        // Update the scale bar data source
+        scale_source.data = {
+            'x': [x_start, x_end],
+            'y': [y_pos, y_pos]
+        };
+
+        // Update the label to show the scale length
+        scale_label.x = x_start;
+        scale_label.y = y_pos + (y_range.end - y_range.start) * 0.01;
+        scale_label.text = scale_length.toFixed(2)/1000 + 'km';
+
+        scale_source.change.emit();
+        scale_label.change.emit();
+    """)
+
+    # Attach the callback to the plot's x_range and y_range
+    p.x_range.js_on_change('start', callback)
+    p.x_range.js_on_change('end', callback)
+    p.y_range.js_on_change('start', callback)
+    p.y_range.js_on_change('end', callback)
+    return
+
 def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
                    legend=False, legend_fontsize=12,  label_fontsize=14,
-                   title=None, ms=10, labels=False, p=None):
+                   title=None, ms=10, lw=1, labels=False, scalebar=True,
+                   p=None):
     """
     Plot geodataframe selections with bokeh
     Args:
@@ -136,7 +185,9 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
 
     if p == None:
         p = init_figure(title, provider)
-    gdf = gdf[~gdf.geometry.is_empty].sort_values(col)
+    gdf = gdf[~gdf.geometry.is_empty]
+    if col in gdf.columns:
+        gdf = gdf.sort_values(col)
     if len(gdf) == 0:
         return p
     if not 'color' in gdf.columns:
@@ -151,17 +202,19 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         poly_source = GeoJSONDataSource(geojson=parcelsjson)
         r1 = p.patches('xs', 'ys', source=poly_source, fill_color='color',
                        fill_alpha=0.5, line_width=1, line_color='black')
+        #r1.selection_glyph = p.circle(size=15, fill_color="firebrick",
+        #                                 line_color="black", alpha=.6)
         #hover tool
         h1 = HoverTool(renderers=[r1], tooltips=([("Herd", "@SPH_HERD_N")
                                                ]))
         p.add_tools(h1)
 
     #draw points
-    r2 = p.scatter('x', 'y', source=geo_source, color='color',
+    r2 = p.scatter('x', 'y', source=geo_source, color='color', line_width=lw,
                    line_color='black', marker="marker", fill_alpha=0.5, size=ms)
     h2 = HoverTool(renderers=[r2], tooltips=([("Sample", "@sample"),
                                             ("Animal_id", "@Animal_ID"),
-                                            ("Herd", "@HERD_NO"),
+                                            ("Herd/Sett", "@HERD_NO"),
                                             ("Year", "@Year"),
                                             ("Homebred","@Homebred"),
                                             ("Clade", "@IE_clade"),
@@ -182,8 +235,12 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
                           text_font_size = f"{label_fontsize}px")
         p.add_layout(labels)
 
+    if scalebar == True:
+        add_scalebar(p)
+
     p.axis.visible = False
     p.toolbar.logo = None
+    p.add_tools(TapTool())
     return p
 
 def add_legend(p, gdf, col, fontsize=14):
@@ -262,7 +319,7 @@ def error_message(msg=''):
     p.yaxis.visible = False
     return p
 
-def split_view(gdf, col, parcels=None, provider=None, limit=9, **kwargs):
+def split_view(gdf, col, parcels=None, provider=None, limit=9, kde=False, **kwargs):
     """Plot selection split by a column"""
 
     from bokeh.layouts import gridplot
@@ -283,8 +340,10 @@ def split_view(gdf, col, parcels=None, provider=None, limit=9, **kwargs):
                 pcl = parcels[parcels.SPH_HERD_N.isin(sub.HERD_NO)].copy()
             else:
                 pcl = None
-            s = plot_selection(sub, pcl, provider=provider, title=title, **kwargs)
-            figures.append(s)
+            p = plot_selection(sub, pcl, provider=provider, title=title, **kwargs)
+            if kde == True:
+                kde_plot_groups(sub, p, col, 6)
+            figures.append(p)
             i+=1
 
     grid = gridplot(figures, ncols=nc)
@@ -408,26 +467,6 @@ def heatmap(df):
     p.add_layout(color_bar, 'right')
     return p
 
-def remove_outliers_zscore(gdf, threshold=3):
-    """
-    Remove outliers from a GeoDataFrame using the Z-score method.
-    :param gdf: GeoDataFrame with a 'geometry' column containing points.
-    :param threshold: Z-score threshold for identifying outliers.
-    :return: GeoDataFrame with outliers removed.
-    """
-    from scipy.stats import zscore
-    # Extract x and y coordinates
-    gdf['x'] = gdf.geometry.x
-    gdf['y'] = gdf.geometry.y
-    # Calculate Z-scores for x and y coordinates
-    gdf['zscore_x'] = zscore(gdf['x'])
-    gdf['zscore_y'] = zscore(gdf['y'])
-    # Filter based on the threshold
-    gdf_filtered = gdf[(np.abs(gdf['zscore_x']) < threshold) & (np.abs(gdf['zscore_y']) < threshold)]
-    # Drop the helper columns
-    gdf_filtered = gdf_filtered.drop(columns=['x', 'y', 'zscore_x', 'zscore_y'])
-    return gdf_filtered
-
 def adjust_brightness(color, factor):
     # Convert the color from hex to RGB
     rgb = np.array(mcolors.hex2color(color))
@@ -501,6 +540,7 @@ def kde(gdf, N):
 def kde_plot(gdf, p, color='#4AA60E', levels=10, alpha=0.5):
     """kde plot of points in map"""
 
+
     x, y, z = kde(gdf, 100)
     z_range = np.max(z) - np.min(z)
     #levels = int((x.max()-x.min())/20000)
@@ -518,7 +558,7 @@ def kde_plot_groups(gdf, p, col='snp12', min_samples=6, alpha=0.5):
         sub = sub[~sub.geometry.is_empty]
         if len(sub)<min_samples:
             continue
-        sub = remove_outliers_zscore(sub,2)
+        sub = tools.remove_outliers_zscore(sub,3)
         if len(sub) == 0:
             continue
         clr = sub.iloc[0].color
@@ -560,7 +600,8 @@ def hexbin(gdf, n_bins=10, p=None):
     return p
 
 def scatter_pie(gdf, groupby='HERD_NO', col='snp12', colormap=None,
-                radius=2000, legend=True, legend_fontsize=12, provider='CartoDB Positron', p=None):
+                radius=2000, legend=True, legend_fontsize=12, scalebar=False,
+                provider='CartoDB Positron', p=None):
     """Draw wedges colored by proportion of points in a group"""
 
     from sklearn.cluster import KMeans
@@ -580,6 +621,7 @@ def scatter_pie(gdf, groupby='HERD_NO', col='snp12', colormap=None,
             continue
         geo_source = GeoJSONDataSource(geojson=group.to_json())
         pt = group.union_all().centroid
+        if pt.is_empty: continue
         x, y = pt.x,pt.y
 
         #summarize group
@@ -606,6 +648,8 @@ def scatter_pie(gdf, groupby='HERD_NO', col='snp12', colormap=None,
     p.add_tools(h)
     if legend == True and col != None:
         add_legend(p, gdf, col, legend_fontsize)
+    if scalebar == True:
+        add_scalebar(p)
     p.axis.visible = False
     p.toolbar.logo = None
     return p

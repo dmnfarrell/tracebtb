@@ -371,13 +371,13 @@ def nearest(point, gdf):
     #print (dists[dists>0].idxmin())
     return dists[dists>0].min()
 
-def find_outliers(cent, min_dist=10, min_samples=10, col='snp7'):
+def find_outliers(gdf, min_dist=10, min_samples=10, col='snp7'):
     """
     Find outlier cluster points
     """
 
     res=[]
-    for i,df in cent.groupby(col):
+    for i,df in gdf.groupby(col):
         if len(df)>=min_samples:
             df['nearest'] = df.geometry.apply(lambda x: nearest(x,df))
             df['outlier'] = df.nearest>min_dist*100
@@ -386,6 +386,38 @@ def find_outliers(cent, min_dist=10, min_samples=10, col='snp7'):
     res = pd.concat(res)
     outliers = res[res.outlier==True]
     return outliers
+
+def remove_outliers_zscore(gdf, threshold=3):
+    """
+    Remove outliers from a GeoDataFrame using the Z-score method.
+    :param gdf: GeoDataFrame with a 'geometry' column containing points.
+    :param threshold: Z-score threshold for identifying outliers.
+    :return: GeoDataFrame with outliers removed.
+    """
+
+    from scipy.stats import zscore
+    # Extract x and y coordinates
+    gdf['x'] = gdf.geometry.x
+    gdf['y'] = gdf.geometry.y
+    gdf = gdf.dropna(subset=['x', 'y']).copy()
+    # Calculate Z-scores for x and y coordinates
+    gdf['zscore_x'] = zscore(gdf['x'])
+    gdf['zscore_y'] = zscore(gdf['y'])
+    # Filter based on the threshold
+    gdf_filtered = gdf[(np.abs(gdf['zscore_x']) < threshold) & (np.abs(gdf['zscore_y']) < threshold)]
+    # Drop the helper columns
+    gdf_filtered = gdf_filtered.drop(columns=['x', 'y', 'zscore_x', 'zscore_y'])
+    return gdf_filtered
+
+def flatten_matrix(df):
+    """Flatten a symmetrical matrix"""
+
+    #user only upper triangle
+    keep = np.triu(np.ones(df.shape)).astype('bool').reshape(df.size)
+    S=df.unstack()[keep]
+    S.index = ['{}_{}'.format(i, j) for i, j in S.index]
+    S = S[~S.index.duplicated(keep='first')]
+    return S
 
 def get_ordinal_columns(df):
     """Try to get ordinal columns from table"""
@@ -566,6 +598,8 @@ def compare_cluster_distances(df,snpdist,col,min_size=5):
         # Get the data for the two groups
         sub1 = filtered_groups[group1]
         sub2 = filtered_groups[group2]
+        #if len(sub1.HERD_NO.unique())<=1: continue
+        #if len(sub2.HERD_NO.unique())<=1: continue
         sd = mean_distance_between_sets(snpdist, sub1.index, sub2.index)
         gd = mean_geo_dist(sub1, sub2)
         res.append((sd,gd))

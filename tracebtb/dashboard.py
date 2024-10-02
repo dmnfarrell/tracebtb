@@ -19,7 +19,7 @@ import geopandas as gpd
 
 from bokeh.io import show
 from bokeh.plotting import figure
-from bokeh.models import Range1d
+from bokeh.models import Range1d, CustomJS, TapTool
 import panel as pn
 import panel.widgets as pnw
 
@@ -213,6 +213,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         cmap = cmap_input.value
         col = colorby_input.value
         ms = markersize_input.value
+        lw = edgewidth_input.value
         legend = legend_btn.value
 
         global selected
@@ -250,12 +251,17 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         labelsize = labelsize_input.value
         legsize = legendsize_input.value
         if pointstyle_input.value == 'default':
-            p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms,
+            p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms, lw=lw,
                                       col=col, legend=legend, labels=labels,
-                                      legend_fontsize=legsize, label_fontsize=labelsize)
+                                      legend_fontsize=legsize, label_fontsize=labelsize,
+                                      scalebar=scalebar_input.value)
+            #add_tap_callback(p, )
+            from bokeh.events import Tap
+            p.on_event(Tap, point_selection)
         else:
-            p = bokeh_plot.scatter_pie(sub, 'HERD_NO', col, cm1,
-                                       legend=legend, legend_fontsize=legsize)
+            p = bokeh_plot.scatter_pie(sub, 'HERD_NO', col, cm1, provider=provider,
+                                       legend=legend, legend_fontsize=legsize,
+                                       scalebar=scalebar_input.value)
 
         if showcounties_btn.value == True:
              bokeh_plot.plot_counties(p)
@@ -323,6 +329,43 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         else:
             coords = None'''
 
+        return
+
+    def point_selection(event):
+        """Point click callback"""
+
+        p = event.model
+        source = p.renderers[1].data_source
+        indices = source.selected.indices
+        if len(indices)==0:
+            return
+        idx = indices[0]
+        geojson_dict = json.loads(source.geojson)
+        selected_feature = geojson_dict['features'][idx]
+        name = selected_feature['id']
+        data = meta.loc[name]
+        #print (data)
+        details_pane.object = pd.DataFrame(data)
+        return
+
+    def add_tap_callback(p, table_source):
+
+        source = p.renderers[0].data_source
+        tap_callback = CustomJS(args=dict(source=source, table_source=table_source), code="""
+            var selected_index = source.selected.indices[0];
+
+            // If a point is selected, update the DataTable source
+            if (selected_index !== undefined) {
+                var name = source.data['name'][selected_index];
+                var info = source.data['info'][selected_index];
+
+                // Update the table source with the selected point's information
+                table_source.data = { name: [name], info: [info] };
+                table_source.change.emit();  // Trigger the change
+            }
+        """)
+        taptool = p.select(type=TapTool)
+        taptool.callback = tap_callback
         return
 
     def update_herd_summary(event=None):
@@ -498,11 +541,14 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         labels = parcellabel_btn.value
         labelsize = labelsize_input.value
         legsize = legendsize_input.value
+        ms = markersize_input.value
+        lw = edgewidth_input.value
+        kde = kde_btn.value
         global selected
         sub = apply_filters(selected)
         f = bokeh_plot.split_view(sub, col, parcels, provider, labels=labels,
                                     legend_fontsize=legsize, label_fontsize=labelsize,
-                                    limit=9)
+                                    limit=9, ms=ms, lw=lw, kde=kde)
         split_pane.objects.clear()
         split_pane.append(pn.pane.Bokeh(f))
         return
@@ -518,7 +564,7 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         treefile = get_tree(snpdist, sub.index)
         col = colorby_input.value
         html = draw_toytree(treefile, sub,
-                            tiplabelcol=tiplabel_input.value, markercol='Species', height=400)
+                            tiplabelcol=tiplabel_input.value, markercol='Species', height=600)
         #html = phylocanvas_tree(treefile, sub, col)
         tree_pane.object = html
         return
@@ -768,6 +814,8 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
     tree_pane = pn.pane.HTML(height=400)
     network_pane = pn.pane.Bokeh()
     snpdist_pane = pn.pane.Bokeh(height=400)
+    #details
+    details_pane = pn.pane.DataFrame(sizing_mode='stretch_both')
 
     cols = [None]+tools.get_ordinal_columns(meta)
     #selections pane
@@ -808,11 +856,13 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
 
     #settings
     markersize_input = pnw.IntSlider(name='marker size', value=10, start=0, end=80,width=w)
+    edgewidth_input = pnw.FloatSlider(name='marker edge width', value=0.8, start=0, end=4, step=.1,width=w)
     labelsize_input = pnw.IntSlider(name='label size', value=15, start=6, end=80,width=w)
     legendsize_input = pnw.IntSlider(name='legend size', value=12, start=6, end=40,width=w)
     hexbins_input = pnw.IntSlider(name='hex bins', value=10, start=5, end=100,width=w)
-    card4 = pn.Column('## Settings', markersize_input,labelsize_input,legendsize_input,
-                       hexbins_input, width=340, styles=card_style)
+    scalebar_input = pnw.Checkbox(name='Show scalebar',value=False)
+    card4 = pn.Column('## Settings', markersize_input,edgewidth_input,labelsize_input,legendsize_input,
+                       hexbins_input, scalebar_input, width=340, styles=card_style)
 
     utils_pane = pn.FlexBox(*[card1,card2, card3, card4], flex_direction='column', min_height=400,
                              styles={'margin': '10px'}, sizing_mode='stretch_both')
@@ -925,11 +975,10 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
                              dynamic=True,
                              sizing_mode='stretch_both'),
                           ),
-                pn.Column(pn.Tabs(('Overview',overview_pane),
+                pn.Tabs(('Overview',pn.Column(overview_pane,timeline_pane, width=500)),
                                   ('Tree',tree_pane),
-                                  #('Network',network_pane),
+                                  ('Details',details_pane),
                                   dynamic=True,width=500),
-                                  timeline_pane, width=500),
              max_width=2600,min_height=600
     ))
     app.sizing_mode='stretch_both'

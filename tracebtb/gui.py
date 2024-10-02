@@ -116,7 +116,7 @@ def set_equal_aspect(ax):
         ax.set_xlim(c-h/2,c+h/2)
     return
 
-def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
+def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40, alpha=0.7, edgecolor=None,
                         legend=False, title='', ax=None):
     """Plot a single map view of a set of points/farms"""
 
@@ -155,11 +155,13 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40,
     cows = df[df.Species == 'Bovine']
     badgers = df[df.Species == 'Badger']
     if not cows.empty:
-        cows.plot(color=cows.color, ax=ax, alpha=0.6, markersize=ms, linewidth=.5,
+        cows.plot(color=cows.color, ax=ax, alpha=alpha, markersize=ms, 
+                    edgecolor=edgecolor, linewidth=.5,
                       legend=legend, legend_kwds=legfmt)
     if not badgers.empty:
         if col is None or col == '':
-            badgers.plot(color=badgers.color, ax=ax, alpha=0.6, marker='s', markersize=ms, linewidth=.5)
+            badgers.plot(color=badgers.color, ax=ax, alpha=alpha, edgecolor=edgecolor,
+                         marker='s', markersize=ms, linewidth=.5)
 
     ax.set_title(title)
     ax.axis('off')
