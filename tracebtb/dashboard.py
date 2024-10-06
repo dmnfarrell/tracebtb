@@ -39,9 +39,9 @@ if not os.path.exists(configpath):
 configfile = os.path.join(configpath, 'settings.json')
 report_file = 'report.html'
 selections_file = os.path.join(configpath,'selections.json')
+layers_file = os.path.join(configpath,'layers.gpkg')
 
 speciescolors = {'Bovine':'blue','Badger':'red','Ovine':'green'}
-
 card_style = {
     'background': '#f9f9f9',
     'border': '1px solid #bcbcbc',
@@ -189,149 +189,418 @@ def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
     report = pn.Column(header, main)
     return report
 
-def dashboard(meta, parcels, moves=None, lpis_cent=None,
-              snpdist=None, lpis_master_file=None,
-              selections={}):
-    """
-    Dashboard app with panel for tracebtb.
-    Args:
-        meta: geodataframe of meta with locations of samples
-        parcels: parcels for relevant samples from lpis
-        moves: dataframe of moves
-        lpis_cent: centroids from LPIS
-    """
+def add_tap_callback(p, table_source):
 
-    lpis = None
-    coords = None
-    #view_history = []
+    source = p.renderers[0].data_source
+    tap_callback = CustomJS(args=dict(source=source, table_source=table_source), code="""
+        var selected_index = source.selected.indices[0];
 
-    def update(event=None, sub=None):
+        // If a point is selected, update the DataTable source
+        if (selected_index !== undefined) {
+            var name = source.data['name'][selected_index];
+            var info = source.data['info'][selected_index];
+
+            // Update the table source with the selected point's information
+            table_source.data = { name: [name], info: [info] };
+            table_source.change.emit();  // Trigger the change
+        }
+    """)
+    taptool = p.select(type=TapTool)
+    taptool.callback = tap_callback
+    return
+
+class Dashboard:
+
+    def __init__(self, meta, parcels, moves=None, lpis_cent=None,
+                snpdist=None, lpis_master_file=None,
+                selections={}, layers={}):
+        """
+        Dashboard app with panel for tracebtb.
+        Args:
+            meta: geodataframe of meta with locations of samples
+            parcels: parcels for relevant samples from lpis
+            moves: dataframe of moves
+            lpis_cent: centroids from LPIS
+        """
+
+        self.meta = meta
+        self.moves = moves
+        self.lpis_cent = lpis_cent
+        self.parcels = parcels
+        self.snpdist = snpdist
+        self.lpis = None
+        self.lpis_master_file = lpis_master_file
+        self.selections = selections
+        self.layers= layers
+        #coords = None
+        #view_history = []
+        self.layout = self.setup_widgets()
+        return
+
+    def show(self):
+        return self.layout
+
+    def setup_widgets(self):
+
+        w=140
+        pn.config.throttled = True
+        #main panes
+        self.plot_pane = pn.pane.Bokeh()
+        #overview_pane = pn.pane.Bokeh(height=300)
+        self.overview_pane = pn.pane.Matplotlib(height=300)
+        #split_pane = pn.pane.Bokeh(sizing_mode='stretch_both')
+        self.split_pane = pn.Column(sizing_mode='stretch_both')
+        self.timeline_pane = pn.pane.Bokeh(sizing_mode='stretch_height')
+        self.info_pane = pn.pane.Markdown('', styles={'color': "red"})
+
+        #main table
+        self.meta_pane = pnw.Tabulator(disabled=True,page_size=100,
+                                frozen_columns=['sample'],
+                                sizing_mode='stretch_both')
+        self.showselected_btn = pnw.Button(name='Select Samples', button_type='primary', align="end")
+        pn.bind(self.select_from_table, self.showselected_btn, watch=True)
+        self.selectrelated_btn = pnw.Button(name='Find Related', button_type='primary', align="end")
+        pn.bind(self.select_related, self.selectrelated_btn, watch=True)
+        self.threshold_input = pnw.IntInput(name='Threshold', value=7, step=1, start=2, end=20,width=60)
+        #search
+        scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','IE_clade','snp7','snp12','snp20']
+        self.search_input = pnw.TextInput(name="Search", value='',sizing_mode='stretch_width')
+        self.searchcol_select = pnw.Select(name='Column',value='HERD_NO',options=scols,width=100)
+        self.search_btn = pnw.Button(icon=get_icon('search'), icon_size='1.8em', align="end")
+        pn.bind(self.do_search, self.search_btn, watch=True)
+
+        self.reset_btn = pnw.Button(icon=get_icon('refresh'), icon_size='1.8em', align="end")
+        pn.bind(self.reset_table, self.reset_btn, watch=True)
+
+        self.table_widgets = pn.Row(self.showselected_btn, self.selectrelated_btn, self.threshold_input,
+                            self.search_input, self.searchcol_select, self.search_btn, self.reset_btn,
+                            sizing_mode='stretch_width')
+        self.table_pane = pn.Column(self.meta_pane,self.table_widgets,sizing_mode='stretch_both')
+
+        #selected table
+        self.selected_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
+                                    frozen_columns=['sample'],sizing_mode='stretch_both')
+        #moves table
+        self.moves_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
+                                    frozen_columns=['tag'],sizing_mode='stretch_both')
+        #herds table
+        self.herds_table = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
+                                frozen_columns=['HERD_NO'],sizing_mode='stretch_both')
+        self.selectherds_btn = pnw.Button(name='Select Herds', button_type='primary', align="end")
+        pn.bind(self.select_herds, self.selectherds_btn, watch=True)
+        downloadherds_btn = pnw.FileDownload(callback=pn.bind(self.herds_file),
+                                            filename='herds.csv', button_type='success')
+        self.herds_pane = pn.Column(self.herds_table, pn.Row(self.selectherds_btn,downloadherds_btn))
+
+        self.clusters_table = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
+                                    frozen_columns=['cluster'],sizing_mode='stretch_both')
+        self.selectclusters_btn = pnw.Button(name='Select Groups', button_type='primary', align="end")
+        pn.bind(self.select_clusters, self.selectclusters_btn, watch=True)
+        self.clusters_pane = pn.Column(self.clusters_table, pn.Row(self.selectclusters_btn))
+
+        self.tree_pane = pn.pane.HTML(height=400)
+        #self.network_pane = pn.pane.Bokeh()
+        #self.snpdist_pane = pn.pane.Bokeh(height=400)
+        #details
+        self.details_pane = pn.pane.DataFrame(sizing_mode='stretch_both')
+
+        cols = [None]+tools.get_ordinal_columns(self.meta)
+        #selections pane
+        self.selections_input = pnw.Select(name='Selections',options=list(self.selections.keys()),value='',width=w)
+        self.loadselection_btn = pnw.Button(name='Load Selection', button_type='primary',width=w)
+        pn.bind(self.load_selection, self.loadselection_btn, watch=True)
+        self.deleteselection_btn = pnw.Button(name='Delete Selection', button_type='primary',width=w)
+        pn.bind(self.delete_selection, self.deleteselection_btn, watch=True)
+        self.saveselection_btn = pnw.Button(name='Save Selection', button_type='primary',width=w)
+        pn.bind(self.save_selection, self.saveselection_btn, watch=True)
+        self.selectionname_input = pnw.TextInput(value='',width=w)
+        upload_label = pn.pane.Markdown("### Import Selections")
+        self.upload_selection_input = pnw.FileInput(accept='.json')
+        self.upload_selection_input.param.watch(self.import_selections, 'value')
+        self.exportselections_btn = pnw.FileDownload(name='Export Selections', callback=pn.bind(self.export_selections),
+                                            filename='selections.json', button_type='success')
+
+        card1 = pn.Column('## Selections', pn.Row(pn.Column(self.selections_input, self.selectionname_input),
+                        pn.Column(self.loadselection_btn, self.deleteselection_btn, self.saveselection_btn)),
+                                    pn.Column(upload_label,self.upload_selection_input,
+                                            self.exportselections_btn,styles=dict(background='#ECECEC'),
+                                            sizing_mode='stretch_width'),
+                        width=340, styles=card_style)
+        #layers
+        label = pn.pane.Markdown("### Import Layer")
+        self.importlayer_input = pnw.FileInput(accept='.zip,.geojson')
+        self.importlayer_input.param.watch(self.import_layer, 'value')
+        self.layers_select = pn.widgets.MultiSelect(name='Layers to show:', value=[],
+                                            options=list(self.layers.keys()), height=100, size=3)
+        card2 = pn.Column('## Layers', label, self.importlayer_input, self.layers_select,
+                        width=340, styles=card_style)
+
+        #lpis
+        self.loadlpis_btn = pnw.Button(name='Load LPIS', button_type='primary')
+        pn.bind(self.load_lpis, self.loadlpis_btn, watch=True)
+        card3 = pn.Column('## LPIS', self.loadlpis_btn, width=340, styles=card_style)
+
+        #settings
+        self.markersize_input = pnw.IntSlider(name='marker size', value=10, start=0, end=80,width=w)
+        self.edgewidth_input = pnw.FloatSlider(name='marker edge width', value=0.8, start=0, end=4, step=.1,width=w)
+        self.labelsize_input = pnw.IntSlider(name='label size', value=15, start=6, end=80,width=w)
+        self.legendsize_input = pnw.IntSlider(name='legend size', value=12, start=6, end=40,width=w)
+        self.hexbins_input = pnw.IntSlider(name='hex bins', value=10, start=5, end=100,width=w)
+        self.scalebar_input = pnw.Checkbox(name='Show scalebar',value=False)
+        card4 = pn.Column('## Settings', self.markersize_input,self.edgewidth_input,self.labelsize_input,self.legendsize_input,
+                        self.hexbins_input, self.scalebar_input, width=340, styles=card_style)
+
+        #reporting
+        self.doreport_btn = pnw.Button(name='Generate', button_type='primary')
+        self.savereport_btn = pnw.FileDownload(file=report_file, button_type='success', auto=False,
+                                        embed=False, name="Download Report")
+        card5 = pn.Column('## Reporting', self.doreport_btn, self.savereport_btn, width=340, styles=card_style)
+        pn.bind(self.create_report, self.doreport_btn, watch=True)
+
+        utils_pane = pn.FlexBox(*[card1,card2, card3, card4, card5], flex_direction='column', min_height=400,
+                                styles={'margin': '10px'}, sizing_mode='stretch_both')
+
+        #nav buttons
+        self.prev_btn = pnw.Button(icon=get_icon('arrow-left'), description='back', icon_size='1.6em',width=60)
+        self.next_btn = pnw.Button(icon=get_icon('arrow-right'), description='forward', icon_size='1.6em',width=60)
+        pn.bind(self.back, self.prev_btn, watch=True)
+        pn.bind(self.forward, self.next_btn, watch=True)
+        nav_pane = pn.Row(self.prev_btn,self.next_btn)
+
+        #widgets
+        self.groupby_input = pnw.Select(name='group by',options=cols,value='snp7',width=w)
+        self.groups_table = pnw.Tabulator(disabled=True, widths={'index': 70}, layout='fit_columns',pagination=None, height=250, width=w)
+        self.colorby_input = pnw.Select(name='color by',options=cols,value='snp7',width=w)
+        self.cmap_input = pnw.Select(name='colormap',options=colormaps,value='Set1',width=w)
+        self.tiplabel_input = pnw.Select(name='tip label',options=list(self.meta.columns),value='sample',width=w)
+        self.provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
+        self.pointstyle_input = pnw.Select(name='points display',options=['default','pie'],value='default',width=w)
+        widgets = pn.Column(pn.WidgetBox(nav_pane,self.groupby_input,self.groups_table,
+                                         self.colorby_input,self.cmap_input,self.tiplabel_input,
+                                        self.provider_input,self.pointstyle_input),self.info_pane,width=w+30)
+        #button toolbar
+        icsize = '1.9em'
+        self.split_btn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size=icsize)
+        self.selectregion_btn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size=icsize)
+        self.selectradius_btn = pnw.Button(icon=get_icon('plot-centroid'), description='select within radius', icon_size=icsize)
+        self.tree_btn = pnw.Toggle(icon=get_icon('tree'), icon_size=icsize)
+        self.parcels_btn = pnw.Toggle(icon=get_icon('parcels'), icon_size=icsize)
+        self.moves_btn = pnw.Toggle(icon=get_icon('plot-moves'), icon_size=icsize)
+        self.legend_btn = pnw.Toggle(icon=get_icon('legend'), icon_size=icsize)
+        self.neighbours_btn = pnw.Toggle(icon=get_icon('neighbours'), icon_size=icsize)
+        self.parcellabel_btn = pnw.Toggle(icon=get_icon('parcel-label'), icon_size=icsize)
+        self.showcounties_btn = pnw.Toggle(icon=get_icon('counties'), icon_size=icsize)
+        self.kde_btn = pnw.Toggle(icon=get_icon('contour'), icon_size=icsize)
+        self.hex_btn = pnw.Toggle(icon=get_icon('hexbin'), icon_size=icsize)
+        #pie_btn = pnw.Toggle(icon=get_icon('scatter-pie'), icon_size='1.8em')
+        #lockbtn = pnw.Toggle(icon=get_icon('lock'), icon_size='1.8em')
+        toolbar = pn.Column(pn.WidgetBox(self.selectregion_btn,self.selectradius_btn,self.tree_btn,
+                                        self.parcels_btn,self.parcellabel_btn,self.showcounties_btn,self.moves_btn,self.legend_btn,
+                                        self.neighbours_btn,self.kde_btn,self.hex_btn,self.split_btn),width=70)
+
+        #option below plot
+        self.timeslider = pnw.IntRangeSlider(name='Time',width=150,
+                        start=2000, end=2024, value=(2000, 2024), step=1)
+        self.clustersizeslider = pnw.IntSlider(name='Min. Cluster Size',width=150,
+                        start=1, end=20, value=1, step=1)
+        self.homebredbox = pnw.Checkbox(name='Homebred',value=False)
+        self.findrelated_btn = pnw.Button(name='Find Related', button_type='primary', align="end")
+        pn.bind(self.find_related, self.findrelated_btn, watch=True)
+        self.related_col_input = pnw.Select(options=cols,value='snp7',width=90)
+
+        filters = pn.Row(self.findrelated_btn,self.related_col_input,self.timeslider,self.clustersizeslider,self.homebredbox)
+
+        self.groupby_input.param.watch(self.update_groups, 'value')
+        self.groups_table.param.watch(self.select_group, 'selection')
+        self.provider_input.param.watch(self.set_provider, 'value')
+        self.colorby_input.param.watch(self.update, 'value')
+        self.cmap_input.param.watch(self.update, 'value')
+        self.tiplabel_input.param.watch(self.update, 'value')
+        self.pointstyle_input.param.watch(self.update, 'value')
+        self.tree_btn.param.watch(self.update, 'value')
+        self.parcels_btn.param.watch(self.update, 'value')
+        self.parcellabel_btn.param.watch(self.update, 'value')
+        self.showcounties_btn.param.watch(self.update, 'value')
+        self.moves_btn.param.watch(self.update, 'value')
+        self.legend_btn.param.watch(self.update, 'value')
+        self.neighbours_btn.param.watch(self.update, 'value')
+        self.kde_btn.param.watch(self.update, 'value')
+        self.hex_btn.param.watch(self.update, 'value')
+        self.timeslider.param.watch(self.update, 'value')
+        #pn.bind(update, timeslider.param.value_throttled)
+        self.clustersizeslider.param.watch(self.update, 'value')
+        self.homebredbox.param.watch(self.update, 'value')
+
+        #pn.bind(update_tree, treebtn, watch=True)
+        pn.bind(self.split_view, self.split_btn, watch=True)
+        pn.bind(self.select_region, self.selectregion_btn, watch=True)
+        pn.bind(self.select_radius, self.selectradius_btn, watch=True)
+
+        #categorical plot widget
+        self.catplot_pane = pn.pane.Matplotlib(sizing_mode='stretch_both')
+        self.catx_input = pnw.Select(name='x',options=cols,value='Species',width=w)
+        self.caty_input = pnw.Select(name='y',options=cols,value=None,width=w)
+        self.cathue_input = pnw.Select(name='hue',options=cols,value=None,width=w)
+        kinds = ['count','bar','strip','swarm']
+        self.catkind_input = pnw.Select(name='kind',options=kinds,
+                                value='count',width=w)
+        self.cathue_input = pnw.Select(name='hue',options=cols,value='County',width=w)
+        catupdate_btn = pnw.Button(name='Update', button_type='primary',align='end')
+        pn.bind(self.update_catplot, catupdate_btn, watch=True)
+        self.analysis_pane1 = pn.Column(pn.Row(self.catx_input,self.caty_input,
+                                       self.cathue_input,self.catkind_input,catupdate_btn),
+                                self.catplot_pane)
+
+        styles={ "margin-top": "10px", "font-size": "15px"}
+        self.about_pane = pn.pane.Markdown('',styles=styles)
+        self.about()
+
+        app = pn.Column(
+                    pn.Row(widgets,
+                        toolbar,
+                    pn.Column(
+                        pn.Tabs(('Map',pn.Column(self.plot_pane,filters)),
+                                ('Split View',self.split_pane),
+                                ('Summary I',self.analysis_pane1),
+                                ('Main Table', self.table_pane),
+                                ('Selected', self.selected_pane),
+                                ('Moves',self. moves_pane),
+                                ('Herds',self.herds_pane),('Groups',self.clusters_pane),
+                                ('Tools', utils_pane),
+                                ('About',self.about_pane),
+                                dynamic=True,
+                                sizing_mode='stretch_both'),
+                            ),
+                    pn.Tabs(('Overview',pn.Column(self.overview_pane,self.timeline_pane, width=500)),
+                                    ('Tree',self.tree_pane),
+                                    ('Details',self.details_pane),
+                                    dynamic=True,width=500),
+                max_width=2600,min_height=600
+        ))
+        app.sizing_mode='stretch_both'
+        self.meta_pane.value = self.meta
+        self.update_groups()
+        self.selected = self.meta[self.meta.snp7.isin(['24'])].copy()
+        self.update(sub=self.selected)
+        return app
+
+    def update(self, event=None, sub=None):
         """Update selection"""
 
-        #optimise by checking if sub has changed from before?
-        provider = provider_input.value
-        cmap = cmap_input.value
-        col = colorby_input.value
-        ms = markersize_input.value
-        lw = edgewidth_input.value
-        legend = legend_btn.value
+        # Access the inputs as class attributes (assuming they are initialized elsewhere in the class)
+        provider = self.provider_input.value
+        cmap = self.cmap_input.value
+        col = self.colorby_input.value
+        ms = self.markersize_input.value
+        lw = self.edgewidth_input.value
+        legend = self.legend_btn.value
 
-        global selected
+        # Accessing selected as a class attribute instead of global
         if sub is None:
-            sub = selected
+            sub = self.selected
 
-        if len(sub[col].unique())>20:
-            cmap=None
-        sub['color'],cm1 = tools.get_color_mapping(sub, col, cmap)
-        #set global selected
-        selected = sub
-        #filters
-        sub = apply_filters(sub)
-        info_pane.object = f'**{len(sub)} samples**'
-        update_overview(sub=sub)
+        if len(sub[col].unique()) > 20:
+            cmap = None
 
-        #get moves first so we know which parcels to show
+        sub['color'], cm1 = tools.get_color_mapping(sub, col, cmap)
+
+        # Update the selected attribute
+        self.selected = sub
+
+        # Apply filters using class-level methods or attributes
+        sub = self.apply_filters(sub)
+        self.info_pane.object = f'**{len(sub)} samples**'
+        self.update_overview(sub=sub)
+
+        # Get the herds and moves
         herds = list(sub.HERD_NO)
-        mov = tools.get_moves_bytag(sub, moves, lpis_cent)
-        if mov is not None and moves_btn.value == True:
-            herds.extend(mov.move_to)
-        sp = parcels[parcels.SPH_HERD_N.isin(herds)].copy()
-        pcmap='tab20'
-        if len(sp.SPH_HERD_N.unique())>20:
-            pcmap=None
-        sp['color'],cm2 = tools.get_color_mapping(sp, 'SPH_HERD_N',pcmap)
+        mov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
 
-        if parcels_btn.value == True:
-            pcls=sp
+        if mov is not None and self.moves_btn.value is True:
+            herds.extend(mov.move_to)
+
+        sp = self.parcels[self.parcels.SPH_HERD_N.isin(herds)].copy()
+        pcmap = 'tab20'
+        if len(sp.SPH_HERD_N.unique()) > 20:
+            pcmap = None
+
+        sp['color'], cm2 = tools.get_color_mapping(sp, 'SPH_HERD_N', pcmap)
+
+        if self.parcels_btn.value is True:
+            pcls = sp
             if mov is not None:
                 herds.extend(mov.move_to)
         else:
-            pcls=None
-        labels = parcellabel_btn.value
-        labelsize = labelsize_input.value
-        legsize = legendsize_input.value
-        if pointstyle_input.value == 'default':
+            pcls = None
+
+        labels = self.parcellabel_btn.value
+        labelsize = self.labelsize_input.value
+        legsize = self.legendsize_input.value
+
+        if self.pointstyle_input.value == 'default':
             p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms, lw=lw,
-                                      col=col, legend=legend, labels=labels,
-                                      legend_fontsize=legsize, label_fontsize=labelsize,
-                                      scalebar=scalebar_input.value)
-            #add_tap_callback(p, )
+                                            col=col, legend=legend, labels=labels,
+                                            legend_fontsize=legsize, label_fontsize=labelsize,
+                                            scalebar=self.scalebar_input.value)
+
             from bokeh.events import Tap
-            p.on_event(Tap, point_selection)
+            p.on_event(Tap, self.point_selection)
         else:
             p = bokeh_plot.scatter_pie(sub, 'HERD_NO', col, cm1, provider=provider,
-                                       legend=legend, legend_fontsize=legsize,
-                                       scalebar=scalebar_input.value)
+                                            legend=legend, legend_fontsize=legsize,
+                                            scalebar=self.scalebar_input.value)
 
-        if showcounties_btn.value == True:
-             bokeh_plot.plot_counties(p)
-        if hex_btn.value == True:
-            bins = hexbins_input.value
+        if self.showcounties_btn.value is True:
+            bokeh_plot.plot_counties(p)
+        self.show_layers(p)
+
+        if self.hex_btn.value is True:
+            bins = self.hexbins_input.value
             bokeh_plot.hexbin(sub, n_bins=bins, p=p)
-        if kde_btn.value == True:
+
+        if self.kde_btn.value is True:
             bokeh_plot.kde_plot_groups(sub, p, col, 6)
-        global lpis
-        if neighbours_btn.value == True and lpis is not None:
-            #get neighbours
-            #nbr = find_neighbours(sub, 800, lpis_cent, lpis)
-            shb = shared_borders(sp, lpis)
+
+        if self.neighbours_btn.value is True and self.lpis is not None:
+            shb = self.shared_borders(sp, self.lpis)
             bokeh_plot.plot_lpis(shb, p)
 
-        mov = tools.get_moves_bytag(sub, moves, lpis_cent)
-        if moves_btn.value == True:
-            bokeh_plot.plot_moves(p, mov, lpis_cent)
+        mov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
+
+        if self.moves_btn.value is True:
+            bokeh_plot.plot_moves(p, mov, self.lpis_cent)
+
         if mov is not None:
-            moves_pane.value = mov.reset_index().drop(columns=['geometry'])
+            self.moves_pane.value = mov.reset_index().drop(columns=['geometry'])
         else:
-            moves_pane.value = pd.DataFrame()
-        plot_pane.object = p
+            self.moves_pane.value = pd.DataFrame()
 
-        #change selection table
-        selected_pane.value = sub.drop(columns=['geometry'])
+        self.plot_pane.object = p
+
+        # Change selection table
+        self.selected_pane.value = sub.drop(columns=['geometry'])
+
         def highlight(x):
-            color = speciescolors[x]
+            color = self.speciescolors[x]
             return 'background-color: %s' % color
-        selected_pane.style.apply(highlight, subset=['Species'], axis=1)
 
-        #timeline
-        herdcolors = dict(zip(sp.SPH_HERD_N,sp.color))
+        self.selected_pane.style.apply(highlight, subset=['Species'], axis=1)
+
+        # Timeline plot
+        herdcolors = dict(zip(sp.SPH_HERD_N, sp.color))
         p = bokeh_plot.plot_moves_timeline(mov, herdcolors)
-        timeline_pane.object = p
-        timeline_pane.param.trigger('object')
+        self.timeline_pane.object = p
+        self.timeline_pane.param.trigger('object')
 
-        if tree_btn.value ==True:
-            update_tree(sub=sub)
-        #summary plots
-        #update_catplot(sub=sub)
-        #herds
-        update_herd_summary()
-        #cluster summary
-        update_cluster_summary()
-        #dist matrix
-        #dm = snpdist.loc[sub.index,sub.index]
-        #p = bokeh_plot.heatmap(dm)
-        #snpdist_pane.object = p
-        #snpdist_pane.param.trigger('object')
+        if self.tree_btn.value is True:
+            self.update_tree(sub=sub)
 
-        #locked coords
-        '''global coords
-        if lockbtn.value == True:
-            if coords != None:
-                print (coords)
-                xmin, xmax, ymin, ymax = coords
-                p.x_range.start = xmin
-                p.x_range.end = xmax
-                #p.y_range.start = ymin
-                #p.y_range.end = ymax
-            else:
-                coords = get_figure_coords(p)
-                print (coords)
-        else:
-            coords = None'''
-
+        # Update summaries
+        self.update_herd_summary()
+        self.update_cluster_summary()
         return
 
-    def point_selection(event):
+    def point_selection(self, event):
         """Point click callback"""
 
         p = event.model
@@ -343,392 +612,380 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         geojson_dict = json.loads(source.geojson)
         selected_feature = geojson_dict['features'][idx]
         name = selected_feature['id']
-        data = meta.loc[name]
+        data = self.meta.loc[name]
         #print (data)
-        details_pane.object = pd.DataFrame(data)
+        self.details_pane.object = pd.DataFrame(data)
         return
 
-    def add_tap_callback(p, table_source):
-
-        source = p.renderers[0].data_source
-        tap_callback = CustomJS(args=dict(source=source, table_source=table_source), code="""
-            var selected_index = source.selected.indices[0];
-
-            // If a point is selected, update the DataTable source
-            if (selected_index !== undefined) {
-                var name = source.data['name'][selected_index];
-                var info = source.data['info'][selected_index];
-
-                // Update the table source with the selected point's information
-                table_source.data = { name: [name], info: [info] };
-                table_source.change.emit();  // Trigger the change
-            }
-        """)
-        taptool = p.select(type=TapTool)
-        taptool.callback = tap_callback
-        return
-
-    def update_herd_summary(event=None):
+    def update_herd_summary(self, event=None):
         """herd summary"""
 
-        global selected
-        h = tools.herd_summary(selected, moves, snpdist)
-        herds_table.value = h
+        h = tools.herd_summary(self.selected, self.moves, self.snpdist)
+        self.herds_table.value = h
         return
 
-    def update_cluster_summary(event=None):
+    def update_cluster_summary(self, event=None):
 
-        global selected
-        col = colorby_input.value
-        cl = tools.cluster_summary(selected, col, 5, snpdist)
-        clusters_table.value = cl
+        col = self.colorby_input.value
+        cl = tools.cluster_summary(self.selected, col, 5, self.snpdist)
+        self.clusters_table.value = cl
         return
 
-    def update_overview(event=None, sub=None):
+    def update_overview(self, event=None, sub=None):
 
-        fig = plot_overview(sub)
-        overview_pane.object = fig
+        fig = plot_overview(self.selected)
+        self.overview_pane.object = fig
         plt.close(fig)
         return
 
-    def load_lpis(event=None):
-        global lpis
-        if lpis_master_file != None:
-            lpis = gpd.read_file(lpis_master_file).set_crs('EPSG:29902')
+    def load_lpis(self, event=None):
+
+        if self.lpis_master_file != None:
+            self.lpis = gpd.read_file(self.lpis_master_file).set_crs('EPSG:29902')
         return
 
-    def apply_filters(df):
+    def apply_filters(self, df):
         """Filter from widgets"""
 
-        minsize = clustersizeslider.value
-        key = colorby_input.value
+        minsize = self.clustersizeslider.value
+        key = self.colorby_input.value
         groups = df[key].value_counts()
         groups = groups[groups>=minsize]
         df = df[df[key].isin(groups.index)].copy()
 
-        start, end = timeslider.value
+        start, end = self.timeslider.value
         df = df[(df.Year>=start) & (df.Year<=end) | (df.Year.isnull())].copy()
-        if homebredbox.value == True:
+        if self.homebredbox.value == True:
             df = df[df.Homebred=='yes'].copy()
         return df
 
-    def set_provider(event=None):
+    def set_provider(self, event=None):
         """Change map provider"""
 
-        p = plot_pane.object
+        p = self.plot_pane.object
         #remove old tile
         p.renderers = [x for x in p.renderers if not str(x).startswith('TileRenderer')]
-        provider = provider_input.value
+        provider = self.provider_input.value
         if provider in bokeh_plot.providers:
             p.add_tile(provider, retina=True)
         return
 
-    def update_groups(event=None):
+    def update_groups(self, event=None):
         """Change group choices"""
 
-        groupby = groupby_input.value
-        vals = pd.DataFrame(meta[groupby].value_counts())
-        groups_table.value = vals
+        groupby = self.groupby_input.value
+        vals = pd.DataFrame(self.meta[groupby].value_counts())
+        vals = vals[vals['count']>1]
+        self.groups_table.value = vals
         return
 
-    def select_group(event=None):
+    def select_group(self, event=None):
         """Select groups from table"""
 
-        df = groups_table.value
-        rows = groups_table.selection
+        df = self.groups_table.value
+        rows = self.groups_table.selection
         groups = list(df.iloc[rows].index)
         #print (groups)
-        key = groupby_input.value
-        sub = meta[meta[key].isin(groups)].copy()
-        update(sub=sub)
-        add_to_history()
+        key = self.groupby_input.value
+        sub = self.meta[self.meta[key].isin(groups)].copy()
+        self.update(sub=sub)
+        self.add_to_history()
         return
 
-    def select_region(event=None):
+    def select_region(self, event=None):
         """Select samples in region"""
 
-        p = plot_pane.object
+        p = self.plot_pane.object
         xmin, xmax = p.x_range.start, p.x_range.end
         ymin, ymax = p.y_range.start, p.y_range.end
         from pyproj import Transformer
         transformer_to_latlon = Transformer.from_crs("EPSG:3857", "EPSG:29902", always_xy=True)
         xmin, ymin = transformer_to_latlon.transform(xmin, ymin)
         xmax, ymax = transformer_to_latlon.transform(xmax, ymax)
-        sub = meta.cx[xmin:xmax, ymin:ymax]
-        update(sub=sub)
-        add_to_history()
+        sub = self.meta.cx[xmin:xmax, ymin:ymax]
+        self.update(sub=sub)
+        self.add_to_history()
         return
 
-    def select_radius(event=None):
+    def select_radius(self, event=None):
         """Select within radius of a center"""
 
-        global selected
-        point = selected.union_all().centroid
-        distances = selected.geometry.apply(lambda x: x.distance(point))
+        point = self.selected.union_all().centroid
+        distances = self.selected.geometry.apply(lambda x: x.distance(point))
         radius = distances.median()
-        sub = meta[meta.geometry.distance(point) <= radius].copy()
-        update(sub=sub)
-        add_to_history()
+        sub = self.meta[self.meta.geometry.distance(point) <= radius].copy()
+        self.update(sub=sub)
+        self.add_to_history()
         return
 
-    def select_from_table(event=None):
+    def select_from_table(self, event=None):
         """Select samples from table"""
 
-        df = meta_pane.selected_dataframe
-        sub = meta.loc[df.index]
-        update(sub=sub)
-        add_to_history()
+        df = self.meta_pane.selected_dataframe
+        sub = self.meta.loc[df.index]
+        self.update(sub=sub)
+        self.add_to_history()
         return
 
-    def select_related(event=None, df=None):
+    def select_related(self, event=None, df=None):
         """Find related samples to selected indexes i.e. within n snps"""
 
-        df = meta_pane.selected_dataframe
+        df = self.meta_pane.selected_dataframe
         idx = list(df.index)
-        dist = threshold_input.value
+        dist = self.threshold_input.value
         names=[]
         for i in idx:
-            found = tools.get_within_distance(snpdist, i, dist)
+            found = tools.get_within_distance(self.snpdist, i, dist)
             names.extend(found)
         names = list(set(names))
-        sub = meta.loc[names]
-        update(sub=sub)
-        add_to_history()
+        sub = self.meta.loc[names]
+        self.update(sub=sub)
+        self.add_to_history()
         return
 
-    def find_related(event=None):
+    def find_related(self, event=None):
         """Find related samples"""
 
-        global selected
-        col = related_col_input.value
-        cl = list(selected[col].unique())
-        sub = meta[(meta[col].isin(cl))].copy()
-        update(sub=sub)
-        add_to_history()
+        col = self.related_col_input.value
+        cl = list(self.selected[col].unique())
+        sub = self.meta[(self.meta[col].isin(cl))].copy()
+        self.update(sub=self.sub)
+        self.add_to_history()
         return
 
-    def select_herds(event=None):
+    def select_herds(self, event=None):
 
-        df = herds_table.selected_dataframe
-        sub = meta[(meta.HERD_NO.isin(df.HERD_NO))].copy()
-        update(sub=sub)
-        add_to_history()
+        df = self.herds_table.selected_dataframe
+        sub = self.meta[self.meta.HERD_NO.isin(df.HERD_NO)].copy()
+        self.update(sub=sub)
+        self.add_to_history()
         return
 
-    def herds_file():
+    def herds_file(self):
         """Return herds table for export"""
 
-        df = herds_table.value
+        df = self.herds_table.value
         sio = io.StringIO()
         df.to_csv(sio,index=False)
         sio.seek(0)
         return sio
 
-    def select_clusters(event=None):
+    def select_clusters(self, event=None):
 
-        df = clusters_table.selected_dataframe
-        col = colorby_input.value
-        sub = meta[(meta[col].isin(df.cluster))].copy()
-        update(sub=sub)
+        df = self.clusters_table.selected_dataframe
+        col = self.colorby_input.value
+        self.sub = self.meta[(self.meta[col].isin(df.cluster))].copy()
+        self.update(sub=self.sub)
         return
 
-    def split_view(event=None):
+    def split_view(self, event=None):
         """split view"""
 
-        provider = provider_input.value
-        cmap = cmap_input.value
-        col = colorby_input.value
-        labels = parcellabel_btn.value
-        labelsize = labelsize_input.value
-        legsize = legendsize_input.value
-        ms = markersize_input.value
-        lw = edgewidth_input.value
-        kde = kde_btn.value
-        global selected
-        sub = apply_filters(selected)
-        f = bokeh_plot.split_view(sub, col, parcels, provider, labels=labels,
+        provider = self.provider_input.value
+        cmap = self.cmap_input.value
+        col = self.colorby_input.value
+        labels = self.parcellabel_btn.value
+        labelsize = self.labelsize_input.value
+        legsize = self.legendsize_input.value
+        ms = self.markersize_input.value
+        lw = self.edgewidth_input.value
+        kde = self.kde_btn.value
+
+        sub = self.apply_filters(self.selected)
+        f = bokeh_plot.split_view(sub, col, self.parcels, provider, labels=labels,
                                     legend_fontsize=legsize, label_fontsize=labelsize,
                                     limit=9, ms=ms, lw=lw, kde=kde)
-        split_pane.objects.clear()
-        split_pane.append(pn.pane.Bokeh(f))
+        self.split_pane.objects.clear()
+        self.split_pane.append(pn.pane.Bokeh(f))
         return
 
-    def update_tree(event=None, sub=None):
+    def update_tree(self, event=None, sub=None):
         """Update with toytree"""
 
         #replace this with just selecting tips on a main tree using another package..
         if len(sub)<=1 or len(sub)>500:
             html = '<h1><2 or too many samples</h1>'
-            tree_pane.object = html
+            self.tree_pane.object = html
             return
-        treefile = get_tree(snpdist, sub.index)
-        col = colorby_input.value
+        treefile = get_tree(self.snpdist, sub.index)
+        col = self.colorby_input.value
         html = draw_toytree(treefile, sub,
-                            tiplabelcol=tiplabel_input.value, markercol='Species', height=600)
+                            tiplabelcol=self.tiplabel_input.value, markercol='Species', height=600)
         #html = phylocanvas_tree(treefile, sub, col)
-        tree_pane.object = html
+        self.tree_pane.object = html
         return
 
-    def do_search(event=None):
+    def do_search(self, event=None):
         """Search main table"""
 
-        query = search_input.value
-        col = searchcol_select.value
-        found = meta[meta[col]==query]
-        meta_pane.value = found.drop(columns=['geometry'])
+        query = self.search_input.value
+        col = self.searchcol_select.value
+        found = self.meta[self.meta[col]==query]
+        self.meta_pane.value = found.drop(columns=['geometry'])
         return
 
-    def reset_table(event=None):
-        meta_pane.value = meta
+    def reset_table(self, event=None):
+        self.meta_pane.value = self.meta
         return
 
-    def create_report(event=None):
+    def create_report(self, event=None):
         """Standard report"""
 
-        global selected
-        sub = selected
-        sp = parcels[parcels.SPH_HERD_N.isin(sub.HERD_NO)].copy()
+        sub = self.selected
+        sp = self.parcels[self.parcels.SPH_HERD_N.isin(sub.HERD_NO)].copy()
         sp['color'],c = tools.get_color_mapping(sp, 'SPH_HERD_N')
-        mov = tools.get_moves_bytag(sub, moves, lpis_cent)
-        col = colorby_input.value
-        result = report(selected, sp, mov, col, lpis_cent, snpdist)
+        mov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
+        col = self.colorby_input.value
+        result = report(self.selected, sp, mov, col, self.lpis_cent, self.snpdist)
         #report_file = f'report_{datetime.today().date()}.html'
         result.save(report_file)
         return
 
-    def load_selection(event=None):
+    def load_selection(self, event=None):
         """Load a selection"""
 
-        global selected
-        name = selections_input.value
-        idx = selections[name]['indexes']
-        selected = meta.loc[idx]
-        update(sub=selected)
+        name = self.selections_input.value
+        idx = self.selections[name]['indexes']
+        self.selected = self.meta.loc[idx]
+        self.update(sub=self.selected)
         return
 
-    def delete_selection(event=None):
+    def delete_selection(self, event=None):
         """Delete a selection"""
 
-        global selected
-        name = selections_input.value
-        del (selections[name])
-        selections_input.options = list(selections.keys())
+        name = self.selections_input.value
+        del (self.selections[name])
+        self.selections_input.options = list(self.selections.keys())
         with open(selections_file,'w') as f:
-            f.write(json.dumps(selections))
+            f.write(json.dumps(self.selections))
         return
 
-    def import_selections(event=None):
+    def import_selections(self, event=None):
         """Import a selection"""
 
-        global selections
-        data = upload_selection_input.value
+        data = self.upload_selection_input.value
         #print(filename)
         new = json.load(data)
-        selections.update(new)
+        self.selections.update(new)
         return
 
-    def export_selections(event=None):
+    def export_selections(self, event=None):
         """Selections export"""
 
-        selections
         sio = io.StringIO()
         #df.to_csv(sio,index=False)
-        json.dump(selections, sio)
+        json.dump(self.selections, sio)
         sio.seek(0)
         return sio
 
-    def save_selection(event=None):
+    def save_selection(self, event=None):
         """Save a selection"""
 
-        global selected
-        name = selectionname_input.value
+        name = self.selectionname_input.value
         if name == '':
             print ('empty name')
             return
-        selections[name] = {}
-        selections[name]['indexes'] = list(selected.index)
+        self.selections[name] = {}
+        self.selections[name]['indexes'] = list(self.selected.index)
         #add to menu
-        selections_input.options = list(selections.keys())
+        self.selections_input.options = list(self.selections.keys())
         #save to file
         with open(selections_file,'w') as f:
-            f.write(json.dumps(selections))
+            f.write(json.dumps(self.selections))
         return
 
-    def add_to_history():
-        """Add to history"""
+    def import_layer(self, event=None):
+        """Import shapefile"""
 
-        global selected
-        global current_index
-        view_history.append(selected.index)
+        fname = self.importlayer_input.filename
+        data = self.importlayer_input.value
+        tempf='temp.zip'
+        with open(tempf, 'wb') as f:
+            f.write(data)
+        name = os.path.basename(fname)
+        name = os.path.splitext(name)[0]
+        self.add_layer(tempf, name)
+        return
+
+    def add_layer(self, filename, name):
+        """Add a map layer"""
+
+        gdf = gpd.read_file(filename).to_crs('EPSG:3857')
+        self.layers[name] = gdf
+        self.layers_select.options = list(self.layers.keys())
+        return
+
+    def show_layers(self, p):
+        """Show visible layers"""
+
+        show = self.layers_select.value
+        for l in self.layers:
+            if l in show:
+                gdf = self.layers[l]
+                bokeh_plot.plot_gdf(gdf, p, line_color='blue')
+        return
+
+    def add_to_history(self):
+        """Add current selection to history"""
+
+        view_history.append(self.selected.index)
         if len(view_history) > 20:
             view_history.pop(0)
         # Move the current index to the new end
-        current_index = len(view_history)-1
+        self.current_index = len(view_history)-1
         return
 
-    def back(event=None):
+    def back(self, event=None):
         """Go back"""
 
-        global current_index
         if len(view_history) == 0:
             return
-        if current_index <= 0:
+        if self.current_index <= 0:
             return
-        current_index -= 1
-        idx = view_history[current_index]
-        sub = meta.loc[idx]
-        update(sub=sub)
+        self.current_index -= 1
+        idx = view_history[self.current_index]
+        sub = self.meta.loc[idx]
+        self.update(sub=self.sub)
         return
 
-    def forward(event=None):
+    def forward(self, event=None):
 
-        global current_index
-        if len(view_history) == 0 or current_index >= len(view_history)-1:
+        if len(view_history) == 0 or self.current_index >= len(view_history)-1:
             return
-        current_index += 1
-        idx = view_history[current_index]
-        sub = meta.loc[idx]
-        update(sub=sub)
+        self.current_index += 1
+        idx = view_history[self.current_index]
+        sub = self.meta.loc[idx]
+        self.update(sub=sub)
         return
 
-    '''def update_scatter(event=None):
-        """Update categorical strip plot"""
-
-        global selected
-        p = bokeh_plot.cat_plot(selected, row_input.value, col_input.value,
-                                ms=mscat_input.value, marker='marker')
-        scatter_pane.object = p
-        return'''
-
-    def update_catplot(event=None, sub=None):
+    def update_catplot(self, event=None, sub=None):
         """Update categorical plot"""
 
         if sub is None:
-            global selected
-            sub = selected
-        x = catx_input.value
-        y = caty_input.value
-        hue = cathue_input.value
-        kind = catkind_input.value
-        cmap = cmap_input.value
+            sub = self.selected
+        x = self.catx_input.value
+        y = self.caty_input.value
+        hue = self.cathue_input.value
+        kind = self.catkind_input.value
+        cmap = self.cmap_input.value
         row = None
         import seaborn as sns
         cg = sns.catplot(data=sub, x=x, y=y, hue=hue, kind=kind, aspect=2,
-                         palette=cmap, dodge=True)
-        catplot_pane.object = cg.fig
+                        palette=cmap, dodge=True)
+        self.catplot_pane.object = cg.fig
         plt.close(cg.fig)
         #print (fig)
         return
 
-    def current_data_info():
+    def current_data_info(self):
         """Currently loaded data summary"""
 
-        m=f"{len(meta)} rows loaded\n"
-        empty = len(meta[meta.geometry.is_empty])
+        m=f"{len(self.meta)} rows loaded\n"
+        empty = len(self.meta[self.meta.geometry.is_empty])
         m+=f"{empty} rows with no geometry\n"
         return m
 
-    def about():
+    def about(self):
         try:
             from . import core
             VERSION = core.git_version()
@@ -751,242 +1008,9 @@ def dashboard(meta, parcels, moves=None, lpis_cent=None,
         m+="* [Homepage](https://github.com/dmnfarrell/tracebtb)\n"
 
         m+="## Current data\n"
-        m+=current_data_info()
-        about_pane.object = m
+        m+=self.current_data_info()
+        self.about_pane.object = m
         return
-
-    w=140
-    pn.config.throttled = True
-    #main panes
-    plot_pane = pn.pane.Bokeh()
-    #overview_pane = pn.pane.Bokeh(height=300)
-    overview_pane = pn.pane.Matplotlib(height=300)
-    #split_pane = pn.pane.Bokeh(sizing_mode='stretch_both')
-    split_pane = pn.Column(sizing_mode='stretch_both')
-    timeline_pane = pn.pane.Bokeh(sizing_mode='stretch_height')
-    info_pane = pn.pane.Markdown('', styles={'color': "red"})
-
-    #main table
-    meta_pane = pnw.Tabulator(disabled=True,page_size=100,
-                              frozen_columns=['sample'],
-                              sizing_mode='stretch_both')
-    showselected_btn = pnw.Button(name='Select Samples', button_type='primary', align="end")
-    pn.bind(select_from_table, showselected_btn, watch=True)
-    selectrelated_btn = pnw.Button(name='Find Related', button_type='primary', align="end")
-    pn.bind(select_related, selectrelated_btn, watch=True)
-    threshold_input = pnw.IntInput(name='Threshold', value=7, step=1, start=2, end=20,width=60)
-    #search
-    scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','IE_clade','snp7','snp12','snp20']
-    search_input = pnw.TextInput(name="Search", value='',sizing_mode='stretch_width')
-    searchcol_select = pnw.Select(name='Column',value='HERD_NO',options=scols,width=100)
-    search_btn = pnw.Button(icon=get_icon('search'), icon_size='1.8em', align="end")
-    pn.bind(do_search, search_btn, watch=True)
-
-    reset_btn = pnw.Button(icon=get_icon('refresh'), icon_size='1.8em', align="end")
-    pn.bind(reset_table, reset_btn, watch=True)
-
-    table_widgets = pn.Row(showselected_btn, selectrelated_btn, threshold_input,
-                           search_input, searchcol_select, search_btn, reset_btn,
-                           sizing_mode='stretch_width')
-    table_pane = pn.Column(meta_pane,table_widgets,sizing_mode='stretch_both')
-
-    #selected table
-    selected_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
-                                  frozen_columns=['sample'],sizing_mode='stretch_both')
-    #moves table
-    moves_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
-                                  frozen_columns=['tag'],sizing_mode='stretch_both')
-    #herds table
-    herds_table = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
-                               frozen_columns=['HERD_NO'],sizing_mode='stretch_both')
-    selectherds_btn = pnw.Button(name='Select Herds', button_type='primary', align="end")
-    pn.bind(select_herds, selectherds_btn, watch=True)
-    downloadherds_btn = pnw.FileDownload(callback=pn.bind(herds_file),
-                                         filename='herds.csv', button_type='success')
-    herds_pane = pn.Column(herds_table, pn.Row(selectherds_btn,downloadherds_btn))
-
-    clusters_table = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
-                                  frozen_columns=['cluster'],sizing_mode='stretch_both')
-    selectclusters_btn = pnw.Button(name='Select Groups', button_type='primary', align="end")
-    pn.bind(select_clusters, selectclusters_btn, watch=True)
-    clusters_pane = pn.Column(clusters_table, pn.Row(selectclusters_btn))
-
-    tree_pane = pn.pane.HTML(height=400)
-    network_pane = pn.pane.Bokeh()
-    snpdist_pane = pn.pane.Bokeh(height=400)
-    #details
-    details_pane = pn.pane.DataFrame(sizing_mode='stretch_both')
-
-    cols = [None]+tools.get_ordinal_columns(meta)
-    #selections pane
-    selections_input = pnw.Select(name='Selections',options=list(selections.keys()),value='',width=w)
-    loadselection_btn = pnw.Button(name='Load Selection', button_type='primary',width=w)
-    pn.bind(load_selection, loadselection_btn, watch=True)
-    deleteselection_btn = pnw.Button(name='Delete Selection', button_type='primary',width=w)
-    pn.bind(delete_selection, deleteselection_btn, watch=True)
-    saveselection_btn = pnw.Button(name='Save Selection', button_type='primary',width=w)
-    pn.bind(save_selection, saveselection_btn, watch=True)
-    selectionname_input = pnw.TextInput(value='',width=w)
-    #importselections_btn = pnw.Button(name='Import Selections', button_type='success',width=200)
-    upload_label = pn.pane.Markdown("### Import Selections")
-    upload_selection_input = pnw.FileInput(accept='.json')
-    upload_selection_input.param.watch(import_selections, 'value')
-
-    #exportselections_btn = pnw.Button(name='Export Selections', button_type='success',width=200)
-    exportselections_btn = pnw.FileDownload(name='Export Selections', callback=pn.bind(export_selections),
-                                         filename='selections.json', button_type='success')
-
-    card1 = pn.Column('## Selections', pn.Row(pn.Column(selections_input, selectionname_input),
-                      pn.Column(loadselection_btn, deleteselection_btn, saveselection_btn)),
-                                pn.Column(upload_label,upload_selection_input,
-                                          exportselections_btn,styles=dict(background='#ECECEC'),
-                                          sizing_mode='stretch_width'),
-                       width=340, styles=card_style)
-    #reporting
-    doreport_btn = pnw.Button(name='Generate', button_type='primary')
-    savereport_btn = pnw.FileDownload(file=report_file, button_type='success', auto=False,
-                                    embed=False, name="Download Report")
-    card2 = pn.Column('## Reporting', doreport_btn, savereport_btn, width=340, styles=card_style)
-    pn.bind(create_report, doreport_btn, watch=True)
-
-    #lpis
-    loadlpis_btn = pnw.Button(name='Load LPIS', button_type='primary')
-    pn.bind(load_lpis, loadlpis_btn, watch=True)
-    card3 = pn.Column('## LPIS', loadlpis_btn, width=340, styles=card_style)
-
-    #settings
-    markersize_input = pnw.IntSlider(name='marker size', value=10, start=0, end=80,width=w)
-    edgewidth_input = pnw.FloatSlider(name='marker edge width', value=0.8, start=0, end=4, step=.1,width=w)
-    labelsize_input = pnw.IntSlider(name='label size', value=15, start=6, end=80,width=w)
-    legendsize_input = pnw.IntSlider(name='legend size', value=12, start=6, end=40,width=w)
-    hexbins_input = pnw.IntSlider(name='hex bins', value=10, start=5, end=100,width=w)
-    scalebar_input = pnw.Checkbox(name='Show scalebar',value=False)
-    card4 = pn.Column('## Settings', markersize_input,edgewidth_input,labelsize_input,legendsize_input,
-                       hexbins_input, scalebar_input, width=340, styles=card_style)
-
-    utils_pane = pn.FlexBox(*[card1,card2, card3, card4], flex_direction='column', min_height=400,
-                             styles={'margin': '10px'}, sizing_mode='stretch_both')
-
-    #nav buttons
-    prev_btn = pnw.Button(icon=get_icon('arrow-left'), description='back', icon_size='1.6em',width=60)
-    next_btn = pnw.Button(icon=get_icon('arrow-right'), description='forward', icon_size='1.6em',width=60)
-    pn.bind(back, prev_btn, watch=True)
-    pn.bind(forward, next_btn, watch=True)
-    nav_pane = pn.Row(prev_btn,next_btn)
-
-    #widgets
-    groupby_input = pnw.Select(name='group by',options=cols,value='snp7',width=w)
-    groups_table = pnw.Tabulator(disabled=True, widths={'index': 70}, layout='fit_columns',pagination=None, height=250, width=w)
-    colorby_input = pnw.Select(name='color by',options=cols,value='snp7',width=w)
-    cmap_input = pnw.Select(name='colormap',options=colormaps,value='Set1',width=w)
-    tiplabel_input = pnw.Select(name='tip label',options=list(meta.columns),value='sample',width=w)
-    provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
-    pointstyle_input = pnw.Select(name='points display',options=['default','pie'],value='default',width=w)
-    widgets = pn.Column(pn.WidgetBox(nav_pane,groupby_input,groups_table,colorby_input,cmap_input,tiplabel_input,
-                                     provider_input,pointstyle_input),info_pane,width=w+30)
-    #button toolbar
-    split_btn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size='1.8em')
-    selectregion_btn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size='1.8em')
-    selectradius_btn = pnw.Button(icon=get_icon('plot-centroid'), description='select within radius', icon_size='1.8em')
-    tree_btn = pnw.Toggle(icon=get_icon('tree'), icon_size='1.8em')
-    parcels_btn = pnw.Toggle(icon=get_icon('parcels'), icon_size='1.8em')
-    moves_btn = pnw.Toggle(icon=get_icon('plot-moves'), icon_size='1.8em')
-    legend_btn = pnw.Toggle(icon=get_icon('legend'), icon_size='1.8em')
-    neighbours_btn = pnw.Toggle(icon=get_icon('neighbours'), icon_size='1.8em')
-    parcellabel_btn = pnw.Toggle(icon=get_icon('parcel-label'), icon_size='1.8em')
-    showcounties_btn = pnw.Toggle(icon=get_icon('counties'), icon_size='1.8em')
-    kde_btn = pnw.Toggle(icon=get_icon('contour'), icon_size='1.8em')
-    hex_btn = pnw.Toggle(icon=get_icon('hexbin'), icon_size='1.8em')
-    #pie_btn = pnw.Toggle(icon=get_icon('scatter-pie'), icon_size='1.8em')
-    #lockbtn = pnw.Toggle(icon=get_icon('lock'), icon_size='1.8em')
-    toolbar = pn.Column(pn.WidgetBox(selectregion_btn,selectradius_btn,tree_btn,
-                                     parcels_btn,parcellabel_btn,showcounties_btn,moves_btn,legend_btn,
-                                     neighbours_btn,kde_btn,hex_btn,split_btn),width=70)
-
-    #option below plot
-    timeslider = pnw.IntRangeSlider(name='Time',width=150,
-                    start=2000, end=2024, value=(2000, 2024), step=1)
-    clustersizeslider = pnw.IntSlider(name='Min. Cluster Size',width=150,
-                    start=1, end=20, value=1, step=1)
-    homebredbox = pnw.Checkbox(name='Homebred',value=False)
-    findrelated_btn = pnw.Button(name='Find Related', button_type='primary', align="end")
-    pn.bind(find_related, findrelated_btn, watch=True)
-    related_col_input = pnw.Select(options=cols,value='snp7',width=90)
-
-    filters = pn.Row(findrelated_btn,related_col_input,timeslider,clustersizeslider,homebredbox)
-
-    groupby_input.param.watch(update_groups, 'value')
-    groups_table.param.watch(select_group, 'selection')
-    provider_input.param.watch(set_provider, 'value')
-    colorby_input.param.watch(update, 'value')
-    cmap_input.param.watch(update, 'value')
-    tiplabel_input.param.watch(update, 'value')
-    pointstyle_input.param.watch(update, 'value')
-    tree_btn.param.watch(update, 'value')
-    parcels_btn.param.watch(update, 'value')
-    parcellabel_btn.param.watch(update, 'value')
-    showcounties_btn.param.watch(update, 'value')
-    moves_btn.param.watch(update, 'value')
-    legend_btn.param.watch(update, 'value')
-    neighbours_btn.param.watch(update, 'value')
-    kde_btn.param.watch(update, 'value')
-    hex_btn.param.watch(update, 'value')
-    timeslider.param.watch(update, 'value')
-    #pn.bind(update, timeslider.param.value_throttled)
-    clustersizeslider.param.watch(update, 'value')
-    homebredbox.param.watch(update, 'value')
-
-    #pn.bind(update_tree, treebtn, watch=True)
-    pn.bind(split_view, split_btn, watch=True)
-    pn.bind(select_region, selectregion_btn, watch=True)
-    pn.bind(select_radius, selectradius_btn, watch=True)
-
-    #categorical plot widget
-    catplot_pane = pn.pane.Matplotlib(sizing_mode='stretch_both')
-    catx_input = pnw.Select(name='x',options=cols,value='Species',width=w)
-    caty_input = pnw.Select(name='y',options=cols,value=None,width=w)
-    cathue_input = pnw.Select(name='hue',options=cols,value=None,width=w)
-    kinds = ['count','bar','strip','swarm']
-    catkind_input = pnw.Select(name='kind',options=kinds,
-                               value='count',width=w)
-    cathue_input = pnw.Select(name='hue',options=cols,value='County',width=w)
-    catupdate_btn = pnw.Button(name='Update', button_type='primary',align='end')
-    pn.bind(update_catplot, catupdate_btn, watch=True)
-    analysis_pane1 = pn.Column(pn.Row(catx_input,caty_input,cathue_input,catkind_input,catupdate_btn),
-                               catplot_pane)
-
-    styles={ "margin-top": "10px", "font-size": "15px"}
-    about_pane = pn.pane.Markdown('',styles=styles)
-    about()
-
-    app = pn.Column(
-                pn.Row(widgets,
-                       toolbar,
-                pn.Column(
-                    pn.Tabs(('Map',pn.Column(plot_pane,filters)),
-                            ('Split View',split_pane),
-                            ('Summary I',analysis_pane1),
-                            ('Main Table', table_pane),
-                            ('Selected', selected_pane),
-                            ('Moves', moves_pane),
-                            ('Herds',herds_pane),('Groups',clusters_pane),
-                            ('Tools',utils_pane),
-                            ('About',about_pane),
-                             dynamic=True,
-                             sizing_mode='stretch_both'),
-                          ),
-                pn.Tabs(('Overview',pn.Column(overview_pane,timeline_pane, width=500)),
-                                  ('Tree',tree_pane),
-                                  ('Details',details_pane),
-                                  dynamic=True,width=500),
-             max_width=2600,min_height=600
-    ))
-    app.sizing_mode='stretch_both'
-    meta_pane.value = meta
-    update_groups()
-    selected = meta[meta.snp7.isin(['24'])].copy()
-    update(sub=selected)
-    return app
 
 def test_app():
     """test app"""
@@ -1012,6 +1036,8 @@ def main():
     parser = ArgumentParser(description='TracebTB')
     parser.add_argument("-p", "--proj", dest="project",default=None,
                             help="load project file", metavar="FILE")
+    parser.add_argument("-o", "--origin", dest="origin",default='localhost:5010',
+                            help="websocket origin")
     parser.add_argument("-t", "--test", dest="test", action="store_true",
                         help="dummy test app")
     args = parser.parse_args()
@@ -1019,7 +1045,7 @@ def main():
     if args.test == True:
         pn.serve(test_app, port=5010, prefix='testapp',
                  basic_auth='credentials.json',cookie_secret='cookie_secret',
-                 websocket_origin=["bola.ucd.ie","localhost:5010"])
+                 websocket_origin=["localhost:5010"])
     elif args.project == None:
         print ('please provide a project file')
         exit()
@@ -1042,12 +1068,19 @@ def main():
         lpis_cent = data['lpis_cent']
         parcels = data['parcels']
         snpdist = data['snpdist']
-        #selections = data['selections']
-        #print (selections_file)
+
         if os.path.exists(selections_file):
             selections = json.load(open(selections_file,'r'))
         else:
             selections = {}
+        layers = {}
+        #layers['ded'] = gpd.read_file('osi_deds.zip').to_crs('EPSG:3857')
+        if os.path.exists(layers_file):
+            import fiona
+            names = fiona.listlayers(layers_file)
+            for name in names:
+                gdf = gpd.read_file(layers_file, layer=name)
+                layers[name] = gdf
 
         # Create a session-specific app function
         def create_app():
@@ -1059,14 +1092,15 @@ def main():
                 header_color='white'
             )
             # Generate a new dashboard instance per session
-            app = dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections)
+            app = Dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections, layers)
             app.project_file = args.project
-            bootstrap.main.append(app)
+            layout = app.show()
+            bootstrap.main.append(layout)
             bootstrap.servable()
             return bootstrap
 
         pn.serve(create_app, port=5010, #prefix='tracebtb',
-                websocket_origin=["bola.ucd.ie","localhost:5010"])
+                websocket_origin=[args.origin])
                 #basic_auth='credentials.json', cookie_secret='cookie_secret')
                 #websocket_origin=['bola.ucd.ie:80','localhost:5010'])
 

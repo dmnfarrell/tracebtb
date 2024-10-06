@@ -260,6 +260,13 @@ def add_legend(p, gdf, col, fontsize=14):
     p.legend.label_text_font_size = f'{fontsize}pt'
     return
 
+def plot_gdf(gdf, p, **kwargs):
+    geojson = gdf.to_json()
+    source = GeoJSONDataSource(geojson=geojson)
+    r = p.patches('xs', 'ys', source=source,
+                  line_width=2, fill_alpha=0)
+    return
+
 def plot_counties(p):
 
     geojson = counties_gdf.to_json()
