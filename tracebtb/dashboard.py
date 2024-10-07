@@ -51,9 +51,14 @@ card_style = {
 }
 colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
             'tab10', 'tab20', 'tab20b', 'tab20c']
-
-view_history = []
-current_index = 0
+stylesheet = """
+.tabulator-cell {
+    font-size: 12px;
+}
+.tabulator-col-title {
+    font-size: 11px;
+}
+"""
 
 def get_icon(name):
     """Get svg icon"""
@@ -232,8 +237,8 @@ class Dashboard:
         self.lpis_master_file = lpis_master_file
         self.selections = selections
         self.layers= layers
-        #coords = None
-        #view_history = []
+        self.view_history = []
+        self.current_index = 0
         self.layout = self.setup_widgets()
         return
 
@@ -255,7 +260,7 @@ class Dashboard:
 
         #main table
         self.meta_pane = pnw.Tabulator(disabled=True,page_size=100,
-                                frozen_columns=['sample'],
+                                frozen_columns=['sample'],stylesheets=[stylesheet],
                                 sizing_mode='stretch_both')
         self.showselected_btn = pnw.Button(name='Select Samples', button_type='primary', align="end")
         pn.bind(self.select_from_table, self.showselected_btn, watch=True)
@@ -369,7 +374,9 @@ class Dashboard:
 
         #widgets
         self.groupby_input = pnw.Select(name='group by',options=cols,value='snp7',width=w)
-        self.groups_table = pnw.Tabulator(disabled=True, widths={'index': 70}, layout='fit_columns',pagination=None, height=250, width=w)
+        self.groups_table = pnw.Tabulator(disabled=True, widths={'count': 30}, layout='fit_columns',
+                                          pagination=None, height=200, width=w, 
+                                          stylesheets=[stylesheet])
         self.colorby_input = pnw.Select(name='color by',options=cols,value='snp7',width=w)
         self.cmap_input = pnw.Select(name='colormap',options=colormaps,value='Set1',width=w)
         self.tiplabel_input = pnw.Select(name='tip label',options=list(self.meta.columns),value='sample',width=w)
@@ -562,7 +569,7 @@ class Dashboard:
             bokeh_plot.kde_plot_groups(sub, p, col, 6)
 
         if self.neighbours_btn.value is True and self.lpis is not None:
-            shb = self.shared_borders(sp, self.lpis)
+            shb = shared_borders(sp, self.lpis)
             bokeh_plot.plot_lpis(shb, p)
 
         mov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
@@ -898,8 +905,9 @@ class Dashboard:
         """Import shapefile"""
 
         fname = self.importlayer_input.filename
+        ext = os.path.splitext(fname)[1]
         data = self.importlayer_input.value
-        tempf='temp.zip'
+        tempf='temp'+ext
         with open(tempf, 'wb') as f:
             f.write(data)
         name = os.path.basename(fname)
@@ -928,6 +936,7 @@ class Dashboard:
     def add_to_history(self):
         """Add current selection to history"""
 
+        view_history = self.view_history
         view_history.append(self.selected.index)
         if len(view_history) > 20:
             view_history.pop(0)
@@ -938,6 +947,7 @@ class Dashboard:
     def back(self, event=None):
         """Go back"""
 
+        view_history = self.view_history
         if len(view_history) == 0:
             return
         if self.current_index <= 0:
@@ -945,11 +955,12 @@ class Dashboard:
         self.current_index -= 1
         idx = view_history[self.current_index]
         sub = self.meta.loc[idx]
-        self.update(sub=self.sub)
+        self.update(sub=sub)
         return
 
     def forward(self, event=None):
 
+        view_history = self.view_history
         if len(view_history) == 0 or self.current_index >= len(view_history)-1:
             return
         self.current_index += 1

@@ -544,7 +544,7 @@ def kde(gdf, N):
     Z = np.reshape(kernel(positions).T, X.shape)
     return X, Y, Z
 
-def kde_plot(gdf, p, color='#4AA60E', levels=10, alpha=0.5):
+def kde_plot(gdf, p, color='#507CBD', levels=10, alpha=0.5):
     """kde plot of points in map"""
 
 
