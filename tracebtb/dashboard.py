@@ -194,25 +194,16 @@ def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
     report = pn.Column(header, main)
     return report
 
-def add_tap_callback(p, table_source):
+def layers_from_file(layers_file):
+    """load layers from file"""
 
-    source = p.renderers[0].data_source
-    tap_callback = CustomJS(args=dict(source=source, table_source=table_source), code="""
-        var selected_index = source.selected.indices[0];
-
-        // If a point is selected, update the DataTable source
-        if (selected_index !== undefined) {
-            var name = source.data['name'][selected_index];
-            var info = source.data['info'][selected_index];
-
-            // Update the table source with the selected point's information
-            table_source.data = { name: [name], info: [info] };
-            table_source.change.emit();  // Trigger the change
-        }
-    """)
-    taptool = p.select(type=TapTool)
-    taptool.callback = tap_callback
-    return
+    import fiona
+    layers = {}
+    names = fiona.listlayers(layers_file)
+    for name in names:
+        gdf = gpd.read_file(layers_file, layer=name)
+        layers[name] = gdf
+    return layers
 
 class Dashboard:
 
@@ -351,9 +342,13 @@ class Dashboard:
         self.labelsize_input = pnw.IntSlider(name='label size', value=15, start=6, end=80,width=w)
         self.legendsize_input = pnw.IntSlider(name='legend size', value=12, start=6, end=40,width=w)
         self.hexbins_input = pnw.IntSlider(name='hex bins', value=10, start=5, end=100,width=w)
-        self.scalebar_input = pnw.Checkbox(name='Show scalebar',value=False)
-        card4 = pn.Column('## Settings', self.markersize_input,self.edgewidth_input,self.labelsize_input,self.legendsize_input,
-                        self.hexbins_input, self.scalebar_input, width=340, styles=card_style)
+        self.scalebar_input = pnw.Checkbox(name='show scalebar',value=False)
+        self.randseed_input = pnw.IntSlider(name='random color seed', value=647, start=1, end=5000,width=w)
+        savesettings_btn = pnw.Button(name='Save Settings',button_type='primary')
+        pn.bind(self.save_settings, savesettings_btn)
+        card4 = pn.Column('## Settings', self.markersize_input,self.edgewidth_input,self.labelsize_input,
+                          self.legendsize_input, self.hexbins_input, self.scalebar_input, self.randseed_input,
+                          savesettings_btn, width=340, styles=card_style)
 
         #reporting
         self.doreport_btn = pnw.Button(name='Generate', button_type='primary')
@@ -375,7 +370,7 @@ class Dashboard:
         #widgets
         self.groupby_input = pnw.Select(name='group by',options=cols,value='snp7',width=w)
         self.groups_table = pnw.Tabulator(disabled=True, widths={'count': 30}, layout='fit_columns',
-                                          pagination=None, height=200, width=w, 
+                                          pagination=None, height=200, width=w,
                                           stylesheets=[stylesheet])
         self.colorby_input = pnw.Select(name='color by',options=cols,value='snp7',width=w)
         self.cmap_input = pnw.Select(name='colormap',options=colormaps,value='Set1',width=w)
@@ -492,9 +487,8 @@ class Dashboard:
         return app
 
     def update(self, event=None, sub=None):
-        """Update selection"""
+        """Update selection - does all the display"""
 
-        # Access the inputs as class attributes (assuming they are initialized elsewhere in the class)
         provider = self.provider_input.value
         cmap = self.cmap_input.value
         col = self.colorby_input.value
@@ -502,19 +496,15 @@ class Dashboard:
         lw = self.edgewidth_input.value
         legend = self.legend_btn.value
 
-        # Accessing selected as a class attribute instead of global
         if sub is None:
             sub = self.selected
 
         if len(sub[col].unique()) > 20:
             cmap = None
-
-        sub['color'], cm1 = tools.get_color_mapping(sub, col, cmap)
-
-        # Update the selected attribute
+        seed = self.randseed_input.value
+        sub['color'], cm1 = tools.get_color_mapping(sub, col, cmap, seed=seed)
         self.selected = sub
-
-        # Apply filters using class-level methods or attributes
+        # Apply filters
         sub = self.apply_filters(sub)
         self.info_pane.object = f'**{len(sub)} samples**'
         self.update_overview(sub=sub)
@@ -756,7 +746,7 @@ class Dashboard:
         col = self.related_col_input.value
         cl = list(self.selected[col].unique())
         sub = self.meta[(self.meta[col].isin(cl))].copy()
-        self.update(sub=self.sub)
+        self.update(sub=sub)
         self.add_to_history()
         return
 
@@ -781,8 +771,8 @@ class Dashboard:
 
         df = self.clusters_table.selected_dataframe
         col = self.colorby_input.value
-        self.sub = self.meta[(self.meta[col].isin(df.cluster))].copy()
-        self.update(sub=self.sub)
+        sub = self.meta[(self.meta[col].isin(df.cluster))].copy()
+        self.update(sub=sub)
         return
 
     def split_view(self, event=None):
@@ -921,16 +911,21 @@ class Dashboard:
         gdf = gpd.read_file(filename).to_crs('EPSG:3857')
         self.layers[name] = gdf
         self.layers_select.options = list(self.layers.keys())
+        #save layer to file
+        gdf.to_file(layers_file, layer=name, driver="GPKG", mode="a")
         return
 
     def show_layers(self, p):
         """Show visible layers"""
 
         show = self.layers_select.value
+        colors = tools.random_colors(len(self.layers.keys()), 10)
+        i=0
         for l in self.layers:
             if l in show:
                 gdf = self.layers[l]
-                bokeh_plot.plot_gdf(gdf, p, line_color='blue')
+                bokeh_plot.plot_gdf(gdf, p, line_width=2, line_color=colors[i])
+                i+=1
         return
 
     def add_to_history(self):
@@ -986,6 +981,11 @@ class Dashboard:
         self.catplot_pane.object = cg.fig
         plt.close(cg.fig)
         #print (fig)
+        return
+
+    def save_settings(self):
+        """Save settings"""
+
         return
 
     def current_data_info(self):
@@ -1047,34 +1047,34 @@ def main():
     parser = ArgumentParser(description='TracebTB')
     parser.add_argument("-p", "--proj", dest="project",default=None,
                             help="load project file", metavar="FILE")
-    parser.add_argument("-o", "--origin", dest="origin",default='localhost:5010',
-                            help="websocket origin")
+    parser.add_argument("-s", "--settings", dest="settings",default=configfile,
+                            help="load a json settings file", metavar="FILE")
     parser.add_argument("-t", "--test", dest="test", action="store_true",
                         help="dummy test app")
     args = parser.parse_args()
 
     if args.test == True:
         pn.serve(test_app, port=5010, prefix='testapp',
-                 basic_auth='credentials.json',cookie_secret='cookie_secret',
                  websocket_origin=["localhost:5010"])
     elif args.project == None:
         print ('please provide a project file')
         exit()
     else:
         #load config file
-        if not os.path.exists(configfile):
-            d = {'dashboard':{'lpis_master_file':''}}
+        if not os.path.exists(args.settings):
+            settings = {'dashboard':{'lpis_master_file':''}}
             with open(configfile, "w") as outfile:
                 json.dump(d, outfile)
             lpis_master_file = None
         else:
-            with open(configfile) as f:
-                jsondata = json.load(f)
             print('found settings file')
-            lpis_master_file = jsondata['dashboard']['lpis_master_file']
+            with open(args.settings) as f:
+                settings = json.load(f)['dashboard']
+                print (settings)
+            lpis_master_file = settings['lpis_master_file']
 
         data = pickle.load(open(args.project,'rb'))
-        meta = data['meta']#.to_crs('EPSG:3857')
+        meta = data['meta']
         moves = data['moves']
         lpis_cent = data['lpis_cent']
         parcels = data['parcels']
@@ -1084,25 +1084,20 @@ def main():
             selections = json.load(open(selections_file,'r'))
         else:
             selections = {}
-        layers = {}
-        #layers['ded'] = gpd.read_file('osi_deds.zip').to_crs('EPSG:3857')
         if os.path.exists(layers_file):
-            import fiona
-            names = fiona.listlayers(layers_file)
-            for name in names:
-                gdf = gpd.read_file(layers_file, layer=name)
-                layers[name] = gdf
+            layers = layers_from_file(layers_file)
+        else:
+            layers = {}
 
-        # Create a session-specific app function
         def create_app():
-            #create template
+            # Create a session-specific app function
             bootstrap = pn.template.BootstrapTemplate(
                 title='TracebTB',
                 favicon=logoimg,
                 logo=logoimg,
                 header_color='white'
             )
-            # Generate a new dashboard instance per session
+            #Generate a new dashboard instance per session
             app = Dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections, layers)
             app.project_file = args.project
             layout = app.show()
@@ -1110,10 +1105,15 @@ def main():
             bootstrap.servable()
             return bootstrap
 
-        pn.serve(create_app, port=5010, #prefix='tracebtb',
-                websocket_origin=[args.origin])
-                #basic_auth='credentials.json', cookie_secret='cookie_secret')
-                #websocket_origin=['bola.ucd.ie:80','localhost:5010'])
+        if 'reverse_proxy' in settings:
+            #using nginx proxy with basic auth
+            s = settings['reverse_proxy']
+            pn.serve(create_app, port=5010, prefix=s['prefix'],
+                websocket_origin=s['origin'], #basic_auth='credentials.json',
+                cookie_secret='cookie_secret')
+        else:
+            pn.serve(create_app, port=5010, websocket_origin=["localhost:5010"],
+                     cookie_secret='cookie_secret')
 
 if __name__ == '__main__':
     main()

@@ -28,7 +28,7 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.Align import MultipleSeqAlignment
 from Bio import AlignIO, SeqIO
-from pyfaidx import Fasta
+#from pyfaidx import Fasta
 import pylab as plt
 import matplotlib as mpl
 import matplotlib.colors as colors

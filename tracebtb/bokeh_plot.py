@@ -264,7 +264,7 @@ def plot_gdf(gdf, p, **kwargs):
     geojson = gdf.to_json()
     source = GeoJSONDataSource(geojson=geojson)
     r = p.patches('xs', 'ys', source=source,
-                  line_width=2, fill_alpha=0)
+                  fill_alpha=0, **kwargs)
     return
 
 def plot_counties(p):
@@ -289,13 +289,16 @@ def plot_lpis(gdf, p):
     p.add_tools(h)
     return p
 
-def plot_moves(p, moves, lpis_cent):
+def plot_moves(p, moves, lpis_cent, limit=300):
     """Plot moves with bokeh)"""
 
     nh = VeeHead(size=12, fill_color='blue', fill_alpha=0.5, line_color='black')
     moves = moves[moves.geometry.notnull()].to_crs('EPSG:3857')
-    #print (moves)
-    for tag,t in moves.groupby('tag'):
+    groups = moves.groupby('tag')
+    if len(groups) > limit:
+        print ('too many moves')
+        return
+    for tag,t in groups:
         if t is not None:
             #print (t)
             moved = lpis_cent[lpis_cent.SPH_HERD_N.isin(t.move_to)].to_crs('EPSG:3857')
@@ -309,7 +312,6 @@ def plot_moves(p, moves, lpis_cent):
                     p2 =  l.geometry.coords[1]
                     p.add_layout(Arrow(end=nh, line_color='black', line_dash=[10, 5],
                                x_start=p1[0], y_start=p1[1], x_end=p2[0], y_end=p2[1]))
-
     return p
 
 def error_message(msg=''):
@@ -547,7 +549,6 @@ def kde(gdf, N):
 def kde_plot(gdf, p, color='#507CBD', levels=10, alpha=0.5):
     """kde plot of points in map"""
 
-
     x, y, z = kde(gdf, 100)
     z_range = np.max(z) - np.min(z)
     #levels = int((x.max()-x.min())/20000)
@@ -558,15 +559,15 @@ def kde_plot(gdf, p, color='#507CBD', levels=10, alpha=0.5):
     p.contour(x, y, z, lvl[1:], fill_color=palette, line_color=palette, fill_alpha=alpha)
     return
 
-def kde_plot_groups(gdf, p, col='snp12', min_samples=6, alpha=0.5):
+def kde_plot_groups(gdf, p, col='snp12', min_samples=5, alpha=0.5):
     """Kde plot of separate groups"""
 
     for c,sub in gdf.groupby(col):
         sub = sub[~sub.geometry.is_empty]
+        #remove redundant points in same herd to avoid skewed plot?
+        sub = sub.drop_duplicates('HERD_NO')
+        sub = tools.remove_outliers_zscore(sub,2)
         if len(sub)<min_samples:
-            continue
-        sub = tools.remove_outliers_zscore(sub,3)
-        if len(sub) == 0:
             continue
         clr = sub.iloc[0].color
         kde_plot(sub, p, color=clr, levels=15, alpha=alpha)
