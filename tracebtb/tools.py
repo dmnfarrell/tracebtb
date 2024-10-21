@@ -147,7 +147,7 @@ def get_color_mapping(df, col, cmap=None, seed=12):
     """Get random color map for categorical dataframe column"""
 
     import matplotlib.colors as colors
-    c = df[col].unique()
+    c = df.sort_values(col)[col].unique()
     if cmap == None:
         clrs = random_colors(len(c),seed)
     else:

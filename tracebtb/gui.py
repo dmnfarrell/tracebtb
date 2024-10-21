@@ -155,14 +155,13 @@ def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40, alpha=0.7, 
     cows = df[df.Species == 'Bovine']
     badgers = df[df.Species == 'Badger']
     if not cows.empty:
-        cows.plot(color=cows.color, ax=ax, alpha=alpha, markersize=ms, 
+        cows.plot(color=cows.color, ax=ax, alpha=alpha, markersize=ms,
                     edgecolor=edgecolor, linewidth=.5,
                       legend=legend, legend_kwds=legfmt)
     if not badgers.empty:
         if col is None or col == '':
             badgers.plot(color=badgers.color, ax=ax, alpha=alpha, edgecolor=edgecolor,
                          marker='s', markersize=ms, linewidth=.5)
-
     ax.set_title(title)
     ax.axis('off')
 

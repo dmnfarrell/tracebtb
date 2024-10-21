@@ -359,19 +359,20 @@ def split_view(gdf, col, parcels=None, provider=None, limit=9, kde=False, **kwar
     grid.sizing_mode = 'stretch_both'
     return grid
 
-def plot_moves_timeline(mov, herdcolors, limit=300, height=300):
-    """Plot movement timeline"""
+def get_timeline_data(mov, meta, limit=300):
+    """Get data from timeline plot"""
 
     if mov is None:
-        return figure()
-    cols = ['move_to','move_date','end_date','data_type','duration']
+        return
+    cols = ['move_to','move_date','end_date','data_type','duration','sample']
+    mcols = ['sample','snp5','snp7','snp12']
+    cols = cols+mcols
     new = []
     #default end date if no death
     end = datetime(2022, 12, 31)
     groups = mov.groupby('tag')
     if len(groups)>limit:
-        p=error_message('too many samples for timeline')
-        return p
+        return
     for tag,t in groups:
         if len(t)==1:
             t['end_date'] = end
@@ -379,11 +380,22 @@ def plot_moves_timeline(mov, herdcolors, limit=300, height=300):
             t = t.sort_values('move_date')
             t['end_date'] = t.move_date.shift(-1)
         t['duration'] = t.end_date-t.move_date
+        #combine meta data for sample
+        row = meta[meta.Animal_ID==tag].iloc[0]
+        t[mcols] = row[mcols]
+        #print (tag)
+        #print (t[cols])
         new.append(t[cols])
+    df = pd.concat(new).reset_index()
+    return df
 
-    df = pd.concat(new)
-    #print (df)
-    df['color'] = df.move_to.map(herdcolors).fillna('grey')
+def plot_moves_timeline(df, height=300):
+    """Plot movement timeline.
+        df is derived from get_timeline_data
+    """
+
+    if df is None:
+        return figure()
     groups = df.groupby('tag')
     source = ColumnDataSource(df)
     source.add(df.duration.astype(str), 'length')
@@ -393,6 +405,8 @@ def plot_moves_timeline(mov, herdcolors, limit=300, height=300):
                line_width=0, fill_color='color')#, legend_field="move_to")
     h = HoverTool(renderers=[r], tooltips=([("Herd", "@move_to"),
                                             ("tag", "@tag"),
+                                            ("sample", "@sample"),
+                                            ("snp7", "@snp7"),
                                             ("time", "@length")]),
                                            )
     p.add_tools(h)

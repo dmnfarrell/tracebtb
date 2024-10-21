@@ -59,6 +59,7 @@ stylesheet = """
     font-size: 11px;
 }
 """
+defaults = {'dashboard':{'lpis_master_file':''}}
 
 def get_icon(name):
     """Get svg icon"""
@@ -77,6 +78,16 @@ def get_tree(snpdist, idx):
     trees.tree_from_distmatrix(M, treefile)
     return treefile
 
+def keep_tips(tree, tips):
+    """Prune  tips not in a list"""
+
+    import copy
+    new = copy.deepcopy(tree)
+    for tip in new.get_terminals():
+        if tip.name not in tips:
+            new.prune(tip)
+    return new
+
 def draw_toytree(treefile, df, **kwargs):
     """Toytree plot"""
 
@@ -84,7 +95,7 @@ def draw_toytree(treefile, df, **kwargs):
     from tracebtb import trees
     with open(treefile, 'r') as f:
         s = f.read()
-    if len(df)<800:
+    if len(df)<1800:
         canvas = trees.draw_tree(s, df, **kwargs)
         toyplot.html.render(canvas, "temp.html")
     else:
@@ -242,10 +253,17 @@ class Dashboard:
         pn.config.throttled = True
         #main panes
         self.plot_pane = pn.pane.Bokeh()
-        #overview_pane = pn.pane.Bokeh(height=300)
         self.overview_pane = pn.pane.Matplotlib(height=300)
-        #split_pane = pn.pane.Bokeh(sizing_mode='stretch_both')
         self.split_pane = pn.Column(sizing_mode='stretch_both')
+        #pane = pn.Column()
+        tccols = ['','snp7','snp5','snp12']
+        small_style = """
+            .bk-root .bk-select {
+                font-size: 10px;
+            }
+            }"""
+        self.timlinecolor_input = pnw.Select(name='Color by', value='',options=tccols,
+                                             width=100,stylesheets=[small_style])
         self.timeline_pane = pn.pane.Bokeh(sizing_mode='stretch_height')
         self.info_pane = pn.pane.Markdown('', styles={'color': "red"})
 
@@ -345,7 +363,7 @@ class Dashboard:
         self.scalebar_input = pnw.Checkbox(name='show scalebar',value=False)
         self.randseed_input = pnw.IntSlider(name='random color seed', value=647, start=1, end=5000,width=w)
         savesettings_btn = pnw.Button(name='Save Settings',button_type='primary')
-        pn.bind(self.save_settings, savesettings_btn)
+        pn.bind(self.save_settings, savesettings_btn, watch=True)
         card4 = pn.Column('## Settings', self.markersize_input,self.edgewidth_input,self.labelsize_input,
                           self.legendsize_input, self.hexbins_input, self.scalebar_input, self.randseed_input,
                           savesettings_btn, width=340, styles=card_style)
@@ -473,7 +491,8 @@ class Dashboard:
                                 dynamic=True,
                                 sizing_mode='stretch_both'),
                             ),
-                    pn.Tabs(('Overview',pn.Column(self.overview_pane,self.timeline_pane, width=500)),
+                    pn.Tabs(('Overview',pn.Column(self.overview_pane,
+                                            pn.Column(self.timeline_pane,self.timlinecolor_input), width=500)),
                                     ('Tree',self.tree_pane),
                                     ('Details',self.details_pane),
                                     dynamic=True,width=500),
@@ -487,12 +506,16 @@ class Dashboard:
         return app
 
     def update(self, event=None, sub=None):
-        """Update selection - does all the display"""
+        """
+        Update selection - does all the display.
+        Args:
+            sub: a selection may be provided and will set current 'selected' variable
+        """
 
         provider = self.provider_input.value
         cmap = self.cmap_input.value
-        col = self.colorby_input.value
-        ms = self.markersize_input.value
+        self.col = col = self.colorby_input.value
+        self.ms = ms = self.markersize_input.value
         lw = self.edgewidth_input.value
         legend = self.legend_btn.value
 
@@ -574,7 +597,6 @@ class Dashboard:
 
         self.plot_pane.object = p
 
-        # Change selection table
         self.selected_pane.value = sub.drop(columns=['geometry'])
 
         def highlight(x):
@@ -584,10 +606,22 @@ class Dashboard:
         self.selected_pane.style.apply(highlight, subset=['Species'], axis=1)
 
         # Timeline plot
-        herdcolors = dict(zip(sp.SPH_HERD_N, sp.color))
-        p = bokeh_plot.plot_moves_timeline(mov, herdcolors)
-        self.timeline_pane.object = p
-        self.timeline_pane.param.trigger('object')
+        tlc = self.timlinecolor_input.value
+        tldf = bokeh_plot.get_timeline_data(mov, self.meta)
+        #get colors for timeline data
+        if tldf is not None:
+            if tlc in ['',None]:
+                #match parcel colors by default
+                tlcolors = dict(zip(sp.SPH_HERD_N, sp.color))
+                tldf['color'] = tldf.move_to.map(tlcolors).fillna('grey')
+            else:
+                #tlcolors = dict(zip(sub['sample'], sub.color))
+                tldf['color'],c = tools.get_color_mapping(tldf, tlc, cmap)
+                #tldf['color'] = tldf['sample'].map(tlcolors).fillna('grey')
+
+            p = bokeh_plot.plot_moves_timeline(tldf)
+            self.timeline_pane.object = p
+            self.timeline_pane.param.trigger('object')
 
         if self.tree_btn.value is True:
             self.update_tree(sub=sub)
@@ -800,14 +834,24 @@ class Dashboard:
         """Update with toytree"""
 
         #replace this with just selecting tips on a main tree using another package..
-        if len(sub)<=1 or len(sub)>500:
+        if len(sub)<=1 or len(sub)>1800:
             html = '<h1><2 or too many samples</h1>'
             self.tree_pane.object = html
             return
-        treefile = get_tree(self.snpdist, sub.index)
+        #treefile = get_tree(self.snpdist, sub.index)
+        if self.treefile == None:
+            return
+        from Bio import Phylo
+        tree = Phylo.read(self.treefile, "newick")
+        stree = keep_tips(tree, list(sub.index))
+        tempfile = 'temp.newick'
+        Phylo.write(stree, tempfile, "newick")
+
         col = self.colorby_input.value
-        html = draw_toytree(treefile, sub,
-                            tiplabelcol=self.tiplabel_input.value, markercol='Species', height=600)
+        html = draw_toytree(tempfile, sub,
+                            tiplabelcol=self.tiplabel_input.value,
+                            markercol='Species', node_hover=True,
+                            height=700)
         #html = phylocanvas_tree(treefile, sub, col)
         self.tree_pane.object = html
         return
@@ -983,9 +1027,14 @@ class Dashboard:
         #print (fig)
         return
 
-    def save_settings(self):
+    def save_settings(self, event=None):
         """Save settings"""
 
+        #print (self.settings)
+        #d = {'colorby':self.col, 'ms':self.ms}
+        #self.settings.update(d)
+        #with open(configfile, "w") as outfile:
+        #    json.dump(self.settings, outfile)
         return
 
     def current_data_info(self):
@@ -1062,16 +1111,17 @@ def main():
     else:
         #load config file
         if not os.path.exists(args.settings):
-            settings = {'dashboard':{'lpis_master_file':''}}
             with open(configfile, "w") as outfile:
-                json.dump(d, outfile)
+                json.dump(defaults, outfile)
             lpis_master_file = None
+            treefile = None
         else:
             print('found settings file')
             with open(args.settings) as f:
                 settings = json.load(f)['dashboard']
                 print (settings)
             lpis_master_file = settings['lpis_master_file']
+            treefile = settings['tree_file']
 
         data = pickle.load(open(args.project,'rb'))
         meta = data['meta']
@@ -1100,6 +1150,8 @@ def main():
             #Generate a new dashboard instance per session
             app = Dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections, layers)
             app.project_file = args.project
+            app.settings = settings
+            app.treefile = treefile
             layout = app.show()
             bootstrap.main.append(layout)
             bootstrap.servable()

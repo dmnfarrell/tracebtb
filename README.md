@@ -2,15 +2,17 @@
 
 <img align="right" src=tracebtb/logo.svg width=180px>
 
-This is a desktop application designed to allow analysis of M.bovis strain types and associated meta data. It integrates genetic,  location and cattle movement data in a single tool.
+This is a set of applications designed to allow analysis of M.bovis strain types and associated meta data. It integrates genetic, location and cattle movement data for visualisation in a single tool.
 
-This software is written in Python. It was developed on Ubuntu linux and should run on any linux desktop. The GUI is made using the Qt toolkit using PySide2/PyQt.
+This software is written in Python. It was developed on Ubuntu linux and should run on any linux desktop. The GUI was made using the Qt toolkit using PySide2/PyQt. The web interface was developed with the [Panel](https://panel.holoviz.org/) framework and [Bokeh](https://bokeh.org/) plotting library.
 
 ## Usage
 
-Run the command `tracebtb` from the command line to launch the application. You can provide a saved project file by using the -p option: `tracebtb -p file.tracebtb`
+### Web application
 
-See the [wiki](https://github.com/dmnfarrell/tracebtb/wiki) page for documentation.
+Run the command `tracebtb-web` from the command line to launch the web application. You should provide a saved project file by using the -p option: `tracebtb-web -p file.tracebtb`. This will launch a web browser window at the address localhost:5010.
+
+See the [wiki](https://github.com/dmnfarrell/tracebtb/wiki) page for further documentation.
 
 ## Installation
 
@@ -20,25 +22,19 @@ See the [wiki](https://github.com/dmnfarrell/tracebtb/wiki) page for documentati
 
 Notes: You may need to use pip3 on Ubuntu to ensure you use Python 3. Running this also requires you have **git** installed. The same command can be used to update to the latest version.
 
-### WSL on Windows
+### Windows
 
-The tool can be run on Windows using Windows Subsystem for Linux (WSL). This is [easy to install](https://www.omgubuntu.co.uk/how-to-install-wsl2-on-windows-10) from the Micrsoft store. (You can also run `wsl --install' from a terminal window). You then install Ubuntu 22.04 LTS from the store. Just make sure your version of Windows 10 is also reasonably up to date.
+Install python as normal. Also install the [git](https://gitforwindows.org/) program if you are to use the githb version. Then use pip from the command shell as above to install. You shouldn't need conda.
 
-Open Ubuntu from the start menu and run it. It will bring up a terminal. This is just like being in normal Linux. You should first install some required packages:
-
-```sudo apt install python3-pip x11-apps libqt5extras5 graphviz-dev fasttree```
-
-You can then install the package using pip as above.
-
-## Requirements 
+## Requirements
 
 * matplotlib
 * pandas
 * geopandas
 * biopython
-* pyside2 or pyqt5/PyQtWebEngine
-* pygraphviz
-* contextily
+* panel
+* bokeh
+* pyside2 or pyqt5/PyQtWebEngine (only for gui)
 
 ## Funding
 
