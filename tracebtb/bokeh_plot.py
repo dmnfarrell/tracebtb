@@ -80,11 +80,11 @@ def test():
     p.scatter(x, y, fill_color="red", size=10)
     return p
 
-def random_circles(n=20):
-    """Plot renadom circles"""
+def random_color():
+    return "#{:06x}".format(random.randint(0, 0xFFFFFF))
 
-    def random_color():
-        return "#{:06x}".format(random.randint(0, 0xFFFFFF))
+def random_circles(n=20):
+    """Plot random circles"""
 
     x = np.random.rand(n) * 10
     y = np.random.rand(n) * 10
@@ -93,12 +93,43 @@ def random_circles(n=20):
     color = [random_color() for _ in range(n)]
     source = ColumnDataSource(data=dict(x=x, y=y, radius=radius, color=color))
     p = figure(title="Random Circles", x_range=(0, 10), y_range=(0, 10))
-    p.circle(x='x', y='y', radius='radius', fill_color='color', fill_alpha=0.6,
+    p.circle(x='x', y='y', radius='radius', fill_color='color', fill_alpha=0.8,
               line_color="color", source=source)
     p.sizing_mode = 'stretch_both'
     p.axis.visible = False
     p.toolbar.logo = None
     #p.background_fill_color = 'gray'
+    return p
+
+# Function to generate a polygon with random number of sides
+def generate_polygon(center_x, center_y, min_radius, max_radius, num_sides):
+    angles = np.linspace(0, 2 * np.pi, num_sides, endpoint=False)
+    radii = np.random.uniform(min_radius, max_radius, num_sides)
+    x_vertices = center_x + radii * np.cos(angles)
+    y_vertices = center_y + radii * np.sin(angles)
+    return x_vertices, y_vertices
+
+def random_polygons(n=10):
+    """Plot random polygons"""
+
+    p = figure(title="Random Polygons", width=800,
+               x_range=(-10, 10), y_range=(-10, 10),
+                match_aspect=True)
+    # Generate random polygons and plot them
+    w=10;h=10
+    for _ in range(n):
+        num_sides = random.randint(4, 10)
+        center_x = random.uniform(-w, w)
+        center_y = random.uniform(-h, h)
+        min_radius = random.uniform(0.5, 1.0)
+        max_radius = random.uniform(1.0, 4.0)        
+        x, y = generate_polygon(center_x, center_y, min_radius, max_radius, num_sides)
+        # Plot the polygon
+        color = random_color()
+        p.patch(x, y, alpha=0.6, line_width=2, color=color)
+    p.sizing_mode = 'stretch_height'
+    p.axis.visible = False
+    p.toolbar.logo = None
     return p
 
 def save_figure(p):
@@ -189,6 +220,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
     if col in gdf.columns:
         gdf = gdf.sort_values(col)
     if len(gdf) == 0:
+        p = error_message(msg='no samples with locations')
         return p
     if not 'color' in gdf.columns:
         gdf['color'] = 'blue'
@@ -231,7 +263,8 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         cent['color'] = parcels.color
         labels_source = GeoJSONDataSource(geojson=cent.to_json())
         labels = LabelSet(x='x', y='y', text='SPH_HERD_N', source=labels_source,
-                          text_align='right', background_fill_color='color', background_fill_alpha=0.6,
+                          #x_offset=5, y_offset=5,
+                          text_align='right', background_fill_color='white', background_fill_alpha=0.8,
                           text_font_size = f"{label_fontsize}px")
         p.add_layout(labels)
 
@@ -312,6 +345,17 @@ def plot_moves(p, moves, lpis_cent, limit=300):
                     p2 =  l.geometry.coords[1]
                     p.add_layout(Arrow(end=nh, line_color='black', line_dash=[10, 5],
                                x_start=p1[0], y_start=p1[1], x_end=p2[0], y_end=p2[1]))
+    return p
+
+def plot_group_symbols(gdf, p, lw=4, ms=50):
+    """Plot simplified symbols for herds and setts"""
+
+    g = gdf.groupby('HERD_NO').first().set_crs(gdf.crs)
+    g['marker'] = g.Species.map(speciesmarkers)
+    geojson = g.to_crs('EPSG:3857').to_json()
+    geo_source = GeoJSONDataSource(geojson=geojson)
+    r = p.scatter('x', 'y', source=geo_source, color='white', line_width=lw,
+                   line_color='black', marker="marker", fill_alpha=0.2, size=ms)
     return p
 
 def error_message(msg=''):

@@ -219,7 +219,7 @@ def layers_from_file(layers_file):
 class Dashboard:
 
     def __init__(self, meta, parcels, moves=None, lpis_cent=None,
-                snpdist=None, lpis_master_file=None,
+                snpdist=None, lpis_master_file=None, treefile=None,
                 selections={}, layers={}):
         """
         Dashboard app with panel for tracebtb.
@@ -238,7 +238,11 @@ class Dashboard:
         self.lpis = None
         self.lpis_master_file = lpis_master_file
         self.selections = selections
-        self.layers= layers
+        self.layers = layers
+        if treefile is not None:
+            from Bio import Phylo
+            self.tree = Phylo.read(treefile, "newick")
+            self.treefile = treefile
         self.view_history = []
         self.current_index = 0
         self.layout = self.setup_widgets()
@@ -357,7 +361,7 @@ class Dashboard:
         #settings
         self.markersize_input = pnw.IntSlider(name='marker size', value=10, start=0, end=80,width=w)
         self.edgewidth_input = pnw.FloatSlider(name='marker edge width', value=0.8, start=0, end=4, step=.1,width=w)
-        self.labelsize_input = pnw.IntSlider(name='label size', value=15, start=6, end=80,width=w)
+        self.labelsize_input = pnw.IntSlider(name='label size', value=18, start=6, end=80,width=w)
         self.legendsize_input = pnw.IntSlider(name='legend size', value=12, start=6, end=40,width=w)
         self.hexbins_input = pnw.IntSlider(name='hex bins', value=10, start=5, end=100,width=w)
         self.scalebar_input = pnw.Checkbox(name='show scalebar',value=False)
@@ -833,17 +837,14 @@ class Dashboard:
     def update_tree(self, event=None, sub=None):
         """Update with toytree"""
 
-        #replace this with just selecting tips on a main tree using another package..
         if len(sub)<=1 or len(sub)>1800:
             html = '<h1><2 or too many samples</h1>'
             self.tree_pane.object = html
             return
-        #treefile = get_tree(self.snpdist, sub.index)
-        if self.treefile == None:
+        if self.tree == None:
             return
         from Bio import Phylo
-        tree = Phylo.read(self.treefile, "newick")
-        stree = keep_tips(tree, list(sub.index))
+        stree = keep_tips(self.tree, list(sub.index))
         tempfile = 'temp.newick'
         Phylo.write(stree, tempfile, "newick")
 
@@ -1079,12 +1080,14 @@ def test_app():
     )
 
     def update_plot(event=None):
-        plot_pane.object = bokeh_plot.random_circles(n=50)
+        #plot_pane.object = bokeh_plot.random_circles(n=20)
+        plot_pane.object = bokeh_plot.random_polygons(n=ninput.value)
 
-    plot_pane = pn.pane.Bokeh(bokeh_plot.random_circles(n=50))
-    button = pn.widgets.Button(name="TEST", button_type="primary")
+    plot_pane = pn.pane.Bokeh(bokeh_plot.random_circles(n=20))
+    button = pnw.Button(name="TEST", button_type="primary")
     button.on_click(update_plot)
-    app = pn.Column(plot_pane, button)
+    ninput = pnw.IntInput(name='n', value=10, step=1, start=2, end=1000,width=60)
+    app = pn.Column(plot_pane, pn.Row(button,ninput))
 
     bootstrap.main.append(app)
     bootstrap.servable()
@@ -1148,7 +1151,8 @@ def main():
                 header_color='white'
             )
             #Generate a new dashboard instance per session
-            app = Dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file, selections, layers)
+            app = Dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file,
+                            treefile, selections, layers)
             app.project_file = args.project
             app.settings = settings
             app.treefile = treefile
@@ -1164,6 +1168,7 @@ def main():
                 websocket_origin=s['origin'], #basic_auth='credentials.json',
                 cookie_secret='cookie_secret')
         else:
+            #default
             pn.serve(create_app, port=5010, websocket_origin=["localhost:5010"],
                      cookie_secret='cookie_secret')
 
