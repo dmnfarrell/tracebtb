@@ -1124,7 +1124,10 @@ def main():
                 settings = json.load(f)['dashboard']
                 print (settings)
             lpis_master_file = settings['lpis_master_file']
-            treefile = settings['tree_file']
+            if treefile in settings:
+                treefile = settings['tree_file']
+            else:
+                treefile = None
 
         data = pickle.load(open(args.project,'rb'))
         meta = data['meta']
