@@ -204,14 +204,14 @@ def draw_tree(filename, df=None, col=None, cmap=None, tiplabelcol=None, markerco
         df = df.loc[idx]
         tip_colors = list(df.color)
         node_colors = [df.loc[n]['color'] if n in df.index else 'black' for n in tre.get_node_values('name', True, True)]
-        node_sizes=[2 if i else 8 for i in tre.get_node_values(None, 1, 0)]
+        node_sizes=[0 if i else 8 for i in tre.get_node_values(None, 1, 0)]
 
     if tiplabelcol not in [None, '']:
         tip_labels = [df.loc[n][tiplabelcol] if n in df.index else n for n in idx]
     else:
         tip_labels = False
     if markercol == 'Species':
-        smap = {'Bovine':'o','Badger':'s','Deer':'x'}
+        smap = {'Bovine':'o','Badger':'s','Deer':'t'}
         markers = []
         for n in tre.get_node_values('name', True, True):
             if n in df.index:
@@ -219,9 +219,9 @@ def draw_tree(filename, df=None, col=None, cmap=None, tiplabelcol=None, markerco
                 if k in smap:
                     markers.append(smap[k])
                 else:
-                    markers.append(None)
+                    markers.append('o')
             else:
-                markers.append(None)
+                markers.append('o')
     else:
         markers = None
     canvas,axes,mark = tre.draw(scalebar=True,edge_widths=1,height=height,width=width,

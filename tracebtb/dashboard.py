@@ -528,6 +528,8 @@ class Dashboard:
 
         if len(sub[col].unique()) > 20:
             cmap = None
+        elif len(sub[col].unique()) > 10:
+            cmap = 'tab20'
         seed = self.randseed_input.value
         sub['color'], cm1 = tools.get_color_mapping(sub, col, cmap, seed=seed)
         self.selected = sub
@@ -1124,7 +1126,7 @@ def main():
                 settings = json.load(f)['dashboard']
                 print (settings)
             lpis_master_file = settings['lpis_master_file']
-            if treefile in settings:
+            if 'tree_file' in settings:
                 treefile = settings['tree_file']
             else:
                 treefile = None
