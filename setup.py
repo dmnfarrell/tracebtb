@@ -6,7 +6,7 @@ with open('tracebtb/description.txt') as f:
 
 setup(
     name = 'tracebtb',
-    version = '0.5.0-alpha',
+    version = '0.5.0',
     description = 'TracebTB tool',
     long_description = long_description,
     url='https://github.com/dmnfarrell/tracebtb',
@@ -24,8 +24,8 @@ setup(
                       'geopandas',
                       #'pyqt5',
                       #'PyQtWebEngine',
-                      'toytree==2.0.5',
-                      'networkx',
+                      #'toytree==2.0.5',
+                      #'networkx',
                       #'pygraphviz',
                       'pyfaidx',
                       'matplotlib_scalebar',

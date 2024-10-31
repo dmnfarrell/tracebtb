@@ -31,16 +31,13 @@ from collections import OrderedDict
 
 try:
     from bokeh.io import show
-    from bokeh.plotting import figure
     from bokeh.models import (ColumnDataSource, GeoJSONDataSource, GMapOptions, GMapPlot, TileSource, FactorRange,
                                 HoverTool, BoxZoomTool, TapTool, CustomJS,
-                                Legend, LegendItem, GlyphRenderer, ColorBar, LinearColorMapper, LabelSet,
+                                Legend, LegendItem, GlyphRenderer, ColorBar, LinearColorMapper, LabelSet, Label,
                                 Arrow, NormalHead, OpenHead, VeeHead)
     from bokeh.models.glyphs import Patches, Circle
     from bokeh.layouts import layout, column
     from shapely.geometry import Polygon, Point
-    #from bokeh.tile_providers import get_provider, Vendors
-    from bokeh.models import Arrow, NormalHead, OpenHead, VeeHead, Label
     from bokeh.transform import jitter, factor_cmap
     from bokeh.plotting import figure, output_file, save
 except:
@@ -122,7 +119,7 @@ def random_polygons(n=10):
         center_x = random.uniform(-w, w)
         center_y = random.uniform(-h, h)
         min_radius = random.uniform(0.5, 1.0)
-        max_radius = random.uniform(1.0, 4.0)        
+        max_radius = random.uniform(1.0, 4.0)
         x, y = generate_polygon(center_x, center_y, min_radius, max_radius, num_sides)
         # Plot the polygon
         color = random_color()
@@ -718,4 +715,120 @@ def scatter_pie(gdf, groupby='HERD_NO', col='snp12', colormap=None,
         add_scalebar(p)
     p.axis.visible = False
     p.toolbar.logo = None
+    return p
+
+def plot_phylogeny(tree, df, tip_size=10, lw=1, font_size='10pt', tip_labels=True):
+    """
+    Plots a phylogenetic tree with tips colored according to metadata.
+
+    Parameters:
+    - tree (Bio.Phylo.BaseTree.Tree): Phylogenetic tree from Biopython.
+    - df (pd.DataFrame): DataFrame containing metadata for each tip with a column for coloring.
+    """
+
+    def calculate_positions(tree):
+        x_positions = {}
+        y_positions = {}
+
+        def assign_y_positions(clade, y_base=0):
+            if clade.is_terminal():
+                y_positions[clade] = y_base
+                return y_base + 1
+            else:
+                child_positions = []
+                for child in clade.clades:
+                    y_base = assign_y_positions(child, y_base)
+                    child_positions.append(y_positions[child])
+                y_positions[clade] = sum(child_positions) / len(child_positions)
+                return y_base
+
+        def assign_x_positions(clade, x_position=0):
+            x_positions[clade] = x_position
+            for child in clade.clades:
+                branch_length = child.branch_length if child.branch_length else 0
+                assign_x_positions(child, x_position + branch_length)
+
+        assign_y_positions(tree.root)
+        assign_x_positions(tree.root)
+        return x_positions, y_positions
+
+    tip_names = [clade.name for clade in tree.get_terminals()]
+    # Get positions
+    x_positions, y_positions = calculate_positions(tree)
+
+    # Data for Bokeh
+    x_h0, y_h0, x_h1, y_h1 = [], [], [], []
+    x_v0, y_v0, x_v1, y_v1 = [], [], [], []
+
+    for clade in tree.find_clades(order='level'):
+        if clade.clades:
+            children_y = [y_positions[child] for child in clade.clades]
+            x_v0.append(x_positions[clade])
+            x_v1.append(x_positions[clade])
+            y_v0.append(min(children_y))
+            y_v1.append(max(children_y))
+
+            for child in clade.clades:
+                x_h0.append(x_positions[clade])
+                x_h1.append(x_positions[child])
+                y_h0.append(y_positions[child])
+                y_h1.append(y_positions[child])
+
+    # Define ranges for plot
+    x_min, x_max = min(x_positions.values()), max(x_positions.values())
+    y_min, y_max = min(y_positions.values()), max(y_positions.values())
+    x_padding = (x_max - x_min) * 0.1
+    y_padding = (y_max - y_min) * 0.05
+    x_range = (x_min - x_padding, x_max + x_padding)
+    y_range = (y_min - y_padding, y_max + y_padding)
+    if len(tip_names)>80:
+        tip_labels = False
+    if tip_labels == True:
+        x_range = (x_range[0], x_range[1]*1.2)
+
+    p = figure(tools="pan,ywheel_zoom,box_zoom,reset,save",
+               x_axis_label="Branch length", y_axis_label="Clade",
+               x_range=x_range,
+               y_range=y_range,
+               sizing_mode='stretch_both')
+
+    # Add segments for branches
+    p.segment(x_h0, y_h0, x_h1, y_h1, line_width=lw, line_color="black")
+    p.segment(x_v0, y_v0, x_v1, y_v1, line_width=lw, line_color="black")
+
+    # Add terminal nodes with color mapping
+    tip_coords = [(x_positions[clade], y_positions[clade]) for clade in tree.get_terminals()]
+    x_tip, y_tip = zip(*tip_coords)
+
+    metadata = pd.DataFrame(zip(tip_names,x_tip,y_tip),columns=['name','x','y'])
+    #print (metadata)
+    df = df.drop(columns='geometry').astype(str)
+    metadata = metadata.merge(df, left_on='name', right_index=True)
+    metadata['marker'] = metadata.Species.map(speciesmarkers).fillna('asterisk')
+
+    source = ColumnDataSource(metadata)
+    #draw tips
+    r = p.scatter('x', 'y', source=source, size=tip_size, alpha=0.9, color='color',
+                  marker='marker')
+    # Add tip labels
+    if tip_labels == True:
+        labels = LabelSet(x='x', y='y', text='name', level='glyph', text_color='color',
+                      text_baseline='middle', x_offset=10, text_font_size=font_size,
+                      source=source)
+        p.add_layout(labels)
+    h = HoverTool(renderers=[r], tooltips=([("name", "@name"),
+                                           ("Animal_id", "@Animal_ID"),
+                                            ("Herd/Sett", "@HERD_NO"),
+                                            ("Year", "@Year"),
+                                            ("Homebred","@Homebred"),
+                                            ("Clade", "@IE_clade"),
+                                            ('snp7',"@snp7"),
+                                            ('snp12',"@snp12")
+                                           ]))
+    p.add_tools(h)
+    p.yaxis.visible = False
+    p.xgrid.visible = False
+    p.ygrid.visible = False
+    p.toolbar.logo = None
+    p.add_tools(TapTool())
     return p

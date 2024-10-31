@@ -20,6 +20,7 @@ import geopandas as gpd
 from bokeh.io import show
 from bokeh.plotting import figure
 from bokeh.models import Range1d, CustomJS, TapTool
+from bokeh.events import Tap
 import panel as pn
 import panel.widgets as pnw
 
@@ -59,7 +60,7 @@ stylesheet = """
     font-size: 11px;
 }
 """
-defaults = {'dashboard':{'lpis_master_file':''}}
+defaults = {'dashboard':{'lpis_master_file':'','tree_file':None}}
 
 def get_icon(name):
     """Get svg icon"""
@@ -316,9 +317,8 @@ class Dashboard:
         pn.bind(self.select_clusters, self.selectclusters_btn, watch=True)
         self.clusters_pane = pn.Column(self.clusters_table, pn.Row(self.selectclusters_btn))
 
-        self.tree_pane = pn.pane.HTML(height=400)
+        self.tree_pane = pn.Column(sizing_mode='stretch_both')
         #self.network_pane = pn.pane.Bokeh()
-        #self.snpdist_pane = pn.pane.Bokeh(height=400)
         #details
         self.details_pane = pn.pane.DataFrame(sizing_mode='stretch_both')
 
@@ -366,11 +366,15 @@ class Dashboard:
         self.hexbins_input = pnw.IntSlider(name='hex bins', value=10, start=5, end=100,width=w)
         self.scalebar_input = pnw.Checkbox(name='show scalebar',value=False)
         self.randseed_input = pnw.IntSlider(name='random color seed', value=647, start=1, end=5000,width=w)
+        self.tipsize_input = pnw.IntSlider(name='tree tip size', value=8, start=1, end=25,width=w)
+        self.tiplabelsize_input = pnw.IntSlider(name='tip label font size', value=9, start=6, end=20,width=w)
+        #self.showtiplabels_input = pnw.Checkbox(name='show tree tip labels',value=True)
         savesettings_btn = pnw.Button(name='Save Settings',button_type='primary')
         pn.bind(self.save_settings, savesettings_btn, watch=True)
-        card4 = pn.Column('## Settings', self.markersize_input,self.edgewidth_input,self.labelsize_input,
-                          self.legendsize_input, self.hexbins_input, self.scalebar_input, self.randseed_input,
-                          savesettings_btn, width=340, styles=card_style)
+        card4 = pn.Row(pn.Column('## Settings', self.markersize_input,self.edgewidth_input,self.labelsize_input,
+                          self.legendsize_input, self.hexbins_input, self.scalebar_input, self.randseed_input),
+                          pn.Column(self.tipsize_input,self.tiplabelsize_input),
+                          width=340, styles=card_style)
 
         #reporting
         self.doreport_btn = pnw.Button(name='Generate', button_type='primary')
@@ -568,9 +572,7 @@ class Dashboard:
                                             col=col, legend=legend, labels=labels,
                                             legend_fontsize=legsize, label_fontsize=labelsize,
                                             scalebar=self.scalebar_input.value)
-
-            from bokeh.events import Tap
-            p.on_event(Tap, self.point_selection)
+            p.on_event(Tap, self.point_selected)
         else:
             p = bokeh_plot.scatter_pie(sub, 'HERD_NO', col, cm1, provider=provider,
                                             legend=legend, legend_fontsize=legsize,
@@ -637,7 +639,7 @@ class Dashboard:
         self.update_cluster_summary()
         return
 
-    def point_selection(self, event):
+    def point_selected(self, event):
         """Point click callback"""
 
         p = event.model
@@ -652,6 +654,26 @@ class Dashboard:
         data = self.meta.loc[name]
         #print (data)
         self.details_pane.object = pd.DataFrame(data)
+        return
+
+    def tip_selected(self, event):
+        """Point click callback"""
+
+        p = event.model
+        print (p.renderers)
+        source = p.renderers[2].data_source
+        indices = source.selected.indices
+        if len(indices)==0:
+            return
+        idx = indices[0]
+        name = source.data['sample'][idx]
+        data = self.meta.loc[name]
+        #print (data)
+        self.details_pane.object = pd.DataFrame(data)
+        return
+
+    def zoom_to_selection(self):
+
         return
 
     def update_herd_summary(self, event=None):
@@ -839,7 +861,7 @@ class Dashboard:
     def update_tree(self, event=None, sub=None):
         """Update with toytree"""
 
-        if len(sub)<=1 or len(sub)>1800:
+        if len(sub)<=1 or len(sub)>4000:
             html = '<h1><2 or too many samples</h1>'
             self.tree_pane.object = html
             return
@@ -851,12 +873,13 @@ class Dashboard:
         Phylo.write(stree, tempfile, "newick")
 
         col = self.colorby_input.value
-        html = draw_toytree(tempfile, sub,
-                            tiplabelcol=self.tiplabel_input.value,
-                            markercol='Species', node_hover=True,
-                            height=700)
-        #html = phylocanvas_tree(treefile, sub, col)
-        self.tree_pane.object = html
+        fs = f'{self.tiplabelsize_input.value}pt'
+        ts = self.tipsize_input.value
+        p = bokeh_plot.plot_phylogeny(stree, sub, tip_size=ts, font_size=fs)
+        self.tree_pane.objects.clear()
+        self.tree_pane.append(pn.pane.Bokeh(p))
+        #self.tree_pane.object = p
+        p.on_event(Tap, self.tip_selected)
         return
 
     def do_search(self, event=None):
@@ -1095,6 +1118,18 @@ def test_app():
     bootstrap.servable()
     return bootstrap
 
+def check_settings_file(filename):
+    """Check settings file"""
+
+    print (filename)
+    with open(filename) as f:
+        settings = json.load(f)['dashboard']
+    for key in defaults['dashboard']:
+        if not key in settings:
+            settings[key] = defaults['dashboard'][key]
+    print (settings)
+    return settings
+
 def main():
     "Run the application"
     from argparse import ArgumentParser
@@ -1122,14 +1157,9 @@ def main():
             treefile = None
         else:
             print('found settings file')
-            with open(args.settings) as f:
-                settings = json.load(f)['dashboard']
-                print (settings)
+            settings = check_settings_file(args.settings)
             lpis_master_file = settings['lpis_master_file']
-            if 'tree_file' in settings:
-                treefile = settings['tree_file']
-            else:
-                treefile = None
+            treefile = settings['tree_file']
 
         data = pickle.load(open(args.project,'rb'))
         meta = data['meta']
@@ -1173,7 +1203,7 @@ def main():
                 websocket_origin=s['origin'], #basic_auth='credentials.json',
                 cookie_secret='cookie_secret')
         else:
-            #default
+            #default - no security
             pn.serve(create_app, port=5010, websocket_origin=["localhost:5010"],
                      cookie_secret='cookie_secret')
 
