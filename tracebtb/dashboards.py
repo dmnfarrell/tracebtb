@@ -60,6 +60,7 @@ stylesheet = """
     font-size: 11px;
 }
 """
+icsize = '1.9em'
 defaults = {'dashboard':{'lpis_master_file':'','tree_file':None}}
 
 def get_icon(name):
@@ -206,16 +207,6 @@ def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
     report = pn.Column(header, main)
     return report
 
-def layers_from_file(layers_file):
-    """load layers from file"""
-
-    import fiona
-    layers = {}
-    names = fiona.listlayers(layers_file)
-    for name in names:
-        gdf = gpd.read_file(layers_file, layer=name)
-        layers[name] = gdf
-    return layers
 
 class Dashboard:
 
@@ -223,7 +214,7 @@ class Dashboard:
                 snpdist=None, lpis_master_file=None, treefile=None,
                 selections={}, layers={}):
         """
-        Dashboard app with panel for tracebtb.
+        Base class for dashboard app with panel for tracebtb.
         Args:
             meta: geodataframe of meta with locations of samples
             parcels: parcels for relevant samples from lpis
@@ -249,10 +240,14 @@ class Dashboard:
         self.layout = self.setup_widgets()
         return
 
+class FullDashboard(Dashboard):
+    """Full dashboard"""
+
     def show(self):
         return self.layout
 
     def setup_widgets(self):
+        """Create widgets"""
 
         w=140
         pn.config.throttled = True
@@ -267,7 +262,7 @@ class Dashboard:
                 font-size: 10px;
             }
             }"""
-        self.timlinecolor_input = pnw.Select(name='Color by', value='',options=tccols,
+        self.timelinecolor_input = pnw.Select(name='Color by', value='',options=tccols,
                                              width=100,stylesheets=[small_style])
         self.timeline_pane = pn.pane.Bokeh(sizing_mode='stretch_height')
         self.info_pane = pn.pane.Markdown('', styles={'color': "red"})
@@ -407,7 +402,6 @@ class Dashboard:
                                          self.colorby_input,self.cmap_input,self.tiplabel_input,
                                         self.provider_input,self.pointstyle_input),self.info_pane,width=w+30)
         #button toolbar
-        icsize = '1.9em'
         self.split_btn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size=icsize)
         self.selectregion_btn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size=icsize)
         self.selectradius_btn = pnw.Button(icon=get_icon('plot-centroid'), description='select within radius', icon_size=icsize)
@@ -500,7 +494,7 @@ class Dashboard:
                                 sizing_mode='stretch_both'),
                             ),
                     pn.Tabs(('Overview',pn.Column(self.overview_pane,
-                                            pn.Column(self.timeline_pane,self.timlinecolor_input), width=500)),
+                                            pn.Column(self.timeline_pane,self.timelinecolor_input), width=500)),
                                     ('Tree',self.tree_pane),
                                     ('Details',self.details_pane),
                                     dynamic=True,width=500),
@@ -614,7 +608,7 @@ class Dashboard:
         self.selected_pane.style.apply(highlight, subset=['Species'], axis=1)
 
         # Timeline plot
-        tlc = self.timlinecolor_input.value
+        tlc = self.timelinecolor_input.value
         tldf = bokeh_plot.get_timeline_data(mov, self.meta)
         #get colors for timeline data
         if tldf is not None:
@@ -632,7 +626,9 @@ class Dashboard:
             self.timeline_pane.param.trigger('object')
 
         if self.tree_btn.value is True:
-            self.update_tree(sub=sub)
+            fs = f'{self.tiplabelsize_input.value}pt'
+            ts = self.tipsize_input.value
+            self.update_tree(sub=sub, col=col, tip_size=ts, font_size=fs)
 
         # Update summaries
         self.update_herd_summary()
@@ -643,7 +639,8 @@ class Dashboard:
         """Point click callback"""
 
         p = event.model
-        source = p.renderers[1].data_source
+        r = p.select({"name": "points"})[0]
+        source = r.data_source
         indices = source.selected.indices
         if len(indices)==0:
             return
@@ -656,17 +653,37 @@ class Dashboard:
         self.details_pane.object = pd.DataFrame(data)
         return
 
+    def get_map_datasource(self):
+        """Get point data source"""
+
+        p = self.plot_pane.object
+        r = p.select({"name": "points"})[0]
+        return r.data_source
+
     def tip_selected(self, event):
         """Point click callback"""
 
+        #get map source
+        map_source = self.get_map_datasource()
         p = event.model
-        print (p.renderers)
-        source = p.renderers[2].data_source
+        print (p)
+        r = p.select({"name": "tree_tips"})[0]
+        source = r.data_source
         indices = source.selected.indices
         if len(indices)==0:
             return
         idx = indices[0]
         name = source.data['sample'][idx]
+        #select point on map
+        geojson_features = json.loads(map_source.geojson)['features']
+        #print (geojson_features)
+        name_to_index = {feature["properties"]['sample']: i for i, feature in enumerate(geojson_features)}
+        #print (name_to_index)
+
+        match_idx = name_to_index.get(name, None)
+        map_source.selected.indices = [match_idx]
+
+        #set details pane
         data = self.meta.loc[name]
         #print (data)
         self.details_pane.object = pd.DataFrame(data)
@@ -858,7 +875,8 @@ class Dashboard:
         self.split_pane.append(pn.pane.Bokeh(f))
         return
 
-    def update_tree(self, event=None, sub=None):
+    def update_tree(self, event=None, sub=None, col='snp7',
+                    tip_size=12, font_size='11pt'):
         """Update with toytree"""
 
         if len(sub)<=1 or len(sub)>4000:
@@ -872,10 +890,7 @@ class Dashboard:
         tempfile = 'temp.newick'
         Phylo.write(stree, tempfile, "newick")
 
-        col = self.colorby_input.value
-        fs = f'{self.tiplabelsize_input.value}pt'
-        ts = self.tipsize_input.value
-        p = bokeh_plot.plot_phylogeny(stree, sub, tip_size=ts, font_size=fs)
+        p = bokeh_plot.plot_phylogeny(stree, sub, tip_size=tip_size, font_size=font_size)
         self.tree_pane.objects.clear()
         self.tree_pane.append(pn.pane.Bokeh(p))
         #self.tree_pane.object = p
@@ -1098,114 +1113,154 @@ class Dashboard:
         self.about_pane.object = m
         return
 
-def test_app():
-    """test app"""
-    bootstrap = pn.template.BootstrapTemplate(
-        title='Testing'
-    )
+class SimpleQueryDashboard(FullDashboard):
 
-    def update_plot(event=None):
-        #plot_pane.object = bokeh_plot.random_circles(n=20)
-        plot_pane.object = bokeh_plot.random_polygons(n=ninput.value)
+    def setup_widgets(self):
 
-    plot_pane = pn.pane.Bokeh(bokeh_plot.random_circles(n=20))
-    button = pnw.Button(name="TEST", button_type="primary")
-    button.on_click(update_plot)
-    ninput = pnw.IntInput(name='n', value=10, step=1, start=2, end=1000,width=60)
-    app = pn.Column(plot_pane, pn.Row(button,ninput))
+        w=140
+        pn.config.throttled = True
+        self.recents = []
+        #search widgets
+        scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','IE_clade','snp7','snp12','snp20']
+        self.search_input = pnw.TextInput(name="Query", value='N1080493',sizing_mode='stretch_width', width=w)
+        #self.searchcol_select = pnw.Select(name='Search By',value='HERD_NO',options=scols,width=w)
+        self.search_btn = pnw.Button(name='Search', icon=get_icon('search'), icon_size='1.8em', width=w)
+        pn.bind(self.do_search, self.search_btn, watch=True)
+        self.recents_select = pnw.Select(name='Recent Searches',value='',options=[],width=w,size=8)
+        self.recents_select.param.watch(self.recent_search,'value')
+        #self.recents_table = pnw.Tabulator(layout='fit_columns',disabled=True,
+        #                                  pagination=None, height=200, width=w)
+        #self.recents_table.param.watch(self.recent_search,'selection')
+        widgets = pn.WidgetBox(self.search_input,self.search_btn,
+                               self.recents_select,width=w+30)
 
-    bootstrap.main.append(app)
-    bootstrap.servable()
-    return bootstrap
+        self.parcels_btn = pnw.Toggle(icon=get_icon('parcels'), icon_size=icsize, value=True)
 
-def check_settings_file(filename):
-    """Check settings file"""
+        self.plot_pane = pn.pane.Bokeh()
+        self.related_pane = pn.pane.Bokeh()
+        self.overview_pane = pn.pane.Matplotlib(height=300)
+        self.samples_pane = pn.pane.DataFrame(sizing_mode='stretch_both')
+        self.tree_pane = pn.Column(sizing_mode='stretch_both')
 
-    print (filename)
-    with open(filename) as f:
-        settings = json.load(f)['dashboard']
-    for key in defaults['dashboard']:
-        if not key in settings:
-            settings[key] = defaults['dashboard'][key]
-    print (settings)
-    return settings
+        app = pn.Row(widgets,
+                    pn.Column(
+                        pn.Tabs(('Map',pn.Column(self.plot_pane,sizing_mode='stretch_both')),
+                                ('Related',pn.Column(self.related_pane,sizing_mode='stretch_both')),
+                                dynamic=True,
+                                sizing_mode='stretch_both'),
+                            ),
+                    pn.Column(pn.Tabs(('Tree',self.tree_pane)), self.samples_pane,
+                             width=500),
+                max_width=2600,min_height=600)
 
-def main():
-    "Run the application"
-    from argparse import ArgumentParser
-    parser = ArgumentParser(description='TracebTB')
-    parser.add_argument("-p", "--proj", dest="project",default=None,
-                            help="load project file", metavar="FILE")
-    parser.add_argument("-s", "--settings", dest="settings",default=configfile,
-                            help="load a json settings file", metavar="FILE")
-    parser.add_argument("-t", "--test", dest="test", action="store_true",
-                        help="dummy test app")
-    args = parser.parse_args()
+        app.sizing_mode='stretch_both'
+        return app
 
-    if args.test == True:
-        pn.serve(test_app, port=5010, prefix='testapp',
-                 websocket_origin=["localhost:5010"])
-    elif args.project == None:
-        print ('please provide a project file')
-        exit()
-    else:
-        #load config file
-        if not os.path.exists(args.settings):
-            with open(configfile, "w") as outfile:
-                json.dump(defaults, outfile)
-            lpis_master_file = None
-            treefile = None
+    def update(self, event=None, sub=None):
+        """
+        Update selection - does all the display.
+        """
+
+        provider = "CartoDB Positron"
+        cmap = 'Dark2'
+        self.col = col = 'snp7' #self.colorby_input.value
+        self.ms = ms = 15
+        lw = 2
+        legend = True
+
+        if sub is None:
+            sub = self.selected
+
+        if len(sub[col].unique()) > 20:
+            cmap = None
+        elif len(sub[col].unique()) > 10:
+            cmap = 'tab20'
+        seed = 50
+        sub['color'], cm1 = tools.get_color_mapping(sub, col, cmap, seed=seed)
+        self.selected = sub
+
+        # Get the herds and moves
+        herds = list(sub.HERD_NO)
+        mov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
+
+        #if mov is not None and self.moves_btn.value is True:
+        #    herds.extend(mov.move_to)
+
+        sp = self.parcels[self.parcels.SPH_HERD_N.isin(herds)].copy()
+        pcmap = 'tab20'
+        if len(sp.SPH_HERD_N.unique()) > 20:
+            pcmap = None
+
+        sp['color'], cm2 = tools.get_color_mapping(sp, 'SPH_HERD_N', pcmap)
+        if self.parcels_btn.value is True:
+            pcls = sp
+            if mov is not None:
+                herds.extend(mov.move_to)
         else:
-            print('found settings file')
-            settings = check_settings_file(args.settings)
-            lpis_master_file = settings['lpis_master_file']
-            treefile = settings['tree_file']
+            pcls = None
 
-        data = pickle.load(open(args.project,'rb'))
-        meta = data['meta']
-        moves = data['moves']
-        lpis_cent = data['lpis_cent']
-        parcels = data['parcels']
-        snpdist = data['snpdist']
+        labels = True
+        labelsize = 12
+        legsize = 15
+        p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms, lw=lw,
+                                        col=col, legend=legend, labels=labels,
+                                        legend_fontsize=legsize, label_fontsize=labelsize,
+                                        scalebar=True)
+            #p.on_event(Tap, self.point_selected)
 
-        if os.path.exists(selections_file):
-            selections = json.load(open(selections_file,'r'))
-        else:
-            selections = {}
-        if os.path.exists(layers_file):
-            layers = layers_from_file(layers_file)
-        else:
-            layers = {}
+        self.plot_pane.object = p
+        #related
+        self.related['color'],cm3 = tools.get_color_mapping(self.related, 'HERD_NO', cmap)
+        p2 = bokeh_plot.plot_selection(self.related, None, provider=provider, ms=ms, lw=lw,
+                                        col=col, legend=legend, labels=labels,
+                                        legend_fontsize=legsize, label_fontsize=labelsize,
+                                        scalebar=True)
+        self.related_pane.object = p2
+        self.update_tree(sub=self.related, col=col, tip_size=16)
+        scols = ['sample','Animal_ID','Year','HERD_NO']
+        self.samples_pane.object = self.related[scols]
+        return
 
-        def create_app():
-            # Create a session-specific app function
-            bootstrap = pn.template.BootstrapTemplate(
-                title='TracebTB',
-                favicon=logoimg,
-                logo=logoimg,
-                header_color='white'
-            )
-            #Generate a new dashboard instance per session
-            app = Dashboard(meta, parcels, moves, lpis_cent, snpdist, lpis_master_file,
-                            treefile, selections, layers)
-            app.project_file = args.project
-            app.settings = settings
-            app.treefile = treefile
-            layout = app.show()
-            bootstrap.main.append(layout)
-            bootstrap.servable()
-            return bootstrap
+    def recent_search(self, event=None):
+        '''df = self.recents_table.value
+        row = self.recents_table.selection
+        query = list(df.iloc[row].index)[0]
+        print (row)
+        print (query)'''
+        query = self.recents_select.value
+        self.do_search(query=query)
+        return
 
-        if 'reverse_proxy' in settings:
-            #using nginx proxy with basic auth
-            s = settings['reverse_proxy']
-            pn.serve(create_app, port=5010, prefix=s['prefix'],
-                websocket_origin=s['origin'], #basic_auth='credentials.json',
-                cookie_secret='cookie_secret')
-        else:
-            #default - no security
-            pn.serve(create_app, port=5010, websocket_origin=["localhost:5010"],
-                     cookie_secret='cookie_secret')
+    def do_search(self, event=None, query=None):
+        """Search """
 
-if __name__ == '__main__':
-    main()
+        if query == None:
+            query = self.search_input.value
+        if len(query)<=1:
+            return
+
+        #found = self.meta[self.meta.isin([query]).any(axis=1)]
+        found = self.meta[self.meta.map(lambda x: str(query).lower() in str(x).lower()).any(axis=1)]
+        if len(found)>1000 or len(found)==0:
+            return
+
+        #related
+        cl = list(found.snp7.unique())
+        self.related = self.meta[(self.meta['snp7'].isin(cl))].copy()
+        self.update(sub=found)
+
+        '''df = self.recents_table.value
+        if df is None:
+            df = pd.DataFrame({'length':[]})
+        if not query in df.index:
+            df.loc[query] = len(found)
+        self.recents_table.value = df'''
+
+        x = list(self.recents_select.options)
+        if query not in x:
+            #x.append(query)
+            x = [query] + x
+        self.recents_select.options = x
+        return
+
+

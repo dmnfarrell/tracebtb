@@ -230,7 +230,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         parcelsjson = parcels.to_crs('EPSG:3857').to_json()
         poly_source = GeoJSONDataSource(geojson=parcelsjson)
         r1 = p.patches('xs', 'ys', source=poly_source, fill_color='color',
-                       fill_alpha=0.5, line_width=1, line_color='black')
+                       fill_alpha=0.5, line_width=1, line_color='black', name='parcels')
         #r1.selection_glyph = p.circle(size=15, fill_color="firebrick",
         #                                 line_color="black", alpha=.6)
         #hover tool
@@ -240,7 +240,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
 
     #draw points
     r2 = p.scatter('x', 'y', source=geo_source, color='color', line_width=lw,
-                   line_color='black', marker="marker", fill_alpha=0.5, size=ms)
+                   line_color='black', marker="marker", fill_alpha=0.5, size=ms, name='points')
     h2 = HoverTool(renderers=[r2], tooltips=([("Sample", "@sample"),
                                             ("Animal_id", "@Animal_ID"),
                                             ("Herd/Sett", "@HERD_NO"),
@@ -809,7 +809,7 @@ def plot_phylogeny(tree, df, tip_size=10, lw=1, font_size='10pt', tip_labels=Tru
     source = ColumnDataSource(metadata)
     #draw tips
     r = p.scatter('x', 'y', source=source, size=tip_size, alpha=0.9, color='color',
-                  marker='marker')
+                  marker='marker', name='tree_tips')
     # Add tip labels
     if tip_labels == True:
         labels = LabelSet(x='x', y='y', text='name', level='glyph', text_color='color',
