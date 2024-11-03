@@ -832,3 +832,46 @@ def plot_phylogeny(tree, df, tip_size=10, lw=1, font_size='10pt', tip_labels=Tru
     p.toolbar.logo = None
     p.add_tools(TapTool())
     return p
+
+def plot_mst(dm, df, node_size=12):
+    """
+    Plot minimum spanning tree from dist matrix with Bokeh.
+    Requires networkx and graphviz.
+    """
+
+    from networkx.drawing.nx_agraph import graphviz_layout
+    import networkx as nx
+    from bokeh.plotting import from_networkx
+
+    G = nx.Graph()
+    for i, row in dm.iterrows():
+        for j, weight in row.items():
+            G.add_edge(i, j, weight=weight)
+
+    T = nx.minimum_spanning_tree(G, algorithm='kruskal')
+    pos = graphviz_layout(T)
+    graph = from_networkx(T, pos, scale=1)
+
+    # Map data to each node based on df
+    node_colors = [df.loc[node]['color'] for node in T.nodes()]
+    graph.node_renderer.data_source.data['color'] = node_colors
+    for key in ['Animal_ID','HERD_NO','Year','snp7']:
+        if key in df.columns:
+            graph.node_renderer.data_source.data[key] = [df.loc[node][key] for node in T.nodes()]
+    graph.node_renderer.glyph.update(size=node_size, fill_color="color")
+
+    p = figure(tools="pan,wheel_zoom,box_zoom,reset,save", tooltips=None,
+               sizing_mode='stretch_both')
+    p.renderers.append(graph)
+    h = HoverTool(renderers=[graph], tooltips=([("index", "@index"),
+                                           ("Animal_id", "@Animal_ID"),
+                                            ("Herd/Sett", "@HERD_NO"),
+                                            ("Year", "@Year"),
+                                            ('snp7',"@snp7")
+                                           ]))
+    p.add_tools(h)
+    p.xaxis.visible = False
+    p.yaxis.visible = False
+    p.grid.grid_line_color = None
+    p.toolbar.logo = None
+    return p

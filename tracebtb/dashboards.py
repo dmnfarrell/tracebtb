@@ -62,6 +62,7 @@ stylesheet = """
 """
 icsize = '1.9em'
 defaults = {'dashboard':{'lpis_master_file':'','tree_file':None}}
+scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','IE_clade','snp7','snp12','snp20']
 
 def get_icon(name):
     """Get svg icon"""
@@ -237,6 +238,7 @@ class Dashboard:
             self.treefile = treefile
         self.view_history = []
         self.current_index = 0
+        self.cols = [None]+tools.get_ordinal_columns(self.meta)
         self.layout = self.setup_widgets()
         return
 
@@ -245,6 +247,29 @@ class FullDashboard(Dashboard):
 
     def show(self):
         return self.layout
+
+    def search_widgets(self):
+        """Quick search widgets"""
+
+        w=140
+        self.search_input = pnw.TextInput(name="Query", value='N1080493',sizing_mode='stretch_width', width=w)
+        self.search_btn = pnw.Button(name='Search', icon=get_icon('search'), icon_size='1.8em', width=w)
+        pn.bind(self.quick_search, self.search_btn, watch=True)
+        self.recents_select = pnw.Select(name='Recent Searches',value='',options=[],width=w,size=8)
+        self.recents_select.param.watch(self.recent_search,'value')
+        widgets = pn.WidgetBox(self.search_input,self.search_btn,
+                               self.recents_select,width=w+30)
+        return widgets
+
+    def group_widgets(self):
+        """Groupby widgets"""
+
+        w=140
+        self.groupby_input = pnw.Select(name='group by',options=self.cols,value='snp7',width=w)
+        self.groups_table = pnw.Tabulator(disabled=True, widths={'count': 30}, layout='fit_columns',
+                                          pagination=None, height=200, width=w,
+                                          stylesheets=[stylesheet])
+        return pn.WidgetBox(self.groupby_input,self.groups_table)
 
     def setup_widgets(self):
         """Create widgets"""
@@ -255,7 +280,8 @@ class FullDashboard(Dashboard):
         self.plot_pane = pn.pane.Bokeh()
         self.overview_pane = pn.pane.Matplotlib(height=300)
         self.split_pane = pn.Column(sizing_mode='stretch_both')
-        #pane = pn.Column()
+
+        cols = self.cols
         tccols = ['','snp7','snp5','snp12']
         small_style = """
             .bk-root .bk-select {
@@ -276,8 +302,7 @@ class FullDashboard(Dashboard):
         self.selectrelated_btn = pnw.Button(name='Find Related', button_type='primary', align="end")
         pn.bind(self.select_related, self.selectrelated_btn, watch=True)
         self.threshold_input = pnw.IntInput(name='Threshold', value=7, step=1, start=2, end=20,width=60)
-        #search
-        scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','IE_clade','snp7','snp12','snp20']
+        #search  table
         self.search_input = pnw.TextInput(name="Search", value='',sizing_mode='stretch_width')
         self.searchcol_select = pnw.Select(name='Column',value='HERD_NO',options=scols,width=100)
         self.search_btn = pnw.Button(icon=get_icon('search'), icon_size='1.8em', align="end")
@@ -313,11 +338,10 @@ class FullDashboard(Dashboard):
         self.clusters_pane = pn.Column(self.clusters_table, pn.Row(self.selectclusters_btn))
 
         self.tree_pane = pn.Column(sizing_mode='stretch_both')
-        #self.network_pane = pn.pane.Bokeh()
+        self.mst_pane = pn.Column(sizing_mode='stretch_both')
         #details
         self.details_pane = pn.pane.DataFrame(sizing_mode='stretch_both')
 
-        cols = [None]+tools.get_ordinal_columns(self.meta)
         #selections pane
         self.selections_input = pnw.Select(name='Selections',options=list(self.selections.keys()),value='',width=w)
         self.loadselection_btn = pnw.Button(name='Load Selection', button_type='primary',width=w)
@@ -388,18 +412,19 @@ class FullDashboard(Dashboard):
         pn.bind(self.forward, self.next_btn, watch=True)
         nav_pane = pn.Row(self.prev_btn,self.next_btn)
 
-        #widgets
-        self.groupby_input = pnw.Select(name='group by',options=cols,value='snp7',width=w)
-        self.groups_table = pnw.Tabulator(disabled=True, widths={'count': 30}, layout='fit_columns',
-                                          pagination=None, height=200, width=w,
-                                          stylesheets=[stylesheet])
+        #search and cluster widgets
+        search_widgets = self.search_widgets()
+        group_widgets = self.group_widgets()
+        widgets1 = pn.Tabs(('search',search_widgets),('groups',group_widgets))
+
+        #options
         self.colorby_input = pnw.Select(name='color by',options=cols,value='snp7',width=w)
         self.cmap_input = pnw.Select(name='colormap',options=colormaps,value='Set1',width=w)
         self.tiplabel_input = pnw.Select(name='tip label',options=list(self.meta.columns),value='sample',width=w)
         self.provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
         self.pointstyle_input = pnw.Select(name='points display',options=['default','pie'],value='default',width=w)
-        widgets = pn.Column(pn.WidgetBox(nav_pane,self.groupby_input,self.groups_table,
-                                         self.colorby_input,self.cmap_input,self.tiplabel_input,
+        widgets2 = pn.Column(pn.WidgetBox(nav_pane,
+                                        self.colorby_input,self.cmap_input,self.tiplabel_input,
                                         self.provider_input,self.pointstyle_input),self.info_pane,width=w+30)
         #button toolbar
         self.split_btn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size=icsize)
@@ -478,7 +503,7 @@ class FullDashboard(Dashboard):
         self.about()
 
         app = pn.Column(
-                    pn.Row(widgets,
+                    pn.Row(pn.Column(widgets1,widgets2),
                         toolbar,
                     pn.Column(
                         pn.Tabs(('Map',pn.Column(self.plot_pane,filters)),
@@ -495,7 +520,7 @@ class FullDashboard(Dashboard):
                             ),
                     pn.Tabs(('Overview',pn.Column(self.overview_pane,
                                             pn.Column(self.timeline_pane,self.timelinecolor_input), width=500)),
-                                    ('Tree',self.tree_pane),
+                                    ('Tree',self.tree_pane),('MST',self.mst_pane),
                                     ('Details',self.details_pane),
                                     dynamic=True,width=500),
                 max_width=2600,min_height=600
@@ -629,10 +654,42 @@ class FullDashboard(Dashboard):
             fs = f'{self.tiplabelsize_input.value}pt'
             ts = self.tipsize_input.value
             self.update_tree(sub=sub, col=col, tip_size=ts, font_size=fs)
+            self.update_mst(sub=sub)
 
         # Update summaries
         self.update_herd_summary()
         self.update_cluster_summary()
+        return
+
+    def recent_search(self, event=None):
+        """Do recent search"""
+
+        query = self.recents_select.value
+        self.quick_search(query=query)
+        return
+
+    def quick_search(self, event=None, query=None):
+        """Search query string, allows comma separated list"""
+
+        if query == None:
+            query = self.search_input.value
+        if len(query)<=1:
+            return
+
+        #found = self.meta[self.meta.isin([query]).any(axis=1)]
+        #found = self.meta[self.meta.map(lambda x: str(query).lower() in str(x).lower()).any(axis=1)]
+        query_list = [q.strip().lower() for q in query.split(",")]
+        found = self.meta[self.meta.map(lambda x: any(q in str(x).lower() for q in query_list)).any(axis=1)]
+        if len(found)>1000 or len(found)==0:
+            return
+
+        self.update(sub=found)
+
+        x = list(self.recents_select.options)
+        if query not in x:
+            #x.append(query)
+            x = [query] + x
+        self.recents_select.options = x
         return
 
     def point_selected(self, event):
@@ -877,7 +934,7 @@ class FullDashboard(Dashboard):
 
     def update_tree(self, event=None, sub=None, col='snp7',
                     tip_size=12, font_size='11pt'):
-        """Update with toytree"""
+        """Update tree"""
 
         if len(sub)<=1 or len(sub)>4000:
             html = '<h1><2 or too many samples</h1>'
@@ -895,6 +952,17 @@ class FullDashboard(Dashboard):
         self.tree_pane.append(pn.pane.Bokeh(p))
         #self.tree_pane.object = p
         p.on_event(Tap, self.tip_selected)
+        return
+
+    def update_mst(self, event=None, sub=None):
+        """Update mst"""
+
+        idx = sub.index
+        dm = self.snpdist.loc[idx,idx]
+        p = bokeh_plot.plot_mst(dm, sub)
+        #self.mst_pane.object = p
+        self.mst_pane.objects.clear()
+        self.mst_pane.append(pn.pane.Bokeh(p))
         return
 
     def do_search(self, event=None):
@@ -1121,17 +1189,12 @@ class SimpleQueryDashboard(FullDashboard):
         pn.config.throttled = True
         self.recents = []
         #search widgets
-        scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','IE_clade','snp7','snp12','snp20']
         self.search_input = pnw.TextInput(name="Query", value='N1080493',sizing_mode='stretch_width', width=w)
-        #self.searchcol_select = pnw.Select(name='Search By',value='HERD_NO',options=scols,width=w)
         self.search_btn = pnw.Button(name='Search', icon=get_icon('search'), icon_size='1.8em', width=w)
         pn.bind(self.do_search, self.search_btn, watch=True)
         self.recents_select = pnw.Select(name='Recent Searches',value='',options=[],width=w,size=8)
         self.recents_select.param.watch(self.recent_search,'value')
-        #self.recents_table = pnw.Tabulator(layout='fit_columns',disabled=True,
-        #                                  pagination=None, height=200, width=w)
-        #self.recents_table.param.watch(self.recent_search,'selection')
-        widgets = pn.WidgetBox(self.search_input,self.search_btn,
+        search_widgets = pn.WidgetBox(self.search_input,self.search_btn,
                                self.recents_select,width=w+30)
 
         self.parcels_btn = pnw.Toggle(icon=get_icon('parcels'), icon_size=icsize, value=True)
@@ -1141,16 +1204,18 @@ class SimpleQueryDashboard(FullDashboard):
         self.overview_pane = pn.pane.Matplotlib(height=300)
         self.samples_pane = pn.pane.DataFrame(sizing_mode='stretch_both')
         self.tree_pane = pn.Column(sizing_mode='stretch_both')
+        self.mst_pane = pn.Column(sizing_mode='stretch_both')
 
-        app = pn.Row(widgets,
+        app = pn.Row(search_widgets,
                     pn.Column(
                         pn.Tabs(('Map',pn.Column(self.plot_pane,sizing_mode='stretch_both')),
                                 ('Related',pn.Column(self.related_pane,sizing_mode='stretch_both')),
                                 dynamic=True,
                                 sizing_mode='stretch_both'),
                             ),
-                    pn.Column(pn.Tabs(('Tree',self.tree_pane)), self.samples_pane,
-                             width=500),
+                    pn.Column(pn.Tabs(('Tree',self.tree_pane),('MST',self.mst_pane)),
+                              self.samples_pane,
+                              width=500),
                 max_width=2600,min_height=600)
 
         app.sizing_mode='stretch_both'
@@ -1210,29 +1275,23 @@ class SimpleQueryDashboard(FullDashboard):
 
         self.plot_pane.object = p
         #related
-        self.related['color'],cm3 = tools.get_color_mapping(self.related, 'HERD_NO', cmap)
+        self.related['color'],cm3 = tools.get_color_mapping(self.related, col, cmap)
         p2 = bokeh_plot.plot_selection(self.related, None, provider=provider, ms=ms, lw=lw,
                                         col=col, legend=legend, labels=labels,
                                         legend_fontsize=legsize, label_fontsize=labelsize,
                                         scalebar=True)
         self.related_pane.object = p2
-        self.update_tree(sub=self.related, col=col, tip_size=16)
+        #tree
+        self.update_tree(sub=self.related, col=col, tip_size=16, font_size='9pt')
+        #mst
+        self.update_mst(sub=self.related)
+
         scols = ['sample','Animal_ID','Year','HERD_NO']
         self.samples_pane.object = self.related[scols]
         return
 
-    def recent_search(self, event=None):
-        '''df = self.recents_table.value
-        row = self.recents_table.selection
-        query = list(df.iloc[row].index)[0]
-        print (row)
-        print (query)'''
-        query = self.recents_select.value
-        self.do_search(query=query)
-        return
-
-    def do_search(self, event=None, query=None):
-        """Search """
+    def quick_search(self, event=None, query=None):
+        """Search query string, allows comma separated list"""
 
         if query == None:
             query = self.search_input.value
@@ -1240,21 +1299,17 @@ class SimpleQueryDashboard(FullDashboard):
             return
 
         #found = self.meta[self.meta.isin([query]).any(axis=1)]
-        found = self.meta[self.meta.map(lambda x: str(query).lower() in str(x).lower()).any(axis=1)]
+        #found = self.meta[self.meta.map(lambda x: str(query).lower() in str(x).lower()).any(axis=1)]
+        query_list = [q.strip().lower() for q in query.split(",")]
+        found = self.meta[self.meta.map(lambda x: any(q in str(x).lower() for q in query_list)).any(axis=1)]
         if len(found)>1000 or len(found)==0:
             return
 
-        #related
+        #related animals
         cl = list(found.snp7.unique())
-        self.related = self.meta[(self.meta['snp7'].isin(cl))].copy()
+        related = self.meta[(self.meta['snp7'].isin(cl))].copy()
+        #same herd?
         self.update(sub=found)
-
-        '''df = self.recents_table.value
-        if df is None:
-            df = pd.DataFrame({'length':[]})
-        if not query in df.index:
-            df.loc[query] = len(found)
-        self.recents_table.value = df'''
 
         x = list(self.recents_select.options)
         if query not in x:
@@ -1262,5 +1317,3 @@ class SimpleQueryDashboard(FullDashboard):
             x = [query] + x
         self.recents_select.options = x
         return
-
-
