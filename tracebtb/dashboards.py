@@ -23,6 +23,7 @@ from bokeh.models import Range1d, CustomJS, TapTool
 from bokeh.events import Tap
 import panel as pn
 import panel.widgets as pnw
+pn.extension('tabulator')
 
 from tracebtb import tools, plotting, trees, bokeh_plot
 
@@ -51,7 +52,7 @@ card_style = {
     'box-shadow': '4px 4px 4px #bcbcbc'
 }
 colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
-            'tab10', 'tab20', 'tab20b', 'tab20c']
+            'tab10', 'tab20', 'tab20b', 'tab20c', 'RdBu']
 stylesheet = """
 .tabulator-cell {
     font-size: 12px;
@@ -90,22 +91,6 @@ def keep_tips(tree, tips):
         if tip.name not in tips:
             new.prune(tip)
     return new
-
-def draw_toytree(treefile, df, **kwargs):
-    """Toytree plot"""
-
-    import toyplot
-    from tracebtb import trees
-    with open(treefile, 'r') as f:
-        s = f.read()
-    if len(df)<1800:
-        canvas = trees.draw_tree(s, df, **kwargs)
-        toyplot.html.render(canvas, "temp.html")
-    else:
-        return '<h2>too many tips</b>'
-    with open('temp.html', 'r') as f:
-        html = f.read()
-    return html
 
 def get_figure_coords(p):
     """Coords of plot figure"""
@@ -194,7 +179,7 @@ def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
     plt.close(fig)
     #tree
     treefile = get_tree(snpdist, sub.index)
-    html = draw_toytree(treefile, sub, tiplabelcol='sample', markercol='Species')
+    html = ''
     treepane = pn.pane.HTML(html)
     #table
     cols = ['sample','HERD_NO','Animal_ID','Species','County','Homebred','IE_clade']
@@ -208,11 +193,11 @@ def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
     report = pn.Column(header, main)
     return report
 
-
 class Dashboard:
 
     def __init__(self, meta, parcels, moves=None, lpis_cent=None,
                 snpdist=None, lpis_master_file=None, treefile=None,
+                testing=None,
                 selections={}, layers={}):
         """
         Base class for dashboard app with panel for tracebtb.
@@ -236,6 +221,10 @@ class Dashboard:
             from Bio import Phylo
             self.tree = Phylo.read(treefile, "newick")
             self.treefile = treefile
+        else:
+            print ('no tree found')
+            self.tree = None
+        self.testing = testing
         self.view_history = []
         self.current_index = 0
         self.cols = [None]+tools.get_ordinal_columns(self.meta)
@@ -654,7 +643,7 @@ class FullDashboard(Dashboard):
             fs = f'{self.tiplabelsize_input.value}pt'
             ts = self.tipsize_input.value
             self.update_tree(sub=sub, col=col, tip_size=ts, font_size=fs)
-            self.update_mst(sub=sub)
+            self.update_mst(sub=sub, node_size=ms)
 
         # Update summaries
         self.update_herd_summary()
@@ -693,7 +682,7 @@ class FullDashboard(Dashboard):
         return
 
     def point_selected(self, event):
-        """Point click callback"""
+        """Map click callback"""
 
         p = event.model
         r = p.select({"name": "points"})[0]
@@ -744,6 +733,13 @@ class FullDashboard(Dashboard):
         data = self.meta.loc[name]
         #print (data)
         self.details_pane.object = pd.DataFrame(data)
+        return
+
+    def plot_herd_testing(self, herd_no):
+        """Get testing plot"""
+
+        te = self.testing
+        te.loc[herd_no].plot(kind='bar')
         return
 
     def zoom_to_selection(self):
@@ -954,12 +950,12 @@ class FullDashboard(Dashboard):
         p.on_event(Tap, self.tip_selected)
         return
 
-    def update_mst(self, event=None, sub=None):
+    def update_mst(self, event=None, sub=None, **kwargs):
         """Update mst"""
 
         idx = sub.index
         dm = self.snpdist.loc[idx,idx]
-        p = bokeh_plot.plot_mst(dm, sub)
+        p = bokeh_plot.plot_mst(dm, sub, **kwargs)
         #self.mst_pane.object = p
         self.mst_pane.objects.clear()
         self.mst_pane.append(pn.pane.Bokeh(p))
@@ -1186,36 +1182,48 @@ class SimpleQueryDashboard(FullDashboard):
     def setup_widgets(self):
 
         w=140
+        icsize = '1.5em'
+        cols = self.cols
         pn.config.throttled = True
         self.recents = []
         #search widgets
         self.search_input = pnw.TextInput(name="Query", value='N1080493',sizing_mode='stretch_width', width=w)
         self.search_btn = pnw.Button(name='Search', icon=get_icon('search'), icon_size='1.8em', width=w)
-        pn.bind(self.do_search, self.search_btn, watch=True)
+        pn.bind(self.quick_search, self.search_btn, watch=True)
         self.recents_select = pnw.Select(name='Recent Searches',value='',options=[],width=w,size=8)
         self.recents_select.param.watch(self.recent_search,'value')
         search_widgets = pn.WidgetBox(self.search_input,self.search_btn,
                                self.recents_select,width=w+30)
-
-        self.parcels_btn = pnw.Toggle(icon=get_icon('parcels'), icon_size=icsize, value=True)
-
+        #tools
+        self.selectregion_btn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size=icsize)
+        pn.bind(self.select_region, self.selectregion_btn, watch=True)
+        self.parcels_btn = pnw.Toggle(icon=get_icon('parcels'), value=True, icon_size=icsize)
+        #self.moves_btn = pnw.Toggle(icon=get_icon('plot-moves'), icon_size=icsize)
+        #self.neighbours_btn = pnw.Toggle(icon=get_icon('neighbours'), icon_size=icsize)
+        self.parcellabel_btn = pnw.Toggle(icon=get_icon('parcel-label'), icon_size=icsize)
+        toolbar = pn.GridBox(self.selectregion_btn,self.parcels_btn,self.parcellabel_btn,
+                             ncols=3,width=w)
+        self.colorby_input = pnw.Select(name='color by',options=cols,value='snp5',width=w)
+        self.colorby_input.param.watch(self.update, 'value')
         self.plot_pane = pn.pane.Bokeh()
-        self.related_pane = pn.pane.Bokeh()
-        self.overview_pane = pn.pane.Matplotlib(height=300)
-        self.samples_pane = pn.pane.DataFrame(sizing_mode='stretch_both')
+        self.selected_pane = pnw.Tabulator(disabled=True,page_size=100,
+                                          pagination=None, sizing_mode='stretch_both',
+                                          stylesheets=[stylesheet])
         self.tree_pane = pn.Column(sizing_mode='stretch_both')
         self.mst_pane = pn.Column(sizing_mode='stretch_both')
+        self.details_pane = pn.pane.DataFrame(sizing_mode='stretch_both')
+        self.info_pane = pn.pane.Markdown('', styles={'color': "red"})
 
-        app = pn.Row(search_widgets,
+        app = pn.Row(pn.Column(search_widgets,toolbar,self.colorby_input,self.info_pane),
                     pn.Column(
                         pn.Tabs(('Map',pn.Column(self.plot_pane,sizing_mode='stretch_both')),
-                                ('Related',pn.Column(self.related_pane,sizing_mode='stretch_both')),
+                                ('Selected',pn.Column(self.selected_pane,sizing_mode='stretch_both')),
                                 dynamic=True,
                                 sizing_mode='stretch_both'),
                             ),
-                    pn.Column(pn.Tabs(('Tree',self.tree_pane),('MST',self.mst_pane)),
-                              self.samples_pane,
-                              width=500),
+                    pn.Column(self.tree_pane,
+                              self.mst_pane,
+                              width=600),
                 max_width=2600,min_height=600)
 
         app.sizing_mode='stretch_both'
@@ -1228,7 +1236,7 @@ class SimpleQueryDashboard(FullDashboard):
 
         provider = "CartoDB Positron"
         cmap = 'Dark2'
-        self.col = col = 'snp7' #self.colorby_input.value
+        self.col = col = self.colorby_input.value
         self.ms = ms = 15
         lw = 2
         legend = True
@@ -1264,30 +1272,25 @@ class SimpleQueryDashboard(FullDashboard):
         else:
             pcls = None
 
-        labels = True
+        labels = self.parcellabel_btn.value
         labelsize = 12
         legsize = 15
         p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms, lw=lw,
                                         col=col, legend=legend, labels=labels,
                                         legend_fontsize=legsize, label_fontsize=labelsize,
                                         scalebar=True)
-            #p.on_event(Tap, self.point_selected)
-
+        p.on_event(Tap, self.point_selected)
         self.plot_pane.object = p
-        #related
-        self.related['color'],cm3 = tools.get_color_mapping(self.related, col, cmap)
-        p2 = bokeh_plot.plot_selection(self.related, None, provider=provider, ms=ms, lw=lw,
-                                        col=col, legend=legend, labels=labels,
-                                        legend_fontsize=legsize, label_fontsize=labelsize,
-                                        scalebar=True)
-        self.related_pane.object = p2
-        #tree
-        self.update_tree(sub=self.related, col=col, tip_size=16, font_size='9pt')
-        #mst
-        self.update_mst(sub=self.related)
 
-        scols = ['sample','Animal_ID','Year','HERD_NO']
-        self.samples_pane.object = self.related[scols]
+        #tree
+        ns = (80/len(sub))+6
+
+        self.update_tree(sub=sub, col=col, tip_size=ns, font_size='9pt')
+        #mst
+        self.update_mst(sub=sub, node_size=ns, labels=False)
+        self.info_pane.object = f'**{len(sub)} samples**'
+        scols = ['sample','Animal_ID','Year','HERD_NO','snp5','snp7','snp12','IE_clade','County','SB']
+        self.selected_pane.value = sub[scols]
         return
 
     def quick_search(self, event=None, query=None):
@@ -1298,16 +1301,15 @@ class SimpleQueryDashboard(FullDashboard):
         if len(query)<=1:
             return
 
-        #found = self.meta[self.meta.isin([query]).any(axis=1)]
-        #found = self.meta[self.meta.map(lambda x: str(query).lower() in str(x).lower()).any(axis=1)]
         query_list = [q.strip().lower() for q in query.split(",")]
         found = self.meta[self.meta.map(lambda x: any(q in str(x).lower() for q in query_list)).any(axis=1)]
         if len(found)>1000 or len(found)==0:
             return
 
+        col='snp5'
         #related animals
-        cl = list(found.snp7.unique())
-        related = self.meta[(self.meta['snp7'].isin(cl))].copy()
+        cl = list(found[col].unique())
+        found = self.meta[(self.meta[col].isin(cl))].copy()
         #same herd?
         self.update(sub=found)
 

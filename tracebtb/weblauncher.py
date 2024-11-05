@@ -124,6 +124,7 @@ def main():
         lpis_cent = data['lpis_cent']
         parcels = data['parcels']
         snpdist = data['snpdist']
+        testing = data['testing']
 
         if os.path.exists(selections_file):
             selections = json.load(open(selections_file,'r'))
@@ -141,13 +142,13 @@ def main():
                 bkgr='#4B7CC1 '
                 app = dashboards.FullDashboard(meta, parcels, moves, lpis_cent,
                                                snpdist, lpis_master_file,
-                                                treefile, selections, layers)
+                                                treefile, testing, selections, layers)
             elif args.interface == 'simple':
                 title = 'TracebTB Query'
                 bkgr='#30833C'
                 app = dashboards.SimpleQueryDashboard(meta, parcels, moves, lpis_cent,
                                                snpdist, lpis_master_file,
-                                                treefile, selections, layers)
+                                                treefile, testing, selections, layers)
             app.project_file = args.project
             app.settings = settings
             app.treefile = treefile

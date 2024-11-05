@@ -833,7 +833,7 @@ def plot_phylogeny(tree, df, tip_size=10, lw=1, font_size='10pt', tip_labels=Tru
     p.add_tools(TapTool())
     return p
 
-def plot_mst(dm, df, node_size=12):
+def plot_mst(dm, df, node_size=12, labels=False):
     """
     Plot minimum spanning tree from dist matrix with Bokeh.
     Requires networkx and graphviz.
@@ -853,16 +853,28 @@ def plot_mst(dm, df, node_size=12):
     graph = from_networkx(T, pos, scale=1)
 
     # Map data to each node based on df
-    node_colors = [df.loc[node]['color'] for node in T.nodes()]
-    graph.node_renderer.data_source.data['color'] = node_colors
-    for key in ['Animal_ID','HERD_NO','Year','snp7']:
+    #node_colors = [df.loc[node]['color'] for node in T.nodes()]
+    #graph.node_renderer.data_source.data['color'] = node_colors
+    df['marker'] = df.Species.map(speciesmarkers).fillna('asterisk')
+    for key in ['sample','Animal_ID','HERD_NO','Year','snp7','marker','color']:
         if key in df.columns:
             graph.node_renderer.data_source.data[key] = [df.loc[node][key] for node in T.nodes()]
-    graph.node_renderer.glyph.update(size=node_size, fill_color="color")
+    graph.node_renderer.glyph.update(size=node_size, fill_color="color", marker='marker')
 
     p = figure(tools="pan,wheel_zoom,box_zoom,reset,save", tooltips=None,
                sizing_mode='stretch_both')
     p.renderers.append(graph)
+    #labels
+    if labels == True:
+        #x = [pos[node][0] for node in T.nodes()]
+        #y = [pos[node][1] for node in T.nodes()]
+        x, y = zip(*graph.layout_provider.graph_layout.values())
+        #node_labels = [df.loc[node]['sample'] for node in T.nodes()]
+        node_labels = graph.node_renderer.data_source.data['sample']
+        source = ColumnDataSource(data=dict(x=x, y=y, label=node_labels))
+        labels = LabelSet(x='x', y='y', text='name', level='glyph', text_color='black',
+                text_baseline='middle', x_offset=0, text_font_size='9pt',
+                source=source)
     h = HoverTool(renderers=[graph], tooltips=([("index", "@index"),
                                            ("Animal_id", "@Animal_ID"),
                                             ("Herd/Sett", "@HERD_NO"),
