@@ -217,7 +217,7 @@ class Dashboard:
         self.lpis_master_file = lpis_master_file
         self.selections = selections
         self.layers = layers
-        if treefile is not None:
+        if treefile is not None and os.path.exists(treefile):
             from Bio import Phylo
             self.tree = Phylo.read(treefile, "newick")
             self.treefile = treefile
@@ -244,6 +244,7 @@ class FullDashboard(Dashboard):
         self.search_input = pnw.TextInput(name="Query", value='N1080493',sizing_mode='stretch_width', width=w)
         self.search_btn = pnw.Button(name='Search', icon=get_icon('search'), icon_size='1.8em', width=w)
         pn.bind(self.quick_search, self.search_btn, watch=True)
+        #self.search_input.bind('return', self.quick_search)
         self.recents_select = pnw.Select(name='Recent Searches',value='',options=[],width=w,size=8)
         self.recents_select.param.watch(self.recent_search,'value')
         widgets = pn.WidgetBox(self.search_input,self.search_btn,
