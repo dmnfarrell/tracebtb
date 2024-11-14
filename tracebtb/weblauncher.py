@@ -2,7 +2,7 @@
 
 """
     TraceBTB panel dashboard launcher module
-    Created June 2024
+    Created Aug 2024
     Copyright (C) Damien Farrell
 """
 
@@ -140,15 +140,20 @@ def main():
             if args.interface == 'full':
                 title='TracebTB'
                 bkgr='#4B7CC1 '
-                app = dashboards.FullDashboard(meta, parcels, moves, lpis_cent,
-                                               snpdist, lpis_master_file,
-                                                treefile, testing, selections, layers)
+                app = dashboards.FullDashboard(layers=layers, treefile=treefile, **data)
             elif args.interface == 'simple':
                 title = 'TracebTB Query'
                 bkgr='#30833C'
-                app = dashboards.SimpleQueryDashboard(meta, parcels, moves, lpis_cent,
-                                               snpdist, lpis_master_file,
-                                                treefile, testing, selections, layers)
+                app = dashboards.SimpleQueryDashboard(layers=layers, treefile=treefile, **data)
+            elif args.interface == 'moves':
+                title = 'TracebTB Moves'
+                bkgr='#B63C2D'
+                app = dashboards.MovesDashboard(settings=settings, **data)
+            elif args.interface == 'abm':
+                title = 'TracebTB Agent Based Model'
+                bkgr='#168F8B'
+                app = dashboards.ABMDashboard(settings=settings, **data)
+
             app.project_file = args.project
             app.settings = settings
             app.treefile = treefile

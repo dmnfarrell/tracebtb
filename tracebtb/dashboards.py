@@ -24,6 +24,7 @@ from bokeh.events import Tap
 import panel as pn
 import panel.widgets as pnw
 pn.extension('tabulator')
+pn.config.throttled = True
 
 from tracebtb import tools, plotting, trees, bokeh_plot
 
@@ -99,37 +100,6 @@ def get_figure_coords(p):
     ymin, ymax = p.y_range.start, p.y_range.end
     return xmin, xmax, ymin, ymax
 
-def find_neighbours(gdf, dist, lpis_cent, lpis):
-    """Find neighbours"""
-
-    found = []
-    for x in gdf.geometry:
-        dists = lpis_cent.distance(x)
-        points = lpis_cent[(dists<=dist) & (dists>10)]
-        found.append(points)
-
-    found = pd.concat(found).drop_duplicates()
-    x = lpis[lpis.SPH_HERD_N.isin(found.SPH_HERD_N)]
-    #exclude those in source gdf
-    x = x[~x.SPH_HERD_N.isin(gdf.HERD_NO)]
-    return x
-
-def shared_borders(parcels, lpis):
-    """Find herds with shared borders"""
-
-    found = []
-    for i, r in parcels.iterrows():
-        #farms with shared borders
-        #polygon = lpis[lpis.SPH_HERD_N==r.HERD_NO].geometry
-        polygon = r.geometry
-        x = lpis[lpis.touches(polygon)]
-        found.append(x)
-    if len(found) == 0:
-        return
-    found = pd.concat(found)
-    found = found[~found.SPH_HERD_N.isin(parcels.SPH_HERD_N)]
-    return found
-
 def plot_overview(df):
     """Plot overview map"""
 
@@ -197,8 +167,8 @@ class Dashboard:
 
     def __init__(self, meta, parcels, moves=None, lpis_cent=None,
                 snpdist=None, lpis_master_file=None, treefile=None,
-                testing=None,
-                selections={}, layers={}):
+                testing=None, settings={},
+                selections={}, layers={}, **kwargs):
         """
         Base class for dashboard app with panel for tracebtb.
         Args:
@@ -217,6 +187,8 @@ class Dashboard:
         self.lpis_master_file = lpis_master_file
         self.selections = selections
         self.layers = layers
+        self.hmoves = None
+        self.settings = settings
         if treefile is not None and os.path.exists(treefile):
             from Bio import Phylo
             self.tree = Phylo.read(treefile, "newick")
@@ -231,11 +203,15 @@ class Dashboard:
         self.layout = self.setup_widgets()
         return
 
-class FullDashboard(Dashboard):
-    """Full dashboard"""
+    def setup_widgets(self):
+        """Create widgets - override this"""
+        return
 
     def show(self):
         return self.layout
+
+class FullDashboard(Dashboard):
+    """Full dashboard"""
 
     def search_widgets(self):
         """Quick search widgets"""
@@ -248,7 +224,7 @@ class FullDashboard(Dashboard):
         self.recents_select = pnw.Select(name='Recent Searches',value='',options=[],width=w,size=8)
         self.recents_select.param.watch(self.recent_search,'value')
         widgets = pn.WidgetBox(self.search_input,self.search_btn,
-                               self.recents_select,width=w+30)
+                               self.recents_select,width=w+20)
         return widgets
 
     def group_widgets(self):
@@ -265,7 +241,6 @@ class FullDashboard(Dashboard):
         """Create widgets"""
 
         w=140
-        pn.config.throttled = True
         #main panes
         self.plot_pane = pn.pane.Bokeh()
         self.overview_pane = pn.pane.Matplotlib(height=300)
@@ -599,7 +574,7 @@ class FullDashboard(Dashboard):
             bokeh_plot.kde_plot_groups(sub, p, col, 6)
 
         if self.neighbours_btn.value is True and self.lpis is not None:
-            shb = shared_borders(sp, self.lpis)
+            shb = tools.shared_borders(sp, self.lpis)
             bokeh_plot.plot_lpis(shb, p)
 
         mov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
@@ -1185,16 +1160,9 @@ class SimpleQueryDashboard(FullDashboard):
         w=140
         icsize = '1.5em'
         cols = self.cols
-        pn.config.throttled = True
         self.recents = []
         #search widgets
-        self.search_input = pnw.TextInput(name="Query", value='N1080493',sizing_mode='stretch_width', width=w)
-        self.search_btn = pnw.Button(name='Search', icon=get_icon('search'), icon_size='1.8em', width=w)
-        pn.bind(self.quick_search, self.search_btn, watch=True)
-        self.recents_select = pnw.Select(name='Recent Searches',value='',options=[],width=w,size=8)
-        self.recents_select.param.watch(self.recent_search,'value')
-        search_widgets = pn.WidgetBox(self.search_input,self.search_btn,
-                               self.recents_select,width=w+30)
+        search_widgets = self.search_widgets()
         #tools
         self.selectregion_btn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size=icsize)
         pn.bind(self.select_region, self.selectregion_btn, watch=True)
@@ -1284,7 +1252,7 @@ class SimpleQueryDashboard(FullDashboard):
         self.plot_pane.object = p
 
         #tree
-        ns = (80/len(sub))+6
+        ns = (120/len(sub))+6
 
         self.update_tree(sub=sub, col=col, tip_size=ns, font_size='9pt')
         #mst
@@ -1320,3 +1288,286 @@ class SimpleQueryDashboard(FullDashboard):
             x = [query] + x
         self.recents_select.options = x
         return
+
+class MovesDashboard(FullDashboard):
+    """Moves dashboard"""
+
+    def setup_widgets(self):
+        """Create widgets"""
+
+        w=140
+        self.recents = []
+        self.plot_pane = pn.pane.Bokeh()
+        search_widgets = self.search_widgets()
+        related_moves_btn = pnw.Button(name='Related Moves', width=w, button_type='primary')
+        pn.bind(self.get_related_moves, related_moves_btn, watch=True)
+        animate_moves_btn = pnw.Button(name='Animate Moves', width=w, button_type='primary')
+        pn.bind(self.plot_moves_animation, animate_moves_btn, watch=True)
+        self.date_range_slider = pn.widgets.DateRangeSlider(
+            name='Date Range',
+            start=datetime(2016, 1, 1), end=datetime(2024, 1, 1),
+            value=(datetime(2020, 1, 1), datetime(2020, 3, 1)),
+            step=1
+        )
+
+        widgets = pn.WidgetBox(related_moves_btn, animate_moves_btn, self.date_range_slider, width=w+20)
+        self.related_moves_table = pnw.Tabulator(show_index=False,disabled=True,page_size=200,
+                                    frozen_columns=['tag'],stylesheets=[stylesheet],
+                                    sizing_mode='stretch_both')
+        app = pn.Row(pn.Column(search_widgets,widgets),
+                    pn.Column(
+                        pn.Tabs(('Map',pn.Column(self.plot_pane,sizing_mode='stretch_both')),
+                                ('Related Moves',self.related_moves_table),
+                                dynamic=True,
+                                sizing_mode='stretch_both'),
+                            ),
+                    pn.Column(),
+                max_width=2600,min_height=600)
+        app.sizing_mode='stretch_both'
+        return app
+
+    def update(self, event=None, sub=None):
+        #draw individual farm and then moves over time.
+
+        col='snp7'
+        provider = "CartoDB Positron"
+        cmap = 'Dark2'
+        labelsize = 12
+        legsize = 15
+        self.ms = ms = 6
+        lw = .5
+        legend = True
+        if sub is None:
+            sub = self.selected
+        if len(sub[col].unique()) > 20:
+            cmap = None
+        elif len(sub[col].unique()) > 10:
+            cmap = 'tab20'
+        seed = 50
+        sub['color'], cm1 = tools.get_color_mapping(sub, col, cmap, seed=seed)
+        self.selected = sub
+
+        herds = list(sub.HERD_NO)
+        mov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
+        herds.extend(mov.move_to)
+
+        sp = self.parcels[self.parcels.SPH_HERD_N.isin(herds)].copy()
+        pcmap = 'tab20'
+        if len(sp.SPH_HERD_N.unique()) > 20:
+            pcmap = None
+        sp['color'], cm2 = tools.get_color_mapping(sp, 'SPH_HERD_N', pcmap)
+        pcls = sp
+        p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms, lw=lw,
+                                        col=col, labels=False,
+                                        scalebar=True)
+
+        bokeh_plot.plot_moves(p, mov, self.lpis_cent, limit=500)
+        self.plot_pane.object = p
+        return
+
+    def get_related_moves(self, event=None):
+
+        herds = self.selected.HERD_NO.unique()
+        herdmovesfile = self.settings['herdmovesfile']
+        if self.hmoves is None:
+            hmoves = pd.read_parquet(herdmovesfile)
+            hmoves = hmoves.rename(columns={'event_date':'move_date'})
+            hmoves['move_to'] = hmoves.herd
+            self.hmoves = hmoves
+        hmoves = self.hmoves
+        temp = hmoves[(hmoves.herd.isin(herds))]
+        m = hmoves[hmoves.tag.isin(temp.tag)]
+
+        m = m.merge(self.lpis_cent,left_on='herd',right_on='SPH_HERD_N', how='left')
+        if len(m)==0:
+            return
+        m = (m.drop_duplicates()
+            .drop(columns=['Animal_ID','id','event_type','rnk_final'], errors='ignore')
+            .sort_values(['tag','herd'])
+            .set_index('tag',drop=True)
+            )
+        m = gpd.GeoDataFrame(m)
+        print (len(m))
+        self.related_moves_table.value = m
+        self.related_moves = m
+        p = self.plot_pane.object
+
+        #p = bokeh_plot.plot_moves(p, related, self.lpis_cent, limit=1500)
+        #draw as network instead of map plot
+
+        return
+
+    def plot_moves_animation(self, event=None):
+        """Show moves over a period"""
+
+        p = self.plot_pane.object
+        lines = p.select({'name': 'moves'})
+        #p.renderers.remove(lines)
+        df = self.related_moves
+        start, end = self.date_range_slider.value
+        #interval
+        n_days = 30
+        # Generate a list of dates with n-day intervals
+        date_range = pd.date_range(start=start, end=end, freq=f"{n_days}D")
+        # Iterate over date ranges
+        for start_date in date_range:
+            end_date = start_date + pd.Timedelta(days=n_days - 1)
+            df_slice = df[(df['move_date'] >= start_date.date()) & (df['move_date'] <= end_date.date())]
+            print(f"Data from {start_date} to {end_date}:\n", len(df_slice))
+            print (df_slice)
+            bokeh_plot.plot_moves(p, df_slice, self.lpis_cent, limit=200, name='related')
+        return
+
+class ABMDashboard(Dashboard):
+    """ABM dashboard"""
+
+    def setup_widgets(self):
+        """Create widgets"""
+
+        w=140
+        self.recents = []
+        self.plot_pane = pn.pane.Bokeh()
+
+        graph_types = ['default','watts_strogatz','erdos_renyi','barabasi_albert',
+                       'powerlaw_cluster','random_geometric']
+        farm_types = ['mixed','beef','dairy','suckler']
+        cmaps = ['Blues','Reds','Greens','RdBu','coolwarm','summer','winter','icefire','hot','viridis']
+        #grid_pane = pn.pane.Matplotlib(plt.Figure(),tight=True,width=900,height=620)
+        self.grid_pane = pn.pane.Bokeh(sizing_mode='stretch_both')
+        self.plot_pane1 = pn.pane.Matplotlib(plt.Figure(),height=300)
+        self.plot_pane2 = pn.pane.Matplotlib(plt.Figure(),height=300)
+        self.tree_pane = pn.pane.HTML()
+        self.str_pane = pnw.TextAreaInput(disabled=True,height=600,width=400)
+        self.df_pane = pnw.Tabulator(show_index=False,disabled=True,height=600,stylesheets=[stylesheet])
+        self.df2_pane = pnw.Tabulator(show_index=False,disabled=True,height=600,stylesheets=[stylesheet])
+
+        w=140
+        colorby = ['num_infected','perc_infected','herd_size','loc_type','herd_class','strain']
+        go_btn = pnw.Button(name='run',width=w,button_type='success')
+        stop_btn = pnw.Button(name='stop',width=w,button_type='danger')
+        go_btn.param.watch(self.run_model, 'clicks')
+        self.inputs = {}
+        self.inputs['F'] = pnw.IntSlider(name='farms',value=20,start=5,end=1000,step=1,width=w)
+        self.inputs['C'] = pnw.IntSlider(name='cows',value=400,start=10,end=5000,step=10,width=w)
+        self.inputs['S'] = pnw.IntSlider(name='setts',value=5,start=1,end=100,step=1,width=w)
+        #self.inputs['farmtypes'] = pnw.Select(name='farm types',options=farm_types,width=w)
+        self.inputs['cctrans'] = pnw.FloatSlider(name='CC trans',value=1,step=.1,start=0,end=5,width=w)
+        self.inputs['bctrans'] = pnw.FloatSlider(name='BC trans',value=1,step=.1,start=0,end=5,width=w)
+        self.inputs['mean_stay_time'] = pnw.FloatSlider(name='mean stay time',value=100,step=1,start=5,end=1000,width=w)
+        self.inputs['mean_inf_time'] = pnw.FloatSlider(name='mean inf. time',value=60,step=1,start=5,end=600,width=w)
+        self.inputs['mean_latency_time'] = pnw.FloatSlider(name='mean latency time',value=100,step=1,start=10,end=600,width=w)
+        self.inputs['infected_start'] = pnw.FloatSlider(name='start infected',value=5,step=1,start=1,end=500,width=w)
+        self.steps_input = pnw.IntSlider(name='steps',value=10,start=1,end=2000,width=w)
+        self.refresh_input = pnw.IntSlider(name='refresh rate',value=1,start=1,end=100,width=w)
+        self.delay_input = pnw.FloatSlider(name='step delay',value=0,start=0,end=3,step=.2,width=w)
+        graph_input = pnw.Select(name='graph type',options=graph_types,width=w)
+        graph_seed_input = pnw.IntInput(name='graph seed',value=10,width=w)
+        #seed_input = pnw.Select(name='graph seed',options=['random'],width=w)
+        self.colorby_input = pnw.Select(name='color by',value='strain',options=colorby,width=w)
+        self.cmap_input = pnw.Select(name='colormap',options=cmaps,width=w)
+        self.nodesize_input = pnw.Select(name='node size',value='herd_size',options=colorby[:3],width=w)
+        self.labels_input = pnw.Checkbox(name='node labels',value=False,width=w)
+        self.progress = pn.indicators.Progress(name='Progress', value=0, width=600, bar_color='primary')
+
+        widgets = pn.Column(pn.Tabs(('model',pn.WidgetBox(*self.inputs.values(),self.steps_input)),
+                                    ('options',pn.WidgetBox(graph_input,graph_seed_input,self.colorby_input,
+                                                            self.cmap_input,self.nodesize_input,self.labels_input))), width=w+30)
+
+        app = pn.Column(pn.Row(go_btn,self.progress),
+                pn.Row(widgets,self.grid_pane,
+                 pn.Tabs(('plots',pn.Column(self.plot_pane1,self.plot_pane2)), ('tree',self.tree_pane),
+                         ('inf_data',self.df_pane), ('herd_data',self.df2_pane)),
+                 sizing_mode='stretch_both',max_width=2600,min_height=600))
+
+        return app
+
+    def run_model(self, event=None):
+
+        from btbabm import models, utils
+        def callback(x):
+            self.str_pane.value += str(x)+'\n'
+        ns = self.nodesize_input.value
+        col = self.colorby_input.value
+        params = {k:self.inputs[k].value for k in self.inputs}
+        print (params)
+        steps = self.steps_input.value
+        refresh = self.refresh_input.value
+        delay = self.delay_input.value
+        
+        model = models.FarmPathogenModel(**params, callback=callback)
+        self.str_pane.value = ''
+        callback(model)
+        fig1,ax1 = plt.subplots(1,1,figsize=(15,10))
+        #self.grid_pane.object = fig1
+        fig2,ax2 = plt.subplots(1,1,figsize=(8,6))
+        self.plot_pane1.object = fig2
+        fig3,ax3 = plt.subplots(1,1,figsize=(8,6))
+        self.plot_pane2.object = fig3
+        self.progress.max=steps
+        self.progress.value = 0
+
+        showsteps = list(range(1,steps+1,refresh))
+        #step through the model and plot at each step
+        for i in range(1,steps+1):
+            model.step()
+            plt.close()
+            if i in showsteps:
+                #ax1.clear()
+
+                y=model.year
+                mov=len(model.get_moves())
+                deaths=model.deaths
+                total = len(model.get_animals())
+                text='day=%s year=%s moves=%s deaths=%s animals=%s' %(i,y,mov,deaths,total)
+                utils.plot_grid(model,ax=ax1,pos=model.pos,
+                          title=text, colorby=col, cmap=self.cmap_input.value,
+                          ns=ns)#, with_labels=labels_input.value)
+                p = utils.plot_grid_bokeh(model, title=text)
+                self.grid_pane.object = p
+                #self.grid_pane.param.trigger('object')
+
+                ax2.clear()
+                #s = model.circulating_strains()
+                #d=model.get_infected_data()
+                #df_pane.value = d
+                hd = model.get_herds_data()
+                self.df2_pane.value = hd
+                #fig2 = utils.plot_inf_data(model)
+                #fig2 = utils.plot_by_species(model)
+                #self.plot_pane1.object = fig2
+                #self.plot_pane1.param.trigger('object')
+                df = model.get_column_data()
+                ax3.clear()
+                df.plot(ax=ax3)
+                ax3.set_xlim(0,steps)
+                self.plot_pane2.param.trigger('object')
+                #html=html_tree(model)
+                #self.tree_pane.object = html
+                out = model.G.nodes
+
+            self.progress.value += 1
+            time.sleep(delay)
+        plt.clf()
+        return
+
+    def html_tree(self, model):
+
+        result = model.make_phylogeny(removed=True,redundant=False)
+        if result==None:
+            return '<p>no tree</p>'
+        cl = model.get_clades('tree.newick')
+        idf = model.get_animal_data(removed=True)
+        x=idf.merge(cl,left_on='id',right_on='SequenceName')
+        x=x.set_index('SequenceName')
+        x.index = x.index.map(str)
+        #tre=toytree.tree('tree.newick')
+        col='strain'
+        #canvas = utils.draw_tree('tree.newick',x,col,tip_labels=False,width=500)
+
+        return
+
+    def set_stop(self, event):
+        global stop
+        stop = True
+        print ('STOP')
+

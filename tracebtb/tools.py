@@ -616,3 +616,35 @@ def spatial_cluster(gdf, eps=3000):
     nclusters = clusterer.p
     gdf = gdf.assign(cl=clusterer.labels_)
     return gdf
+
+def find_neighbours(gdf, dist, lpis_cent, lpis):
+    """Find neighbours"""
+
+    found = []
+    for x in gdf.geometry:
+        dists = lpis_cent.distance(x)
+        points = lpis_cent[(dists<=dist) & (dists>10)]
+        found.append(points)
+
+    found = pd.concat(found).drop_duplicates()
+    x = lpis[lpis.SPH_HERD_N.isin(found.SPH_HERD_N)]
+    #exclude those in source gdf
+    x = x[~x.SPH_HERD_N.isin(gdf.HERD_NO)]
+    return x
+
+def shared_borders(parcels, lpis):
+    """Find neighbouring herds with shared borders"""
+
+    found = []
+    if type(parcels) is pd.Series:
+        parcels = parcels.to_frame().T
+    for i, r in parcels.iterrows():
+        #farms with shared borders
+        polygon = r.geometry
+        x = lpis[lpis.touches(polygon)]
+        found.append(x)
+    if len(found) == 0:
+        return
+    found = pd.concat(found)
+    found = found[~found.SPH_HERD_N.isin(parcels.SPH_HERD_N)]
+    return found

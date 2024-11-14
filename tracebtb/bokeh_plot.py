@@ -319,7 +319,7 @@ def plot_lpis(gdf, p):
     p.add_tools(h)
     return p
 
-def plot_moves(p, moves, lpis_cent, limit=300):
+def plot_moves(p, moves, lpis_cent, limit=300, name='moves'):
     """Plot moves with bokeh)"""
 
     nh = VeeHead(size=12, fill_color='blue', fill_alpha=0.5, line_color='black')
@@ -341,7 +341,8 @@ def plot_moves(p, moves, lpis_cent, limit=300):
                     p1 =  l.geometry.coords[0]
                     p2 =  l.geometry.coords[1]
                     p.add_layout(Arrow(end=nh, line_color='black', line_dash=[10, 5],
-                               x_start=p1[0], y_start=p1[1], x_end=p2[0], y_end=p2[1]))
+                               x_start=p1[0], y_start=p1[1], x_end=p2[0], y_end=p2[1],
+                               name=name))
     return p
 
 def plot_group_symbols(gdf, p, lw=4, ms=50):
@@ -833,43 +834,24 @@ def plot_phylogeny(tree, df, tip_size=10, lw=1, font_size='10pt', tip_labels=Tru
     p.add_tools(TapTool())
     return p
 
-def plot_mst(dm, df, node_size=12, labels=False):
+def plot_network(G, df, pos=None, node_size=12, labels=False):
     """
-    Plot minimum spanning tree from dist matrix with Bokeh.
-    Requires networkx and graphviz.
+    Plot a networkx graph.
     """
 
-    from networkx.drawing.nx_agraph import graphviz_layout
-    import networkx as nx
     from bokeh.plotting import from_networkx
-
-    G = nx.Graph()
-    for i, row in dm.iterrows():
-        for j, weight in row.items():
-            G.add_edge(i, j, weight=weight)
-
-    T = nx.minimum_spanning_tree(G, algorithm='kruskal')
-    pos = graphviz_layout(T)
-    graph = from_networkx(T, pos, scale=1)
-
-    # Map data to each node based on df
-    #node_colors = [df.loc[node]['color'] for node in T.nodes()]
-    #graph.node_renderer.data_source.data['color'] = node_colors
+    graph = from_networkx(G, pos, scale=1)
     df['marker'] = df.Species.map(speciesmarkers).fillna('asterisk')
     for key in ['sample','Animal_ID','HERD_NO','Year','snp7','marker','color']:
         if key in df.columns:
-            graph.node_renderer.data_source.data[key] = [df.loc[node][key] for node in T.nodes()]
+            graph.node_renderer.data_source.data[key] = [df.loc[node][key] for node in G.nodes()]
     graph.node_renderer.glyph.update(size=node_size, fill_color="color", marker='marker')
 
     p = figure(tools="pan,wheel_zoom,box_zoom,reset,save", tooltips=None,
                sizing_mode='stretch_both')
     p.renderers.append(graph)
-    #labels
     if labels == True:
-        #x = [pos[node][0] for node in T.nodes()]
-        #y = [pos[node][1] for node in T.nodes()]
         x, y = zip(*graph.layout_provider.graph_layout.values())
-        #node_labels = [df.loc[node]['sample'] for node in T.nodes()]
         node_labels = graph.node_renderer.data_source.data['sample']
         source = ColumnDataSource(data=dict(x=x, y=y, label=node_labels))
         labels = LabelSet(x='x', y='y', text='name', level='glyph', text_color='black',
@@ -886,4 +868,23 @@ def plot_mst(dm, df, node_size=12, labels=False):
     p.yaxis.visible = False
     p.grid.grid_line_color = None
     p.toolbar.logo = None
+    return p
+
+def plot_mst(dm, df, **kwargs):
+    """
+    Plot minimum spanning tree from dist matrix with Bokeh.
+    Requires networkx and graphviz.
+    """
+
+    from networkx.drawing.nx_agraph import graphviz_layout
+    import networkx as nx
+
+    G = nx.Graph()
+    for i, row in dm.iterrows():
+        for j, weight in row.items():
+            G.add_edge(i, j, weight=weight)
+
+    T = nx.minimum_spanning_tree(G, algorithm='kruskal')
+    pos = graphviz_layout(T)
+    p = plot_network(T, df, pos, **kwargs)
     return p
