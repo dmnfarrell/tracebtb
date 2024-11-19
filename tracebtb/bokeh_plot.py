@@ -240,7 +240,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
 
     #draw points
     r2 = p.scatter('x', 'y', source=geo_source, color='color', line_width=lw,
-                   line_color='black', marker="marker", fill_alpha=0.5, size=ms, name='points')
+                   line_color='black', marker="marker", fill_alpha=0.7, size=ms, name='points')
     h2 = HoverTool(renderers=[r2], tooltips=([("Sample", "@sample"),
                                             ("Animal_id", "@Animal_ID"),
                                             ("Herd/Sett", "@HERD_NO"),
@@ -305,16 +305,18 @@ def plot_counties(p):
                   line_width=2, line_color='red', fill_alpha=0)
     return p
 
-def plot_lpis(gdf, p):
+def plot_lpis(gdf, p=None, provider='CartoDB Positron', **kwargs):
     """Plot LPIS land parcels"""
 
+    if p is None:
+        p = init_figure(None, provider)
     if gdf is None:
         return
-    gdf['color'] = gdf.apply(tools.random_grayscale_color, 1)
+
     parcelsjson = gdf.to_crs('EPSG:3857').to_json()
     source = GeoJSONDataSource(geojson=parcelsjson)
     r = p.patches('xs', 'ys', source=source, fill_color='color',
-                           fill_alpha=0.3, line_width=1, line_color='black')
+                           line_color='black', **kwargs)
     h = HoverTool(renderers=[r], tooltips=([("Herd", "@SPH_HERD_N")]))
     p.add_tools(h)
     return p
@@ -368,6 +370,7 @@ def error_message(msg=''):
     p.toolbar.logo = None
     p.xaxis.visible = False
     p.yaxis.visible = False
+    p.sizing_mode='stretch_both'
     return p
 
 def split_view(gdf, col, parcels=None, provider=None, limit=9, kde=False, **kwargs):
@@ -754,6 +757,8 @@ def plot_phylogeny(tree, df, tip_size=10, lw=1, font_size='10pt', tip_labels=Tru
         return x_positions, y_positions
 
     tip_names = [clade.name for clade in tree.get_terminals()]
+    if len(tip_names)<2:
+        return error_message('too few samples')
     # Get positions
     x_positions, y_positions = calculate_positions(tree)
 

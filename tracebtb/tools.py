@@ -367,9 +367,19 @@ def nearest(point, gdf):
     """Get nearest neighbours to point in gdf, vector based"""
 
     from shapely.ops import nearest_points
-    dists = gdf.apply(lambda row:  point.distance(row.geometry),axis=1)
-    #print (dists[dists>0].idxmin())
+    dists = gdf.apply(lambda row: point.distance(row.geometry),axis=1)
     return dists[dists>0].min()
+
+def find_nearest_point(multipolygon, points_gdf):
+
+    try:
+        centroid = multipolygon.centroid
+        distances = points_gdf.geometry.distance(centroid)
+        nearest_point_index = distances.idxmin()
+        nearest_point = points_gdf.loc[nearest_point_index]
+    except:
+        return
+    return nearest_point
 
 def find_outliers(gdf, min_dist=10, min_samples=10, col='snp7'):
     """
@@ -648,3 +658,74 @@ def shared_borders(parcels, lpis):
     found = pd.concat(found)
     found = found[~found.SPH_HERD_N.isin(parcels.SPH_HERD_N)]
     return found
+
+def count_fragments(geometry):
+    if geometry.geom_type == 'MultiPolygon':
+        return len(geometry.geoms)
+    elif geometry.geom_type == 'Polygon':
+        return 1
+    else:
+        return 0
+
+def fragments_to_graph(mp):
+    """Land fragments to graph"""
+
+    import networkx as nx
+    if mp.geometry.geom_type == 'MultiPolygon':
+        centroids = [poly.centroid for poly in mp.geometry.geoms]
+    else:
+        centroids = [mp.centroid]
+    # Create a graph
+    G = nx.Graph()
+    # Find the largest fragment
+    largest_fragment = max(mp.geometry.geoms, key=lambda x: x.area)
+    # Extract centroids
+    centroids = [poly.centroid for poly in mp.geometry.geoms]
+    largest_centroid = largest_fragment.centroid
+    # Add nodes (centroids)
+    for i, centroid in enumerate(centroids):
+        G.add_node(i, pos=(centroid.x, centroid.y))
+    # Add edges only between the largest fragment's centroid and the others
+    largest_index = centroids.index(largest_centroid)
+    for i, centroid in enumerate(centroids):
+        if i != largest_index:  # Skip the largest fragment itself
+            distance = largest_centroid.distance(centroid)
+            G.add_edge(largest_index, i, weight=distance)
+
+    # Calculate areas of all fragments
+    areas = [poly.area for poly in mp.geometry.geoms]
+    largest_area = max(areas)
+    # Normalize areas (as fractions of the largest fragment's area)
+    normalized_areas = [area / largest_area for area in areas]
+    # Scale the normalized values for visualization (e.g., node size in range [100, 1000])
+    scaled_node_sizes = [norm_area * 1000 for norm_area in normalized_areas]
+    return G, scaled_node_sizes
+
+def plot_herd_graph(G, gdf=None, ns=200, title='', ax=None):
+    """Plot herd fragments graph"""
+
+    import networkx as nx
+    if ax == None:
+        fig,ax=plt.subplots(figsize=(6, 6))
+    else:
+        fig=None
+    # Draw nodes
+    pos = nx.get_node_attributes(G, 'pos')
+    nx.draw_networkx_nodes(G, pos, node_size=ns, node_color='blue',ax=ax)
+    # Draw edges
+    nx.draw_networkx_edges(G, pos, edge_color='gray',ax=ax)
+    # Annotate nodes with IDs
+    nx.draw_networkx_labels(G, pos, font_size=8, font_color='white',ax=ax)
+    # Annotate edges with distances
+    edge_labels = nx.get_edge_attributes(G, 'weight')
+    edge_labels = {k: f"{v/1000:.2f}" for k, v in edge_labels.items()}
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=7, ax=ax)
+    #if gdf is not None:
+    #    gdf.plot(ax=ax)
+    # Add title and display the plot
+    ax.set_title(f"Herd Fragments {title}")
+    ax.axis('off')
+
+    from matplotlib_scalebar.scalebar import ScaleBar
+    ax.add_artist(ScaleBar(dx=1, location=4))
+    return fig

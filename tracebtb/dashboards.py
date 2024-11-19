@@ -45,6 +45,8 @@ selections_file = os.path.join(configpath,'selections.json')
 layers_file = os.path.join(configpath,'layers.gpkg')
 
 speciescolors = {'Bovine':'blue','Badger':'red','Ovine':'green'}
+colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
+            'tab10', 'tab20', 'tab20b', 'tab20c', 'RdBu']
 card_style = {
     'background': '#f9f9f9',
     'border': '1px solid #bcbcbc',
@@ -52,8 +54,11 @@ card_style = {
     'margin': '5px',
     'box-shadow': '4px 4px 4px #bcbcbc'
 }
-colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
-            'tab10', 'tab20', 'tab20b', 'tab20c', 'RdBu']
+df_stylesheet = """
+tr {
+    font-size: 14px;
+}
+"""
 stylesheet = """
 .tabulator-cell {
     font-size: 12px;
@@ -203,25 +208,25 @@ class Dashboard:
         self.layout = self.setup_widgets()
         return
 
+    def load_lpis(self, event=None):
+
+        if self.lpis_master_file != None:
+            self.lpis = gpd.read_file(self.lpis_master_file).set_crs('EPSG:29902')
+        return
+
     def setup_widgets(self):
         """Create widgets - override this"""
         return
 
-    def show(self):
-        return self.layout
-
-class FullDashboard(Dashboard):
-    """Full dashboard"""
-
-    def search_widgets(self):
+    def search_widgets(self, recent_items=8):
         """Quick search widgets"""
 
         w=140
-        self.search_input = pnw.TextInput(name="Query", value='N1080493',sizing_mode='stretch_width', width=w)
+        self.search_input = pnw.TextInput(name="Query", value='', width=w)
         self.search_btn = pnw.Button(name='Search', icon=get_icon('search'), icon_size='1.8em', width=w)
         pn.bind(self.quick_search, self.search_btn, watch=True)
         #self.search_input.bind('return', self.quick_search)
-        self.recents_select = pnw.Select(name='Recent Searches',value='',options=[],width=w,size=8)
+        self.recents_select = pnw.Select(name='Recent Searches',value='',options=[],width=w,size=recent_items)
         self.recents_select.param.watch(self.recent_search,'value')
         widgets = pn.WidgetBox(self.search_input,self.search_btn,
                                self.recents_select,width=w+20)
@@ -236,6 +241,72 @@ class FullDashboard(Dashboard):
                                           pagination=None, height=200, width=w,
                                           stylesheets=[stylesheet])
         return pn.WidgetBox(self.groupby_input,self.groups_table)
+
+    def recent_search(self, event=None):
+        """Do recent search"""
+
+        query = self.recents_select.value
+        self.quick_search(query=query)
+        return
+
+    def quick_search(self, event=None, query=None):
+        """Search query string - override for custom behaviour"""
+
+        if query == None:
+            query = self.search_input.value
+        if len(query)<=1:
+            return
+
+        #found = self.meta[self.meta.isin([query]).any(axis=1)]
+        #found = self.meta[self.meta.map(lambda x: str(query).lower() in str(x).lower()).any(axis=1)]
+        query_list = [q.strip().lower() for q in query.split(",")]
+        found = self.meta[self.meta.map(lambda x: any(q in str(x).lower() for q in query_list)).any(axis=1)]
+        if len(found)>1000 or len(found)==0:
+            return
+
+        self.add_to_recent(query)
+        self.update(sub=found)
+        return
+
+    def add_to_recent(self, query):
+        x = list(self.recents_select.options)
+        if query not in x:
+            x = [query] + x
+        self.recents_select.options = x
+        return
+
+    def update_tree(self, event=None, sub=None, col='snp7',
+                    tip_size=12, font_size='11pt'):
+        """Update tree"""
+
+        if self.tree is None or len(sub)<=1 or len(sub)>4000:
+            p = self.tree_pane.object = bokeh_plot.error_message('')
+        else:
+            from Bio import Phylo
+            stree = keep_tips(self.tree, list(sub.index))
+            tempfile = 'temp.newick'
+            Phylo.write(stree, tempfile, "newick")
+            p = bokeh_plot.plot_phylogeny(stree, sub, tip_size=tip_size, font_size=font_size)
+
+        self.tree_pane.objects.clear()
+        self.tree_pane.append(pn.pane.Bokeh(p))
+        p.on_event(Tap, self.tip_selected)
+        return
+
+    def tip_selected(self, event):
+        """Point click callback"""
+        return
+
+    def update(self, event=None, sub=None):
+        """Override this if needed"""
+
+        return
+
+    def show(self):
+        return self.layout
+
+class FullDashboard(Dashboard):
+    """Full dashboard"""
 
     def setup_widgets(self):
         """Create widgets"""
@@ -575,7 +646,8 @@ class FullDashboard(Dashboard):
 
         if self.neighbours_btn.value is True and self.lpis is not None:
             shb = tools.shared_borders(sp, self.lpis)
-            bokeh_plot.plot_lpis(shb, p)
+            shb['color'] = shb.apply(tools.random_grayscale_color, 1)
+            bokeh_plot.plot_lpis(shb, p, line_width=1)
 
         mov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
 
@@ -624,37 +696,6 @@ class FullDashboard(Dashboard):
         # Update summaries
         self.update_herd_summary()
         self.update_cluster_summary()
-        return
-
-    def recent_search(self, event=None):
-        """Do recent search"""
-
-        query = self.recents_select.value
-        self.quick_search(query=query)
-        return
-
-    def quick_search(self, event=None, query=None):
-        """Search query string, allows comma separated list"""
-
-        if query == None:
-            query = self.search_input.value
-        if len(query)<=1:
-            return
-
-        #found = self.meta[self.meta.isin([query]).any(axis=1)]
-        #found = self.meta[self.meta.map(lambda x: str(query).lower() in str(x).lower()).any(axis=1)]
-        query_list = [q.strip().lower() for q in query.split(",")]
-        found = self.meta[self.meta.map(lambda x: any(q in str(x).lower() for q in query_list)).any(axis=1)]
-        if len(found)>1000 or len(found)==0:
-            return
-
-        self.update(sub=found)
-
-        x = list(self.recents_select.options)
-        if query not in x:
-            #x.append(query)
-            x = [query] + x
-        self.recents_select.options = x
         return
 
     def point_selected(self, event):
@@ -711,17 +752,6 @@ class FullDashboard(Dashboard):
         self.details_pane.object = pd.DataFrame(data)
         return
 
-    def plot_herd_testing(self, herd_no):
-        """Get testing plot"""
-
-        te = self.testing
-        te.loc[herd_no].plot(kind='bar')
-        return
-
-    def zoom_to_selection(self):
-
-        return
-
     def update_herd_summary(self, event=None):
         """herd summary"""
 
@@ -741,12 +771,6 @@ class FullDashboard(Dashboard):
         fig = plot_overview(self.selected)
         self.overview_pane.object = fig
         plt.close(fig)
-        return
-
-    def load_lpis(self, event=None):
-
-        if self.lpis_master_file != None:
-            self.lpis = gpd.read_file(self.lpis_master_file).set_crs('EPSG:29902')
         return
 
     def apply_filters(self, df):
@@ -902,28 +926,6 @@ class FullDashboard(Dashboard):
                                     limit=9, ms=ms, lw=lw, kde=kde)
         self.split_pane.objects.clear()
         self.split_pane.append(pn.pane.Bokeh(f))
-        return
-
-    def update_tree(self, event=None, sub=None, col='snp7',
-                    tip_size=12, font_size='11pt'):
-        """Update tree"""
-
-        if len(sub)<=1 or len(sub)>4000:
-            html = '<h1><2 or too many samples</h1>'
-            self.tree_pane.object = html
-            return
-        if self.tree == None:
-            return
-        from Bio import Phylo
-        stree = keep_tips(self.tree, list(sub.index))
-        tempfile = 'temp.newick'
-        Phylo.write(stree, tempfile, "newick")
-
-        p = bokeh_plot.plot_phylogeny(stree, sub, tip_size=tip_size, font_size=font_size)
-        self.tree_pane.objects.clear()
-        self.tree_pane.append(pn.pane.Bokeh(p))
-        #self.tree_pane.object = p
-        p.on_event(Tap, self.tip_selected)
         return
 
     def update_mst(self, event=None, sub=None, **kwargs):
@@ -1153,7 +1155,10 @@ class FullDashboard(Dashboard):
         self.about_pane.object = m
         return
 
-class SimpleQueryDashboard(FullDashboard):
+class QueryDashboard(FullDashboard):
+    def __init__(self, **kwargs):
+        super(QueryDashboard, self).__init__(**kwargs)
+        return
 
     def setup_widgets(self):
 
@@ -1184,18 +1189,12 @@ class SimpleQueryDashboard(FullDashboard):
         self.info_pane = pn.pane.Markdown('', styles={'color': "red"})
 
         app = pn.Row(pn.Column(search_widgets,toolbar,self.colorby_input,self.info_pane),
-                    pn.Column(
                         pn.Tabs(('Map',pn.Column(self.plot_pane,sizing_mode='stretch_both')),
                                 ('Selected',pn.Column(self.selected_pane,sizing_mode='stretch_both')),
                                 dynamic=True,
                                 sizing_mode='stretch_both'),
-                            ),
-                    pn.Column(self.tree_pane,
-                              self.mst_pane,
-                              width=600),
-                max_width=2600,min_height=600)
+                     pn.Column(self.tree_pane, self.mst_pane, width=600))
 
-        app.sizing_mode='stretch_both'
         return app
 
     def update(self, event=None, sub=None):
@@ -1289,8 +1288,221 @@ class SimpleQueryDashboard(FullDashboard):
         self.recents_select.options = x
         return
 
-class MovesDashboard(FullDashboard):
-    """Moves dashboard"""
+class HerdSelectionDashboard(Dashboard):
+
+    def __init__(self, **kwargs):
+        super(HerdSelectionDashboard, self).__init__(**kwargs)
+        self.load_lpis()
+        self.get_test_stats()
+        return
+
+    def setup_widgets(self):
+
+        w=140
+        self.plot_pane = pn.pane.Bokeh()
+        self.tree_pane = pn.Column(sizing_mode='stretch_both')
+        self.fragments_pane = pn.pane.Matplotlib(sizing_mode='stretch_both')
+        self.testingplot_pane = pn.pane.Bokeh(height=200)
+        self.indicator = pn.indicators.Number(
+                    name="Sequence",
+                    value=0, format="{value}",
+                    colors=[(0, "red"), (1, "green")])
+        search_widgets = self.search_widgets(4)
+        sim_btn = pnw.Button(name='Random Herd',button_type='primary',width=w)
+        pn.bind(self.random_herd, sim_btn, watch=True)
+        refresh_btn = pnw.Button(name='Refresh',width=w,button_type='success')
+        pn.bind(self.update, refresh_btn, watch=True)
+        self.dist_input = pnw.IntSlider(name='Dist Threshold',width=w,value=1000,
+                                        start=100,end=10000,step=100)
+        opts = ['within any parcel','contiguous parcels']
+        self.dist_method = pnw.Select(name='Dist Method',value='within any parcel',
+                                      options=opts,width=w)
+        self.herdinfo_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet], sizing_mode='stretch_both')
+        widgets = pn.Column(search_widgets,sim_btn,refresh_btn,
+                            self.dist_method,self.dist_input,self.indicator)
+
+        app = pn.Row(widgets,
+                  pn.Column(self.plot_pane,sizing_mode='stretch_both'),
+                  pn.Column(pn.Tabs(('tree',self.tree_pane),('fragments',self.fragments_pane)),
+                            self.herdinfo_pane,self.testingplot_pane,width=500),
+                    sizing_mode='stretch_both')
+
+        app.sizing_mode='stretch_both'
+        return app
+
+    def random_herd(self, event=None, herd=None):
+
+        #herd = self.lpis.sample(1).iloc[0].SPH_HERD_N
+        herd = self.random_breakdown_herd()
+        self.update(herd=herd)
+        self.add_to_recent(herd)
+        return
+
+    def update(self, event=None, herd=None):
+
+        if herd is None:
+            herd = self.herd
+        else:
+            self.herd = herd
+        print (herd)
+        lpis = self.lpis
+        meta = self.meta
+        dist = self.dist_input.value
+
+        self.parcels = pcl = lpis[lpis.SPH_HERD_N==herd].copy()
+        pcl['HERD_NO']=pcl.SPH_HERD_N
+        self.cont_parcels = tools.shared_borders(pcl, lpis)
+        if self.dist_method.value=='within any parcel':
+            nb = tools.find_neighbours(pcl, dist, self.lpis_cent, lpis)
+        else:
+            nb = self.cont_parcels
+        self.neighbours = nb
+        p = self.plot_neighbours(pcl,nb)#,pad=.2)
+        #then get any known strains present in area, including in herd itself
+        qry = list(nb.SPH_HERD_N) + [herd]
+        found = meta[meta.HERD_NO.isin(qry)]
+        found['color'],cm = tools.get_color_mapping(found, 'IE_clade')
+        bokeh_plot.plot_selection(found, legend=True, ms=20, lw=2, p=p)
+        p.title = herd
+        p.title.text_font_size = '20pt'
+        self.plot_pane.object = p
+        self.plot_herd_testing(herd)
+
+        #nearest
+        self.nearest = tools.find_nearest_point(pcl.iloc[0].geometry, found)
+        #tree
+        self.update_tree(sub=found, col='IE_clade')
+        #fragments
+        mp = pcl.iloc[0]
+        G,ns = tools.fragments_to_graph(mp)
+        fig = tools.plot_herd_graph(G, gdf=found, title=herd)
+        self.fragments_pane.object = fig
+        self.found = found
+        self.herd_info()
+        if len(found)==0:
+            self.indicator.value=1
+        else:
+            self.indicator.value=0
+        return
+
+    def plot_neighbours(self, df, parcels, col=None, pad=.3):
+        """Show neighbours"""
+
+        point = parcels.to_crs('EPSG:3857').iloc[0].geometry.centroid
+        x1,y1,x2,y2 = df.union_all().bounds
+        pad = (x2-x1)*pad
+        parcels['color'], cm = tools.get_color_mapping(parcels, 'SPH_HERD_N', None)
+        p = bokeh_plot.plot_lpis(parcels, fill_alpha=0.4, line_width=0.2)
+        df['color'] = 'red'
+        bokeh_plot.plot_lpis(df, p, fill_alpha=0.8, line_width=3)
+        #p.x_range = Range1d(point.x-pad,point.x+pad)
+        return p
+
+    def quick_search(self, event=None, query=None):
+        """Search lpis for a single herd"""
+
+        if query == None:
+            query = self.search_input.value
+        if len(query)<=1:
+            return
+
+        found = self.lpis[self.lpis.SPH_HERD_N==query]
+        if len(found)==0:
+            return
+        self.update(herd=query)
+        self.add_to_recent(query)
+        return
+
+    def herd_info(self):
+        """Get herd info"""
+
+        meta = self.meta
+        pcl = self.parcels.iloc[0]
+        area = pcl.geometry.area
+        frag = tools.count_fragments(pcl.geometry)
+        sampled = meta[meta.HERD_NO==pcl.SPH_HERD_N]
+        if len(self.found)>0:
+            strains = self.found.IE_clade.unique()
+            nearest_herd = self.nearest.HERD_NO
+        else:
+            strains=''
+            nearest_herd=''
+        s = pd.Series({'name':self.herd,'area':area,'fragments':frag,
+                       'contiguous herds':len(self.cont_parcels),
+                       'farm already sampled':bool(len(sampled)),
+                       'nearest sampled herd':nearest_herd,
+                       'strains':strains,
+                       'moves in':'?',
+                       'risky moves':'?'})
+
+        self.herdinfo_pane.object = pd.DataFrame(s,columns=['value'])
+        return
+
+    def get_test_stats(self):
+
+        te = self.testing
+        sr = te.filter(regex='^Sr')
+        lp = te.filter(regex='^Lp')
+        hs = te.filter(regex='^Hs')
+        sr_total=sr.iloc[:,-6:].sum(1)
+        lp_total=lp.iloc[:,-6:].sum(1)
+        hs_med=hs.iloc[:,-6:].median(1)
+        teststats = pd.concat([sr_total,lp_total,hs_med],axis=1)
+        teststats.columns=['Sr','Lp','Size']
+        self.lpis = self.lpis.merge(teststats,left_on='SPH_HERD_N',right_index=True, how='left')
+        return
+
+    def plot_herd_testing(self, herd):
+        """Get testing plot"""
+
+        te = self.testing
+        sr = te.filter(regex='^Sr')
+        df = sr.loc[herd]
+        x = list(df.index)
+        vals = df.values
+        p = figure(x_range=x, height=350, title="Std Reactors",
+                toolbar_location=None, tools="")
+        p.vbar(x=x, top=vals, width=0.9)
+        self.testingplot_pane.object = p
+        return p
+
+    def random_breakdown_herd(self):
+        te = self.testing
+        sr = te.filter(regex='^Sr').copy()
+        sr['total'] = sr.iloc[:,-5:].sum(1)
+        #sr=sr.sort_values('sum')
+        x=sr[sr.total>5]
+        return x.sample(1).index[0]
+
+class TestingDashboard(FullDashboard):
+    """Testing app is a wrapper for various test dashboards"""
+    def __init__(self, **kwargs):
+        self.query_dashboard = QueryDashboard(**kwargs)
+        self.herdselect_dashboard = HerdSelectionDashboard(**kwargs)
+        super(TestingDashboard, self).__init__(**kwargs)
+        return
+
+    def setup_widgets(self):
+
+        query_pane = self.query_dashboard.show()
+        herdselect_pane = self.herdselect_dashboard.show()
+        app = pn.Row(
+            pn.Tabs(('Query', query_pane),
+                    ('Herd Selection', herdselect_pane)),
+                    #('Moves',herds_pane)),
+            max_width=2600,min_height=600)
+
+        app.sizing_mode='stretch_both'
+        return app
+
+class MovesDashboard(Dashboard):
+    """Moves dedicated dashboard"""
+
+    def __init__(self, **kwargs):
+        super(MovesDashboard, self).__init__(**kwargs)
+        #self.load_lpis()
+        #self.get_test_stats()
+        return
 
     def setup_widgets(self):
         """Create widgets"""
@@ -1298,11 +1510,12 @@ class MovesDashboard(FullDashboard):
         w=140
         self.recents = []
         self.plot_pane = pn.pane.Bokeh()
+        self.herd_pane = pn.pane.Bokeh()
         search_widgets = self.search_widgets()
         related_moves_btn = pnw.Button(name='Related Moves', width=w, button_type='primary')
         pn.bind(self.get_related_moves, related_moves_btn, watch=True)
-        animate_moves_btn = pnw.Button(name='Animate Moves', width=w, button_type='primary')
-        pn.bind(self.plot_moves_animation, animate_moves_btn, watch=True)
+        #animate_moves_btn = pnw.Button(name='Animate Moves', width=w, button_type='primary')
+        #pn.bind(self.plot_moves_animation, animate_moves_btn, watch=True)
         self.date_range_slider = pn.widgets.DateRangeSlider(
             name='Date Range',
             start=datetime(2016, 1, 1), end=datetime(2024, 1, 1),
@@ -1310,13 +1523,13 @@ class MovesDashboard(FullDashboard):
             step=1
         )
 
-        widgets = pn.WidgetBox(related_moves_btn, animate_moves_btn, self.date_range_slider, width=w+20)
+        widgets = pn.WidgetBox(related_moves_btn, width=w+20)
         self.related_moves_table = pnw.Tabulator(show_index=False,disabled=True,page_size=200,
                                     frozen_columns=['tag'],stylesheets=[stylesheet],
                                     sizing_mode='stretch_both')
         app = pn.Row(pn.Column(search_widgets,widgets),
                     pn.Column(
-                        pn.Tabs(('Map',pn.Column(self.plot_pane,sizing_mode='stretch_both')),
+                        pn.Tabs(('Map',pn.Row(self.plot_pane,self.herd_pane,sizing_mode='stretch_both')),
                                 ('Related Moves',self.related_moves_table),
                                 dynamic=True,
                                 sizing_mode='stretch_both'),
@@ -1363,6 +1576,10 @@ class MovesDashboard(FullDashboard):
 
         bokeh_plot.plot_moves(p, mov, self.lpis_cent, limit=500)
         self.plot_pane.object = p
+        #herd_parcels = self.lpis[self.lpis.SPH_HERD_N=='']
+        nb = tools.shared_borders(pcls, self.lpis)
+        p = self.plot_neighbours(pcls, nb)
+        self.herd_pane.object = p
         return
 
     def get_related_moves(self, event=None):
@@ -1394,7 +1611,6 @@ class MovesDashboard(FullDashboard):
 
         #p = bokeh_plot.plot_moves(p, related, self.lpis_cent, limit=1500)
         #draw as network instead of map plot
-
         return
 
     def plot_moves_animation(self, event=None):
@@ -1418,7 +1634,7 @@ class MovesDashboard(FullDashboard):
             bokeh_plot.plot_moves(p, df_slice, self.lpis_cent, limit=200, name='related')
         return
 
-class ABMDashboard(Dashboard):
+class ABMDashboard():
     """ABM dashboard"""
 
     def setup_widgets(self):
@@ -1493,7 +1709,7 @@ class ABMDashboard(Dashboard):
         steps = self.steps_input.value
         refresh = self.refresh_input.value
         delay = self.delay_input.value
-        
+
         model = models.FarmPathogenModel(**params, callback=callback)
         self.str_pane.value = ''
         callback(model)

@@ -141,19 +141,17 @@ def main():
                 title='TracebTB'
                 bkgr='#4B7CC1 '
                 app = dashboards.FullDashboard(layers=layers, treefile=treefile, **data)
-            elif args.interface == 'simple':
-                title = 'TracebTB Query'
+            elif args.interface == 'test':
+                title = 'TracebTB Testing'
                 bkgr='#30833C'
-                app = dashboards.SimpleQueryDashboard(layers=layers, treefile=treefile, **data)
-            elif args.interface == 'moves':
-                title = 'TracebTB Moves'
-                bkgr='#B63C2D'
-                app = dashboards.MovesDashboard(settings=settings, **data)
+                app = dashboards.TestingDashboard(layers=layers, treefile=treefile, **data)
             elif args.interface == 'abm':
                 title = 'TracebTB Agent Based Model'
                 bkgr='#168F8B'
                 app = dashboards.ABMDashboard(settings=settings, **data)
-
+            else:
+                print ('unknown dashboard option')
+                return
             app.project_file = args.project
             app.settings = settings
             app.treefile = treefile
