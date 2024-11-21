@@ -28,6 +28,7 @@ import matplotlib.dates as mdates
 import matplotlib.colors as mcolors
 from datetime import datetime
 from collections import OrderedDict
+from . import core
 
 try:
     from bokeh.io import show
@@ -56,8 +57,7 @@ speciesmarkers = {'Bovine':'circle','Badger':'square',
 
 module_path = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(module_path,'data')
-counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:3857")
-counties_gdf['geometry'] = counties_gdf.geometry.simplify(300)
+counties_gdf = core.counties_gdf
 
 def calculate_grid_dimensions(n):
     """Calculate the number of rows and columns that best approximate a square layout"""

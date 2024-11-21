@@ -333,44 +333,6 @@ def plot_moves_timeline(df, herdcolors=None, order=None, ax=None):
     #plt.tight_layout()
     return
 
-def plot_hex_grid(gdf, col, n_cells=10, grid_type='hex',
-                  cmap='Paired', aggfunc='sum', ax=None):
-    """Grid map showing most common features in a column (e.g snp level)"""
-
-    if grid_type == 'hex':
-        grid = plotting.create_hex_grid(gdf, n_cells=n_cells)
-    else:
-        grid = plotting.create_grid(gdf, n_cells=n_cells)
-    #merge grid and original using sjoin
-    #print (grid)
-    merged = gpd.sjoin(gdf, grid, how='left', predicate='within')
-
-    # Compute stats per grid cell
-    def aggtop(x):
-        #most common value in each group
-        c = x.value_counts()
-        if len(c)>0:
-            return c.index[0]
-
-    clrs,snpmap = plotting.get_color_mapping(gdf, col, cmap=cmap)
-    gdf['snp_color'] = clrs
-
-    if aggfunc == 'top':
-        aggfunc=aggtop
-    dissolve = merged.dissolve(by="index_right", aggfunc=aggfunc)
-    grid.loc[dissolve.index, 'value'] = dissolve[col].values
-    grid['color'] = grid.value.map(snpmap)
-    grid = grid[~grid.color.isnull()]
-
-    grid.plot(color=grid.color, ec='gray', alpha=0.4, lw=2, ax=ax)
-    #border.plot(color='none',ec='black',ax=ax)
-    gdf.plot(c=gdf.snp_color,ax=ax)
-    #ax.set_xlim((225000,310000))
-    #ax.set_ylim((292000,370000))
-    plotting.make_legend(ax.figure,snpmap,title=col,loc=(1,.9),fontsize=8)
-    ax.axis('off')
-    return
-
 def jitter_points(r, scale=1):
     """Jitter GeoDataFrame points, vector based function"""
 

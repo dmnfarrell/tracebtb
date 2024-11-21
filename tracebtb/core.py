@@ -23,9 +23,11 @@
 import sys,os,subprocess,glob,re
 import time, datetime
 import platform
+import geopandas as gpd
 
 home = os.path.expanduser("~")
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
+data_path = os.path.join(module_path,'data')
 config_path = os.path.join(home, '.config','tracebtb')
 
 defaultfont = 'Lato'
@@ -106,6 +108,10 @@ host_colors = {
     'Llama': '#FFCC00'
 }
 
+counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:3857")
+counties_gdf['geometry'] = counties_gdf.geometry.simplify(300)
+
 def git_version() -> str:
     """Get get version"""
     return subprocess.check_output(['git','describe','--tags']).decode('ascii').strip()
+

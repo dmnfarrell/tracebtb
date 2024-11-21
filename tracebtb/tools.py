@@ -34,6 +34,7 @@ from Bio import SeqIO
 from Bio import Phylo, AlignIO, Align
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
+from . import core
 
 module_path = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(module_path,'data')
@@ -363,6 +364,115 @@ def df_html(df, fontsize='8pt'):
     """
     return html
 
+def create_grid(gdf=None, bounds=None, n_cells=10, overlap=False, crs="EPSG:29902"):
+    """Create square grid that covers a geodataframe area
+    or a fixed boundary with x-y coords
+    returns: a GeoDataFrame of grid polygons
+    """
+
+    import geopandas as gpd
+    import shapely
+
+    if bounds != None:
+        xmin, ymin, xmax, ymax= bounds
+    else:
+        xmin, ymin, xmax, ymax= gdf.total_bounds
+
+    # get cell size
+    cell_size = (xmax-xmin)/n_cells
+    # create the cells in a loop
+    grid_cells = []
+    for x0 in np.arange(xmin, xmax+cell_size, cell_size ):
+        for y0 in np.arange(ymin, ymax+cell_size, cell_size):
+            x1 = x0-cell_size
+            y1 = y0+cell_size
+            poly = shapely.geometry.box(x0, y0, x1, y1)
+            #print (gdf.overlay(poly, how='intersection'))
+            grid_cells.append( poly )
+
+    cells = gpd.GeoDataFrame(grid_cells, columns=['geometry'],
+                                     crs=crs)
+    if overlap == True:
+        cols = ['grid_id','geometry','grid_area']
+        cells = cells.sjoin(gdf, how='inner').drop_duplicates('geometry')
+    return cells
+
+def create_hex_grid(gdf=None, bounds=None, n_cells=10, overlap=False, crs="EPSG:29902"):
+    """Hexagonal grid over geometry.
+    See https://sabrinadchan.github.io/data-blog/building-a-hexagonal-cartogram.html
+    """
+
+    from shapely.geometry import Polygon
+    import geopandas as gpd
+    if bounds != None:
+        xmin, ymin, xmax, ymax= bounds
+    else:
+        xmin, ymin, xmax, ymax= gdf.total_bounds
+
+    unit = (xmax-xmin)/n_cells
+    a = np.sin(np.pi / 3)
+    cols = np.arange(np.floor(xmin), np.ceil(xmax), 3 * unit)
+    rows = np.arange(np.floor(ymin) / a, np.ceil(ymax) / a, unit)
+
+    #print (len(cols))
+    hexagons = []
+    for x in cols:
+      for i, y in enumerate(rows):
+        if (i % 2 == 0):
+          x0 = x
+        else:
+          x0 = x + 1.5 * unit
+
+        hexagons.append(Polygon([
+          (x0, y * a),
+          (x0 + unit, y * a),
+          (x0 + (1.5 * unit), (y + unit) * a),
+          (x0 + unit, (y + (2 * unit)) * a),
+          (x0, (y + (2 * unit)) * a),
+          (x0 - (0.5 * unit), (y + unit) * a),
+        ]))
+
+    grid = gpd.GeoDataFrame({'geometry': hexagons},crs=crs)
+    grid["grid_area"] = grid.area
+    grid = grid.reset_index().rename(columns={"index": "grid_id"})
+    if overlap == True:
+        cols = ['grid_id','geometry','grid_area']
+        grid = grid.sjoin(gdf, how='inner').drop_duplicates('geometry')[cols]
+    return grid
+
+def count_points_in_grid(grid, gdf, value_column='count'):
+    """
+    Count the number of points in each grid cell and optionally plot the grid by this value.
+
+    Parameters:
+    - grid: GeoDataFrame, the hexagonal grid created by `create_hex_grid`.
+    - gdf: GeoDataFrame, the GeoDataFrame of points.
+    - value_column: str, the name of the column to store point counts in the grid GeoDataFrame.
+
+    Returns:
+    - grid: GeoDataFrame with a new column `value_column` containing the count of points.
+    """
+    import geopandas as gpd
+    import matplotlib.pyplot as plt
+
+    # Perform a spatial join to find points within each hexagon
+    joined = gpd.sjoin(gdf, grid, how='inner', predicate='within')
+    # Count the number of points in each grid cell
+    point_counts = joined.groupby('grid_id').size()
+    # Add point counts to the grid GeoDataFrame
+    grid[value_column] = grid['grid_id'].map(point_counts).fillna(0).astype(int)
+    return grid
+
+def get_count_grid(df, n_cells=30):
+    """Get hex grid of counts for a gdf of points"""
+    
+    grid = create_hex_grid(df, n_cells=n_cells)
+    grid = count_points_in_grid(grid, df)   
+    #mask grid to map
+    mask = core.counties_gdf.to_crs('EPSG:29902').union_all()     
+    grid = grid[grid.intersects(mask)].copy()
+    return grid, mask
+
 def nearest(point, gdf):
     """Get nearest neighbours to point in gdf, vector based"""
 
@@ -628,7 +738,7 @@ def spatial_cluster(gdf, eps=3000):
     return gdf
 
 def find_neighbours(gdf, dist, lpis_cent, lpis):
-    """Find neighbours"""
+    """Find neighbouring herds"""
 
     found = []
     for x in gdf.geometry:
@@ -674,7 +784,7 @@ def fragments_to_graph(mp):
     if mp.geometry.geom_type == 'MultiPolygon':
         centroids = [poly.centroid for poly in mp.geometry.geoms]
     else:
-        centroids = [mp.centroid]
+        centroids = [mp.geometry.centroid]
     # Create a graph
     G = nx.Graph()
     # Find the largest fragment

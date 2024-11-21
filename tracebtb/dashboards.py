@@ -173,7 +173,9 @@ class Dashboard:
     def __init__(self, meta, parcels, moves=None, lpis_cent=None,
                 snpdist=None, lpis_master_file=None, treefile=None,
                 testing=None, settings={},
-                selections={}, layers={}, **kwargs):
+                selections={}, layers={},
+                parent=None,
+                **kwargs):
         """
         Base class for dashboard app with panel for tracebtb.
         Args:
@@ -181,9 +183,13 @@ class Dashboard:
             parcels: parcels for relevant samples from lpis
             moves: dataframe of moves
             lpis_cent: centroids from LPIS
+            snpdist: snp distance matrix
+            treefile: newick tree file
+            testing: testing data
         """
 
         self.meta = meta
+        self.badger = self.meta[self.meta.Species=='Badger']
         self.moves = moves
         self.lpis_cent = lpis_cent
         self.parcels = parcels
@@ -194,6 +200,7 @@ class Dashboard:
         self.layers = layers
         self.hmoves = None
         self.settings = settings
+        self.parent = parent
         if treefile is not None and os.path.exists(treefile):
             from Bio import Phylo
             self.tree = Phylo.read(treefile, "newick")
@@ -1268,7 +1275,6 @@ class QueryDashboard(FullDashboard):
             query = self.search_input.value
         if len(query)<=1:
             return
-
         query_list = [q.strip().lower() for q in query.split(",")]
         found = self.meta[self.meta.map(lambda x: any(q in str(x).lower() for q in query_list)).any(axis=1)]
         if len(found)>1000 or len(found)==0:
@@ -1304,7 +1310,7 @@ class HerdSelectionDashboard(Dashboard):
         self.fragments_pane = pn.pane.Matplotlib(sizing_mode='stretch_both')
         self.testingplot_pane = pn.pane.Bokeh(height=200)
         self.indicator = pn.indicators.Number(
-                    name="Sequence",
+                    name='Priority',
                     value=0, format="{value}",
                     colors=[(0, "red"), (1, "green")])
         search_widgets = self.search_widgets(4)
@@ -1312,13 +1318,16 @@ class HerdSelectionDashboard(Dashboard):
         pn.bind(self.random_herd, sim_btn, watch=True)
         refresh_btn = pnw.Button(name='Refresh',width=w,button_type='success')
         pn.bind(self.update, refresh_btn, watch=True)
+        sendquery_btn = pnw.Button(name='Send to Query',width=w)
+        pn.bind(self.send_to_query_dashboard, sendquery_btn, watch=True)
+
         self.dist_input = pnw.IntSlider(name='Dist Threshold',width=w,value=1000,
                                         start=100,end=10000,step=100)
         opts = ['within any parcel','contiguous parcels']
         self.dist_method = pnw.Select(name='Dist Method',value='within any parcel',
                                       options=opts,width=w)
         self.herdinfo_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet], sizing_mode='stretch_both')
-        widgets = pn.Column(search_widgets,sim_btn,refresh_btn,
+        widgets = pn.Column(search_widgets,sim_btn,refresh_btn,sendquery_btn,
                             self.dist_method,self.dist_input,self.indicator)
 
         app = pn.Row(widgets,
@@ -1349,6 +1358,7 @@ class HerdSelectionDashboard(Dashboard):
         meta = self.meta
         dist = self.dist_input.value
 
+        #find neighbours and others
         self.parcels = pcl = lpis[lpis.SPH_HERD_N==herd].copy()
         pcl['HERD_NO']=pcl.SPH_HERD_N
         self.cont_parcels = tools.shared_borders(pcl, lpis)
@@ -1357,11 +1367,16 @@ class HerdSelectionDashboard(Dashboard):
         else:
             nb = self.cont_parcels
         self.neighbours = nb
-        p = self.plot_neighbours(pcl,nb)#,pad=.2)
+        #nearby badgers
+        buffered_area = pcl.geometry.union_all().buffer(dist)
+        bdg = self.badger[self.badger.geometry.within(buffered_area)]
+
         #then get any known strains present in area, including in herd itself
-        qry = list(nb.SPH_HERD_N) + [herd]
+        qry = list(nb.SPH_HERD_N) + list(bdg.HERD_NO) + [herd]
         found = meta[meta.HERD_NO.isin(qry)]
-        found['color'],cm = tools.get_color_mapping(found, 'IE_clade')
+        found['color'],cm = tools.get_color_mapping(found, 'IE_clade', cmap='Set1')
+        self.found = found
+        p = self.plot_neighbours(pcl,nb)
         bokeh_plot.plot_selection(found, legend=True, ms=20, lw=2, p=p)
         p.title = herd
         p.title.text_font_size = '20pt'
@@ -1377,7 +1392,8 @@ class HerdSelectionDashboard(Dashboard):
         G,ns = tools.fragments_to_graph(mp)
         fig = tools.plot_herd_graph(G, gdf=found, title=herd)
         self.fragments_pane.object = fig
-        self.found = found
+
+        #populate herd info
         self.herd_info()
         if len(found)==0:
             self.indicator.value=1
@@ -1385,8 +1401,16 @@ class HerdSelectionDashboard(Dashboard):
             self.indicator.value=0
         return
 
+    def send_to_query_dashboard(self, event=None):
+        """Send herd query to query dashboard"""
+
+        dash = self.parent.query_dashboard
+        herds = ','.join(list(self.found.HERD_NO))
+        dash.quick_search(query=herds)
+        return
+
     def plot_neighbours(self, df, parcels, col=None, pad=.3):
-        """Show neighbours"""
+        """Show herd parcels and its neighbours"""
 
         point = parcels.to_crs('EPSG:3857').iloc[0].geometry.centroid
         x1,y1,x2,y2 = df.union_all().bounds
@@ -1414,23 +1438,27 @@ class HerdSelectionDashboard(Dashboard):
         return
 
     def herd_info(self):
-        """Get herd info"""
+        """Get herd metrics"""
 
         meta = self.meta
         pcl = self.parcels.iloc[0]
         area = pcl.geometry.area
         frag = tools.count_fragments(pcl.geometry)
         sampled = meta[meta.HERD_NO==pcl.SPH_HERD_N]
+
         if len(self.found)>0:
             strains = self.found.IE_clade.unique()
             nearest_herd = self.nearest.HERD_NO
+            bdg = self.found[self.found.Species=='Badger']
         else:
             strains=''
             nearest_herd=''
+            bdg=0
         s = pd.Series({'name':self.herd,'area':area,'fragments':frag,
                        'contiguous herds':len(self.cont_parcels),
                        'farm already sampled':bool(len(sampled)),
                        'nearest sampled herd':nearest_herd,
+                       'badger samples':len(bdg),
                        'strains':strains,
                        'moves in':'?',
                        'risky moves':'?'})
@@ -1439,6 +1467,7 @@ class HerdSelectionDashboard(Dashboard):
         return
 
     def get_test_stats(self):
+        """Dummary stats from testing file"""
 
         te = self.testing
         sr = te.filter(regex='^Sr')
@@ -1477,8 +1506,8 @@ class HerdSelectionDashboard(Dashboard):
 class TestingDashboard(FullDashboard):
     """Testing app is a wrapper for various test dashboards"""
     def __init__(self, **kwargs):
-        self.query_dashboard = QueryDashboard(**kwargs)
-        self.herdselect_dashboard = HerdSelectionDashboard(**kwargs)
+        self.query_dashboard = QueryDashboard(parent=self, **kwargs)
+        self.herdselect_dashboard = HerdSelectionDashboard(parent=self, **kwargs)
         super(TestingDashboard, self).__init__(**kwargs)
         return
 

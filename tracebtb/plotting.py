@@ -28,11 +28,11 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.Align import MultipleSeqAlignment
 from Bio import AlignIO, SeqIO
-#from pyfaidx import Fasta
 import pylab as plt
 import matplotlib as mpl
 import matplotlib.colors as colors
-from . import tools
+import geopandas as gpd
+from . import tools, core
 
 def make_legend(fig, colormap, loc='best', title='',fontsize=12):
     """Make a figure legend wth provided color mapping"""
@@ -148,79 +148,68 @@ def draw_pie(vals, xpos, ypos, colors, size=500, ax=None):
 
     return ax
 
-def create_grid(gdf=None, bounds=None, n_cells=10, overlap=False, crs="EPSG:29902"):
-    """Create square grid that covers a geodataframe area
-    or a fixed boundary with x-y coords
-    returns: a GeoDataFrame of grid polygons
+def plot_top_category_in_grid(gdf, col, n_cells=10, cmap='viridis', ax=None):
+    """
+    Create a hexagonal grid, compute the most common category in each grid cell, and plot the result.
+
+    Parameters:
+    - gdf: GeoDataFrame, the input data containing points and the categorical column.
+    - col: str, the name of the categorical column to analyze.
+    - n_cells: int, the number of cells along one axis for the hexagonal grid.
+    - cmap: str, the colormap to use for coloring categories.
+    - ax: Matplotlib Axes, optional, axis to plot on.
+
+    Returns:
+    - grid: GeoDataFrame, the hexagonal grid with the top category in each cell.
     """
 
-    import geopandas as gpd
-    import shapely
+    grid = tools.create_hex_grid(gdf, n_cells=n_cells)
+    merged = gpd.sjoin(gdf, grid, how='left', predicate='within')
 
-    if bounds != None:
-        xmin, ymin, xmax, ymax= bounds
-    else:
-        xmin, ymin, xmax, ymax= gdf.total_bounds
+    # Compute the top category per grid cell
+    def aggtop(x):
+        """Return the most common category in a group."""
+        c = x.value_counts()
+        if len(c) > 0:
+            return c.index[0]
+        return None
 
-    # get cell size
-    cell_size = (xmax-xmin)/n_cells
-    # create the cells in a loop
-    grid_cells = []
-    for x0 in np.arange(xmin, xmax+cell_size, cell_size ):
-        for y0 in np.arange(ymin, ymax+cell_size, cell_size):
-            x1 = x0-cell_size
-            y1 = y0+cell_size
-            poly = shapely.geometry.box(x0, y0, x1, y1)
-            #print (gdf.overlay(poly, how='intersection'))
-            grid_cells.append( poly )
+    dissolve = merged.dissolve(by="index_right", aggfunc={col: aggtop})
+    clrs,cm = tools.get_color_mapping(gdf, col, cmap=cmap)
+    grid['value'] = None
+    grid['color'] = None
+    grid.loc[dissolve.index, 'value'] = dissolve[col].values
+    grid['color'] = grid['value'].map(cm)
 
-    cells = gpd.GeoDataFrame(grid_cells, columns=['geometry'],
-                                     crs=crs)
-    if overlap == True:
-        cols = ['grid_id','geometry','grid_area']
-        cells = cells.sjoin(gdf, how='inner').drop_duplicates('geometry')
-    return cells
+    # Plot the grid with colors representing the top category
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 10))
+    grid = grid[~grid['color'].isnull()]
+    grid.plot(color=grid['color'], ec='black', alpha=0.8, lw=0.5, ax=ax)
+    # Add a legend for categories
+    legend_patches = [plt.Line2D([0], [0], marker='o', color=cm[cat],
+                                  markersize=10, label=str(cat), lw=0)
+                      for cat in cm]
+    ax.legend(handles=legend_patches, title=col, fontsize='small', title_fontsize='medium')
+    #plotting.make_legend(ax.figure,cm,title=col,loc=(1,.9),fontsize=8)
+    ax.axis('off')
+    return
 
-def create_hex_grid(gdf=None, bounds=None, n_cells=10, overlap=False, crs="EPSG:29902"):
-    """Hexagonal grid over geometry.
-    See https://sabrinadchan.github.io/data-blog/building-a-hexagonal-cartogram.html
-    """
+def plot_grid_counts(grid, mask=None, cmap='plasma', fontsize=7):
+    """Plot values from a pre-made grid, optionally mask the grid with a gdf"""
 
-    from shapely.geometry import Polygon
-    import geopandas as gpd
-    if bounds != None:
-        xmin, ymin, xmax, ymax= bounds
-    else:
-        xmin, ymin, xmax, ymax= gdf.total_bounds
-
-    unit = (xmax-xmin)/n_cells
-    a = np.sin(np.pi / 3)
-    cols = np.arange(np.floor(xmin), np.ceil(xmax), 3 * unit)
-    rows = np.arange(np.floor(ymin) / a, np.ceil(ymax) / a, unit)
-
-    #print (len(cols))
-    hexagons = []
-    for x in cols:
-      for i, y in enumerate(rows):
-        if (i % 2 == 0):
-          x0 = x
-        else:
-          x0 = x + 1.5 * unit
-
-        hexagons.append(Polygon([
-          (x0, y * a),
-          (x0 + unit, y * a),
-          (x0 + (1.5 * unit), (y + unit) * a),
-          (x0 + unit, (y + (2 * unit)) * a),
-          (x0, (y + (2 * unit)) * a),
-          (x0 - (0.5 * unit), (y + unit) * a),
-        ]))
-
-    grid = gpd.GeoDataFrame({'geometry': hexagons},crs=crs)
-    grid["grid_area"] = grid.area
-    grid = grid.reset_index().rename(columns={"index": "grid_id"})
-    if overlap == True:
-        cols = ['grid_id','geometry','grid_area']
-        grid = grid.sjoin(gdf, how='inner').drop_duplicates('geometry')[cols]
-    return grid
-
+    if mask is not None:
+        #mask for plotting
+        mask_gdf = gpd.GeoDataFrame(geometry=[mask], crs='EPSG:29902')
+        grid = gpd.overlay(grid, mask_gdf, how='intersection')
+    fig, ax = plt.subplots(figsize=(9, 10))
+    grid.plot(column='count', ax=ax, legend=True, cmap=cmap,
+              edgecolor='k', linewidth=0.3, legend_kwds={"shrink":.5})
+    ax.axis('off')
+    ax.set_title('gaps in coverage')
+    for _, row in grid.iterrows():
+        centroid = row.geometry.centroid  # Get the centroid of the hexagon
+        count = row['count']
+        ax.text(centroid.x, centroid.y, str(count),
+                ha='center', va='center', fontsize=fontsize, color='white')
+    return
