@@ -465,11 +465,11 @@ def count_points_in_grid(grid, gdf, value_column='count'):
 
 def get_count_grid(df, n_cells=30):
     """Get hex grid of counts for a gdf of points"""
-    
+
     grid = create_hex_grid(df, n_cells=n_cells)
-    grid = count_points_in_grid(grid, df)   
+    grid = count_points_in_grid(grid, df)
     #mask grid to map
-    mask = core.counties_gdf.to_crs('EPSG:29902').union_all()     
+    mask = core.counties_gdf.to_crs('EPSG:29902').union_all()
     grid = grid[grid.intersects(mask)].copy()
     return grid, mask
 
@@ -745,7 +745,8 @@ def find_neighbours(gdf, dist, lpis_cent, lpis):
         dists = lpis_cent.distance(x)
         points = lpis_cent[(dists<=dist) & (dists>10)]
         found.append(points)
-
+    if len(found) == 0:
+        return lpis_cent.drop(lpis_cent.index)
     found = pd.concat(found).drop_duplicates()
     x = lpis[lpis.SPH_HERD_N.isin(found.SPH_HERD_N)]
     #exclude those in source gdf
@@ -781,14 +782,19 @@ def fragments_to_graph(mp):
     """Land fragments to graph"""
 
     import networkx as nx
+    # Create a graph
+    G = nx.Graph()
     if mp.geometry.geom_type == 'MultiPolygon':
         centroids = [poly.centroid for poly in mp.geometry.geoms]
     else:
-        centroids = [mp.geometry.centroid]
-    # Create a graph
-    G = nx.Graph()
+        #only one fragment
+        centroid = [mp.geometry.centroid][0]
+        G.add_node(0, pos=(centroid.x, centroid.y))
+        return G, [20]
+
     # Find the largest fragment
     largest_fragment = max(mp.geometry.geoms, key=lambda x: x.area)
+
     # Extract centroids
     centroids = [poly.centroid for poly in mp.geometry.geoms]
     largest_centroid = largest_fragment.centroid

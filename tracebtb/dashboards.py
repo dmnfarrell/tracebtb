@@ -283,7 +283,7 @@ class Dashboard:
         return
 
     def update_tree(self, event=None, sub=None, col='snp7',
-                    tip_size=12, font_size='11pt'):
+                    tip_size=12, font_size='11pt', labelcol='name'):
         """Update tree"""
 
         if self.tree is None or len(sub)<=1 or len(sub)>4000:
@@ -293,7 +293,9 @@ class Dashboard:
             stree = keep_tips(self.tree, list(sub.index))
             tempfile = 'temp.newick'
             Phylo.write(stree, tempfile, "newick")
-            p = bokeh_plot.plot_phylogeny(stree, sub, tip_size=tip_size, font_size=font_size)
+            p = bokeh_plot.plot_phylogeny(stree, sub,
+                                          tip_size=tip_size, font_size=font_size,
+                                          labelcol=labelcol)
 
         self.tree_pane.objects.clear()
         self.tree_pane.append(pn.pane.Bokeh(p))
@@ -588,6 +590,7 @@ class FullDashboard(Dashboard):
         self.ms = ms = self.markersize_input.value
         lw = self.edgewidth_input.value
         legend = self.legend_btn.value
+        labelcol = self.tiplabel_input.value
 
         if sub is None:
             sub = self.selected
@@ -697,7 +700,7 @@ class FullDashboard(Dashboard):
         if self.tree_btn.value is True:
             fs = f'{self.tiplabelsize_input.value}pt'
             ts = self.tipsize_input.value
-            self.update_tree(sub=sub, col=col, tip_size=ts, font_size=fs)
+            self.update_tree(sub=sub, col=col, tip_size=ts, font_size=fs, labelcol=labelcol)
             self.update_mst(sub=sub, node_size=ms)
 
         # Update summaries
@@ -1259,8 +1262,8 @@ class QueryDashboard(FullDashboard):
 
         #tree
         ns = (120/len(sub))+6
-
-        self.update_tree(sub=sub, col=col, tip_size=ns, font_size='9pt')
+        labelcol = self.tiplabel_input.value
+        self.update_tree(sub=sub, col=col, tip_size=ns, labelcol=labelcol, font_size='9pt')
         #mst
         self.update_mst(sub=sub, node_size=ns, labels=False)
         self.info_pane.object = f'**{len(sub)} samples**'
@@ -1318,7 +1321,7 @@ class HerdSelectionDashboard(Dashboard):
         pn.bind(self.random_herd, sim_btn, watch=True)
         refresh_btn = pnw.Button(name='Refresh',width=w,button_type='success')
         pn.bind(self.update, refresh_btn, watch=True)
-        sendquery_btn = pnw.Button(name='Send to Query',width=w)
+        sendquery_btn = pnw.Button(name='Samples Query',width=w)
         pn.bind(self.send_to_query_dashboard, sendquery_btn, watch=True)
 
         self.dist_input = pnw.IntSlider(name='Dist Threshold',width=w,value=1000,
@@ -1360,7 +1363,7 @@ class HerdSelectionDashboard(Dashboard):
 
         #find neighbours and others
         self.parcels = pcl = lpis[lpis.SPH_HERD_N==herd].copy()
-        pcl['HERD_NO']=pcl.SPH_HERD_N
+        pcl['HERD_NO'] = pcl.SPH_HERD_N
         self.cont_parcels = tools.shared_borders(pcl, lpis)
         if self.dist_method.value=='within any parcel':
             nb = tools.find_neighbours(pcl, dist, self.lpis_cent, lpis)
@@ -1383,10 +1386,10 @@ class HerdSelectionDashboard(Dashboard):
         self.plot_pane.object = p
         self.plot_herd_testing(herd)
 
-        #nearest
+        #nearest sampled herd
         self.nearest = tools.find_nearest_point(pcl.iloc[0].geometry, found)
         #tree
-        self.update_tree(sub=found, col='IE_clade')
+        self.update_tree(sub=found, col='IE_clade', labelcol='HERD_NO')
         #fragments
         mp = pcl.iloc[0]
         G,ns = tools.fragments_to_graph(mp)
@@ -1402,7 +1405,7 @@ class HerdSelectionDashboard(Dashboard):
         return
 
     def send_to_query_dashboard(self, event=None):
-        """Send herd query to query dashboard"""
+        """Send herd query to samples query dashboard"""
 
         dash = self.parent.query_dashboard
         herds = ','.join(list(self.found.HERD_NO))
@@ -1412,12 +1415,15 @@ class HerdSelectionDashboard(Dashboard):
     def plot_neighbours(self, df, parcels, col=None, pad=.3):
         """Show herd parcels and its neighbours"""
 
-        point = parcels.to_crs('EPSG:3857').iloc[0].geometry.centroid
-        x1,y1,x2,y2 = df.union_all().bounds
-        pad = (x2-x1)*pad
-        parcels['color'], cm = tools.get_color_mapping(parcels, 'SPH_HERD_N', None)
-        p = bokeh_plot.plot_lpis(parcels, fill_alpha=0.4, line_width=0.2)
-        df['color'] = 'red'
+        if len(parcels)>0:
+            point = parcels.to_crs('EPSG:3857').iloc[0].geometry.centroid
+            x1,y1,x2,y2 = df.union_all().bounds
+            pad = (x2-x1)*pad
+            parcels['color'], cm = tools.get_color_mapping(parcels, 'SPH_HERD_N', None)
+            p = bokeh_plot.plot_lpis(parcels, fill_alpha=0.4, line_width=0.2)
+        else:
+            p = bokeh_plot.init_figure()
+        df['color'] = 'blue'
         bokeh_plot.plot_lpis(df, p, fill_alpha=0.8, line_width=3)
         #p.x_range = Range1d(point.x-pad,point.x+pad)
         return p
@@ -1449,7 +1455,7 @@ class HerdSelectionDashboard(Dashboard):
         if len(self.found)>0:
             strains = self.found.IE_clade.unique()
             nearest_herd = self.nearest.HERD_NO
-            bdg = self.found[self.found.Species=='Badger']
+            bdg = len(self.found[self.found.Species=='Badger'])
         else:
             strains=''
             nearest_herd=''
@@ -1457,8 +1463,8 @@ class HerdSelectionDashboard(Dashboard):
         s = pd.Series({'name':self.herd,'area':area,'fragments':frag,
                        'contiguous herds':len(self.cont_parcels),
                        'farm already sampled':bool(len(sampled)),
-                       'nearest sampled herd':nearest_herd,
-                       'badger samples':len(bdg),
+                       'nearest sampled herd/sett':nearest_herd,
+                       'badger samples':bdg,
                        'strains':strains,
                        'moves in':'?',
                        'risky moves':'?'})
@@ -1496,6 +1502,7 @@ class HerdSelectionDashboard(Dashboard):
         return p
 
     def random_breakdown_herd(self):
+
         te = self.testing
         sr = te.filter(regex='^Sr').copy()
         sr['total'] = sr.iloc[:,-5:].sum(1)
@@ -1516,8 +1523,8 @@ class TestingDashboard(FullDashboard):
         query_pane = self.query_dashboard.show()
         herdselect_pane = self.herdselect_dashboard.show()
         app = pn.Row(
-            pn.Tabs(('Query', query_pane),
-                    ('Herd Selection', herdselect_pane)),
+            pn.Tabs(('Herd Selection', herdselect_pane),
+                    ('Sample Query', query_pane)),
                     #('Moves',herds_pane)),
             max_width=2600,min_height=600)
 

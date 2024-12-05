@@ -721,7 +721,8 @@ def scatter_pie(gdf, groupby='HERD_NO', col='snp12', colormap=None,
     p.toolbar.logo = None
     return p
 
-def plot_phylogeny(tree, df, tip_size=10, lw=1, font_size='10pt', tip_labels=True):
+def plot_phylogeny(tree, df, tip_size=10, lw=1, font_size='10pt',
+                   tip_labels=True, labelcol='name'):
     """
     Plots a phylogenetic tree with tips colored according to metadata.
 
@@ -806,7 +807,7 @@ def plot_phylogeny(tree, df, tip_size=10, lw=1, font_size='10pt', tip_labels=Tru
     tip_coords = [(x_positions[clade], y_positions[clade]) for clade in tree.get_terminals()]
     x_tip, y_tip = zip(*tip_coords)
 
-    metadata = pd.DataFrame(zip(tip_names,x_tip,y_tip),columns=['name','x','y'])
+    metadata = pd.DataFrame(zip(tip_names,x_tip,y_tip),columns=['name','x','y']).fillna('')
     #print (metadata)
     df = df.drop(columns='geometry').astype(str)
     metadata = metadata.merge(df, left_on='name', right_index=True)
@@ -818,7 +819,7 @@ def plot_phylogeny(tree, df, tip_size=10, lw=1, font_size='10pt', tip_labels=Tru
                   marker='marker', name='tree_tips')
     # Add tip labels
     if tip_labels == True:
-        labels = LabelSet(x='x', y='y', text='name', level='glyph', text_color='color',
+        labels = LabelSet(x='x', y='y', text=labelcol, level='glyph', text_color='color',
                       text_baseline='middle', x_offset=10, text_font_size=font_size,
                       source=source)
         p.add_layout(labels)
