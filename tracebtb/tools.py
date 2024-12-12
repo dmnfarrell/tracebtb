@@ -45,14 +45,18 @@ def resource_path(relative_path):
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
 
-def get_cmd(cmd):
-    """Get windows version of a command if required"""
+def update_project(filename, new, field, save=True):
+    """Update tracebtb project file with data"""
 
-    if getattr(sys, 'frozen', False):
-        cmd = resource_path('bin\%s.exe' %cmd)
-    elif platform.system() == 'Windows':
-        cmd = os.path.join(bin_path, '%s.exe' %cmd)
-    return cmd
+    import pickle
+    data = pickle.load(open(filename,'rb'))
+    print (data.keys())
+    if field in data:
+        print ('overwriting field %s' %field)
+    data[field] = new
+    if save==True:
+        pickle.dump(data, open(filename,'wb'))
+    return
 
 def random_hex_color():
     """random hex color"""
@@ -578,10 +582,10 @@ def herd_summary(df, moves, snpdist=None):
         if 'County' in sdf.columns:
             cty = ';'.join(list(sdf.dropna(subset='County').County.unique()))
         if 'snp7' in sdf.columns:
-            cl = ';'.join(list(sdf.snp7.unique()))
-        res.append([herd,len(sdf),clades,len(m),mediandist,hbred,cl,cty])
+            cl = ';'.join(list(sdf.snp7.astype(str).unique()))
+        res.append([herd,len(sdf),clades,len(m),mediandist,hbred,cl,cty,sdf.iloc[0].class_2021])
     res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves',
-                                     'median_dist','homebred','snp7_cl','County'])
+                                     'median_dist','homebred','snp7_cl','County','class_2021'])
     res = res.sort_values('strains',ascending=False)
     return res
 
@@ -630,6 +634,29 @@ def get_moves_bytag(df, move_df, lpis_cent):
         )
     m = gpd.GeoDataFrame(m)
     return m
+
+def apply_jitter(gdf, radius=100):
+    """Apply jitter to points on same farm"""
+
+    def circular_jitter(centroid, points, radius):
+        angles = np.linspace(0, 2 * np.pi, len(points), endpoint=False)
+        jittered_points = []
+        for angle in angles:
+            x = radius * np.cos(angle)
+            y = radius * np.sin(angle)
+            jittered_points.append(Point(centroid.x + x, centroid.y + y))
+        return jittered_points
+
+    #Group by 'HERD_NO' and apply jitter to overlapping points
+    for herd, group in gdf.groupby('HERD_NO'):
+        #print (group)
+        if len(group) <= 1: continue
+        centroid = group['geometry'].iloc[0]
+        if centroid == None or centroid.is_empty: continue
+        jittered = circular_jitter(centroid, group['geometry'], radius)
+        #print (jittered)
+        gdf.loc[group.index, 'geometry'] = jittered
+    return gdf
 
 def get_largest_poly(x):
     """Return largest poly of multipolygon"""
@@ -769,6 +796,36 @@ def shared_borders(parcels, lpis):
     found = pd.concat(found)
     found = found[~found.SPH_HERD_N.isin(parcels.SPH_HERD_N)]
     return found
+
+def plot_neighbours(pcl,df,col=None,pad=.3,ax=None):
+    if ax==None:
+        fig,ax=plt.subplots()
+    point = pcl.iloc[0].geometry.centroid
+    df.plot(lw=.5,ec='black',alpha=0.8,column=col,legend=False,cmap='Set3',ax=ax)
+    pcl.plot(color='red',lw=1,ec='black',ax=ax)
+    x1,y1,x2,y2=df.union_all().bounds
+    pad = (x2-x1)*pad
+    ax.set_xlim(point.x-pad,point.x+pad)
+    ax.set_ylim(point.y-pad,point.y+pad)
+    ax.axis('off')
+    return
+
+def herd_parcel_metrics(herd, lpis, lpis_cent, dist=1000):
+    """Get metrics for a herd in relation to neighbours"""
+
+    pcl = lpis[lpis.SPH_HERD_N==herd].copy()
+    pcl['HERD_NO']=pcl.SPH_HERD_N
+    #get all farms within radius or contiguous parcels
+    cont_parcels = shared_borders(pcl, lpis)
+    #nb = tools.shared_borders(row, lpis)
+    nb = find_neighbours(pcl, dist, lpis_cent, lpis)
+    buffered_area = pcl.geometry.union_all().buffer(dist)
+
+    bdg = badger[badger.geometry.within(buffered_area)]
+    #then get any known strains present in area
+    qry = list(nb.SPH_HERD_N) + list(bdg.HERD_NO) + [herd]
+    found = meta[meta.HERD_NO.isin(qry)]
+    return pcl, nb, found
 
 def count_fragments(geometry):
     if geometry.geom_type == 'MultiPolygon':

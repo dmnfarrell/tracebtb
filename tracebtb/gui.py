@@ -342,29 +342,6 @@ def jitter_points(r, scale=1):
     x,y = r.geometry.x+a,r.geometry.y+b
     return Point(x,y)
 
-def apply_jitter(gdf, radius=100):
-    """Apply jitter to points on same farm"""
-
-    def circular_jitter(centroid, points, radius):
-        angles = np.linspace(0, 2 * np.pi, len(points), endpoint=False)
-        jittered_points = []
-        for angle in angles:
-            x = radius * np.cos(angle)
-            y = radius * np.sin(angle)
-            jittered_points.append(Point(centroid.x + x, centroid.y + y))
-        return jittered_points
-
-    #Group by 'HERD_NO' and apply jitter to overlapping points
-    for herd, group in gdf.groupby('HERD_NO'):
-        #print (group)
-        if len(group) <= 1: continue
-        centroid = group['geometry'].iloc[0]
-        if centroid == None or centroid.is_empty: continue
-        jittered = circular_jitter(centroid, group['geometry'], radius)
-        #print (jittered)
-        gdf.loc[group.index, 'geometry'] = jittered
-    return gdf
-
 def get_move_dates(df):
 
     df['end_date'] = df.move_date.shift(-1)
@@ -1272,7 +1249,7 @@ class App(QMainWindow):
 
         #jitter any points in same farm
         print ('jittering points')
-        df = apply_jitter(df, radius=100)
+        df = tools.apply_jitter(df, radius=100)
         self.meta_table.setDataFrame(df)
         return
 
@@ -1342,7 +1319,7 @@ class App(QMainWindow):
             print ('no coords found. you can still use parcels to determine locations')
         else:
             df = result
-        #set the index column, should be animal ID
+        #set the index column, should be unique ID
         if index == None:
             cols = df.columns
             item, ok = QInputDialog.getItem(self, 'Select Index field', 'Index field:', cols, 0, False)
@@ -1372,7 +1349,7 @@ class App(QMainWindow):
         gdf = gpd.GeoDataFrame(df,geometry=gpd.points_from_xy(df[x], df[y])).set_crs('EPSG:29902')
         #jitter the points
         print ('jittering points')
-        gdf = apply_jitter(gdf, radius=100)
+        gdf = tools.apply_jitter(gdf, radius=100)
         return gdf
 
     def load_moves(self, filename=None):

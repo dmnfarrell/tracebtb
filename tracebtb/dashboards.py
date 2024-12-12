@@ -69,7 +69,8 @@ stylesheet = """
 """
 icsize = '1.9em'
 defaults = {'dashboard':{'lpis_master_file':'','tree_file':None}}
-scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','IE_clade','snp7','snp12','snp20']
+scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','Region','class_2021',
+         'IE_clade','snp7','snp12','snp20']
 
 def get_icon(name):
     """Get svg icon"""
@@ -363,10 +364,12 @@ class FullDashboard(Dashboard):
 
         #selected table
         self.selected_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
-                                    frozen_columns=['sample'],sizing_mode='stretch_both')
+                                    frozen_columns=['sample'],stylesheets=[stylesheet],
+                                    sizing_mode='stretch_both')
         #moves table
         self.moves_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
-                                    frozen_columns=['tag'],sizing_mode='stretch_both')
+                                    frozen_columns=['tag'],stylesheets=[stylesheet],
+                                    sizing_mode='stretch_both')
         #herds table
         self.herds_table = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
                                 frozen_columns=['HERD_NO'],sizing_mode='stretch_both')
@@ -533,15 +536,16 @@ class FullDashboard(Dashboard):
         self.catx_input = pnw.Select(name='x',options=cols,value='Species',width=w)
         self.caty_input = pnw.Select(name='y',options=cols,value=None,width=w)
         self.cathue_input = pnw.Select(name='hue',options=cols,value=None,width=w)
-        kinds = ['count','bar','strip','swarm']
+        kinds = ['count','bar','strip']
         self.catkind_input = pnw.Select(name='kind',options=kinds,
                                 value='count',width=w)
         self.cathue_input = pnw.Select(name='hue',options=cols,value='County',width=w)
+        self.catcmap_input = pnw.Select(name='colormap',options=colormaps,value='Set1',width=w)
         catupdate_btn = pnw.Button(name='Update', button_type='primary',align='end')
         pn.bind(self.update_catplot, catupdate_btn, watch=True)
-        self.analysis_pane1 = pn.Column(pn.Row(self.catx_input,self.caty_input,
-                                       self.cathue_input,self.catkind_input,catupdate_btn),
-                                self.catplot_pane)
+        self.analysis_pane1 = pn.Column(pn.Row(self.catx_input,self.caty_input,self.cathue_input,
+                                               self.catkind_input,self.catcmap_input,catupdate_btn),
+                                    self.catplot_pane)
 
         styles={ "margin-top": "10px", "font-size": "15px"}
         self.about_pane = pn.pane.Markdown('',styles=styles)
@@ -1110,11 +1114,16 @@ class FullDashboard(Dashboard):
         y = self.caty_input.value
         hue = self.cathue_input.value
         kind = self.catkind_input.value
-        cmap = self.cmap_input.value
+        cmap = self.catcmap_input.value
         row = None
+
         import seaborn as sns
-        cg = sns.catplot(data=sub, x=x, y=y, hue=hue, kind=kind, aspect=2,
-                        palette=cmap, dodge=True)
+        if kind== 'count':
+            cg = sns.catplot(data=sub, x=x, y=y, hue=hue, kind=kind, aspect=2,
+                            palette=cmap)
+        else:
+            cg = sns.catplot(data=sub, x=x, y=y, hue=hue, kind=kind, aspect=2,
+                            palette=cmap, dodge=True)
         self.catplot_pane.object = cg.fig
         plt.close(cg.fig)
         #print (fig)
@@ -1513,18 +1522,22 @@ class HerdSelectionDashboard(Dashboard):
 class TestingDashboard(FullDashboard):
     """Testing app is a wrapper for various test dashboards"""
     def __init__(self, **kwargs):
+
         self.query_dashboard = QueryDashboard(parent=self, **kwargs)
         self.herdselect_dashboard = HerdSelectionDashboard(parent=self, **kwargs)
+        self.advanced_dashboard = FullDashboard(parent=self, **kwargs)
+        self.advanced_dashboard.lpis = self.herdselect_dashboard.lpis
         super(TestingDashboard, self).__init__(**kwargs)
         return
 
     def setup_widgets(self):
-
+        advanced_pane = self.advanced_dashboard.show()
         query_pane = self.query_dashboard.show()
         herdselect_pane = self.herdselect_dashboard.show()
         app = pn.Row(
             pn.Tabs(('Herd Selection', herdselect_pane),
-                    ('Sample Query', query_pane)),
+                    ('Sample Query', query_pane),
+                    ('Advanced', advanced_pane)),
                     #('Moves',herds_pane)),
             max_width=2600,min_height=600)
 
