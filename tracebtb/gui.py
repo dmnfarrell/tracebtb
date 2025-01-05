@@ -33,8 +33,6 @@ import matplotlib as mpl
 from . import core, widgets, webwidgets, tables, tools, plotting, bokeh_plot, trees
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
-from matplotlib_scalebar.scalebar import ScaleBar
-#import contextily as cx
 
 #fix for browser display
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox"
@@ -98,124 +96,6 @@ def show_labels(df, col, ax):
         ax.annotate(label, xy=(x, y), xytext=(5, 0), textcoords="offset points",
                     fontsize=8)
     return
-
-def set_equal_aspect(ax):
-    """Set axes to be equal regardless of selection"""
-
-    x1,x2 = ax.get_xlim()
-    y1,y2 = ax.get_ylim()
-    w=x2-x1
-    h=y2-y1
-    aspect = w/h
-    #print (x1,x2,aspect)
-    if aspect >1.1:
-        c = y1+h/2
-        ax.set_ylim(c-w/2,c+w/2)
-    elif aspect<0.9:
-        c = x1+w/2
-        ax.set_xlim(c-h/2,c+h/2)
-    return
-
-def plot_single_cluster(df, col=None, cmap=None, margin=None, ms=40, alpha=0.7, edgecolor=None,
-                        legend=False, title='', ax=None):
-    """Plot a single map view of a set of points/farms"""
-
-    df = df[~df.is_empty]
-    df = df[df.geometry.notnull()]
-
-    if len(df) == 0:
-        ax.clear()
-        ax.set_title('no locations available')
-        ax.axis('off')
-        return
-
-    minx, miny, maxx, maxy = df.total_bounds
-    if len(df) == 1:
-        minx -= 1000
-        miny -= 1000
-        maxx += 1000
-        maxy += 1000
-    else:
-        maxx += 10
-        maxy += 10
-
-    # map color to col here first
-    if 'color' not in df.columns:
-        if col is None or col == '':
-            df['color'] = 'blue'
-        else:
-            df['color'],c = tools.get_color_mapping(df, col, cmap)
-
-    ncols = 1
-    if col in df.columns and len(df.groupby(col).groups) > 15:
-        ncols = 2
-    legfmt = {'title': col, 'fontsize': 'small', 'frameon': False, 'draggable': True, 'ncol': ncols}
-
-    # Split the dataframe by species
-    cows = df[df.Species == 'Bovine']
-    badgers = df[df.Species == 'Badger']
-    if not cows.empty:
-        cows.plot(color=cows.color, ax=ax, alpha=alpha, markersize=ms,
-                    edgecolor=edgecolor, linewidth=.5,
-                      legend=legend, legend_kwds=legfmt)
-    if not badgers.empty:
-        if col is None or col == '':
-            badgers.plot(color=badgers.color, ax=ax, alpha=alpha, edgecolor=edgecolor,
-                         marker='s', markersize=ms, linewidth=.5)
-    ax.set_title(title)
-    ax.axis('off')
-
-    if margin is None:
-        margin = (maxx - minx) * 0.3
-    ax.set_xlim(minx - margin, maxx + margin)
-    ax.set_ylim(miny - margin, maxy + margin)
-    ax.add_artist(ScaleBar(dx=1, location=3))
-    return
-
-def calculate_grid_dimensions(n):
-    """Calculate the number of rows and columns that best approximate a square layout"""
-
-    sqrt_n = math.ceil(n**0.5)
-    rows = math.ceil(n / sqrt_n)
-    columns = math.ceil(n / rows)
-    return rows, columns
-
-def plot_grid(gdf, parcels=None, moves=None, fig=None, source=None):
-    """
-    Plot herds on multiple axes. Useful for overview of farms and reports.
-    """
-
-    groups = gdf.groupby('HERD_NO')
-    n = len(groups)+1
-    rows, cols = calculate_grid_dimensions(n)
-    if fig == None:
-        fig,ax = plt.subplots(rows,rows,figsize=(8,8))
-        axs = ax.flat
-    else:
-        axs = widgets.add_subplots_to_figure(fig, rows, cols)
-        #print (axs)
-    i=0
-    for idx,df in groups:
-        ax=axs[i]
-        r=df.iloc[0]
-        if parcels is not None:
-            subp = parcels[parcels.SPH_HERD_N==idx]
-            subp.plot(color='red',alpha=0.6,lw=1,ax=ax)
-        df.plot(color='black',ax=ax)
-        ax.axis('off')
-        ax.add_artist(ScaleBar(dx=1,location=3))
-        ax.set_title(r.HERD_NO)
-        if source != None:
-            cx.add_basemap(ax, crs=df.crs, attribution=False, source=source)
-        i+=1
-    ax=axs[i]
-    gdf.plot(ax=ax)
-    counties_gdf.plot(color='none',lw=.2,ax=ax)
-    if moves is not None:
-        plot_moves(moves,lpis_cent,ax)
-    ax.axis('off')
-    plt.tight_layout()
-    return ax
 
 def plot_moves(moves, lpis_cent, ax, ms=80):
     """Show moves as lines on plot"""
@@ -1594,9 +1474,8 @@ class App(QMainWindow):
             #self.neighbours.plot(color='gray',alpha=0.4,ax=ax)
             self.neighbours.plot(column='color',cmap='gray',alpha=0.4,ax=ax)
 
-        plot_single_cluster(self.sub,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
-        #plot_single_cluster(self.sub,ms=ms,legend=legend,ax=ax)
-
+        plotting.plot_selection(self.sub,col=colorcol,ms=ms,cmap=cmap,legend=legend,ax=ax)
+ 
         labelcol = self.labelsw.currentText()
         if labelcol != '':
             show_labels(self.sub, labelcol, ax)

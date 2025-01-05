@@ -234,10 +234,12 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         #r1.selection_glyph = p.circle(size=15, fill_color="firebrick",
         #                                 line_color="black", alpha=.6)
         #hover tool
-        h1 = HoverTool(renderers=[r1], tooltips=([("Herd", "@SPH_HERD_N")
-                                               ]))
+        h1 = HoverTool(renderers=[r1],
+                       tooltips=([("Herd", "@SPH_HERD_N")]))
         p.add_tools(h1)
 
+    #sett outlines
+    #plot_setts(gdf, p)
     #draw points
     r2 = p.scatter('x', 'y', source=geo_source, color='color', line_width=lw,
                    line_color='black', marker="marker", fill_alpha=0.7, size=ms, name='points')
@@ -247,8 +249,8 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
                                             ("Year", "@Year"),
                                             ("Homebred","@Homebred"),
                                             ("Clade", "@IE_clade"),
-                                            ('snp7',"@snp7"),
-                                            ('snp12',"@snp12")
+                                            ("Strain", "@strain_name"),
+                                            ('snp7',"@snp7")
                                            ]))
     p.add_tools(h2)
 
@@ -288,6 +290,18 @@ def add_legend(p, gdf, col, fontsize=14):
     legend = Legend(items=legend_items, location="top_left", title=col)
     p.add_layout(legend, 'right')
     p.legend.label_text_font_size = f'{fontsize}pt'
+    return
+
+def plot_setts(gdf, p):
+    """Add circles for setts where there are badger samples"""
+
+    b = gdf[gdf.Species=='Badger']
+    grouped = b.groupby('HERD_NO')['geometry'].apply(lambda x: x.unary_union.centroid)
+    centroids_gdf = gpd.GeoDataFrame(grouped, geometry='geometry', crs=gdf.crs).reset_index()
+    geojson = centroids_gdf.to_crs('EPSG:3857').to_json()
+    source = GeoJSONDataSource(geojson=geojson)
+    r = p.scatter('x', 'y', source=source, line_width=1, color=None,
+                   line_color='black', marker="circle", size=40, name='setts')
     return
 
 def plot_gdf(gdf, p, **kwargs):
@@ -410,7 +424,7 @@ def get_timeline_data(mov, meta, limit=300):
     if mov is None:
         return
     cols = ['move_to','move_date','end_date','data_type','duration','sample']
-    mcols = ['sample','snp5','snp7','snp12']
+    mcols = ['sample']#,'snp5','snp7']
     cols = cols+mcols
     new = []
     #default end date if no death
@@ -618,14 +632,15 @@ def kde_plot(gdf, p, color='#507CBD', levels=10, alpha=0.5):
     p.contour(x, y, z, lvl[1:], fill_color=palette, line_color=palette, fill_alpha=alpha)
     return
 
-def kde_plot_groups(gdf, p, col='snp12', min_samples=5, alpha=0.5):
+def kde_plot_groups(gdf, p, col='strain_name', min_samples=5, alpha=0.5):
     """Kde plot of separate groups"""
 
     for c,sub in gdf.groupby(col):
         sub = sub[~sub.geometry.is_empty]
         #remove redundant points in same herd to avoid skewed plot?
         sub = sub.drop_duplicates('HERD_NO')
-        sub = tools.remove_outliers_zscore(sub,2)
+        #sub = tools.remove_outliers_zscore(sub,2)
+        sub = tools.remove_outliers_mahalanobis(sub, 2)
         if len(sub)<min_samples:
             continue
         clr = sub.iloc[0].color
@@ -659,9 +674,9 @@ def hexbin(gdf, n_bins=10, p=None):
     tiles = p.hex_tile(q="q", r="r", size=hex_size, line_color='black', source=source,
                fill_alpha=0.7, fill_color=color_mapper)
     hover = HoverTool(
-        tooltips=[("Count", "@counts")],  # Display the 'counts' field from ColumnDataSource
-        mode="mouse",  # Display hover info wherever the mouse is over a tile
-        renderers=[tiles]  # Apply hover tool to hex tiles
+        tooltips=[("Count", "@counts")],
+        mode="mouse",
+        renderers=[tiles]
     )
     p.add_tools(hover)
     return p
@@ -829,8 +844,8 @@ def plot_phylogeny(tree, df, tip_size=10, lw=1, font_size='10pt',
                                             ("Year", "@Year"),
                                             ("Homebred","@Homebred"),
                                             ("Clade", "@IE_clade"),
-                                            ('snp7',"@snp7"),
-                                            ('snp12',"@snp12")
+                                            ("Strain", "@strain_name"),
+                                            ('snp7',"@snp7")
                                            ]))
     p.add_tools(h)
     p.yaxis.visible = False

@@ -34,7 +34,6 @@ from Bio import SeqIO
 from Bio import Phylo, AlignIO, Align
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
-from . import core
 
 module_path = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(module_path,'data')
@@ -444,14 +443,15 @@ def create_hex_grid(gdf=None, bounds=None, n_cells=10, overlap=False, crs="EPSG:
         grid = grid.sjoin(gdf, how='inner').drop_duplicates('geometry')[cols]
     return grid
 
-def count_points_in_grid(grid, gdf, value_column='count'):
+def count_points_in_grid(grid, gdf, value_column='count', threshold=None):
     """
-    Count the number of points in each grid cell and optionally plot the grid by this value.
+    Count the number of points in each grid cell.
 
     Parameters:
     - grid: GeoDataFrame, the hexagonal grid created by `create_hex_grid`.
     - gdf: GeoDataFrame, the GeoDataFrame of points.
     - value_column: str, the name of the column to store point counts in the grid GeoDataFrame.
+    - threshold: only return cells with counts above this value
 
     Returns:
     - grid: GeoDataFrame with a new column `value_column` containing the count of points.
@@ -465,12 +465,15 @@ def count_points_in_grid(grid, gdf, value_column='count'):
     point_counts = joined.groupby('grid_id').size()
     # Add point counts to the grid GeoDataFrame
     grid[value_column] = grid['grid_id'].map(point_counts).fillna(0).astype(int)
+    if threshold != None:
+        grid = grid[grid['count']>threshold].copy()
     return grid
 
-def get_count_grid(df, n_cells=30):
+def get_count_grid(df, grid=None, n_cells=30):
     """Get hex grid of counts for a gdf of points"""
 
-    grid = create_hex_grid(df, n_cells=n_cells)
+    if grid is None:
+        grid = create_hex_grid(df, n_cells=n_cells)
     grid = count_points_in_grid(grid, df)
     #mask grid to map
     mask = core.counties_gdf.to_crs('EPSG:29902').union_all()
@@ -513,24 +516,66 @@ def find_outliers(gdf, min_dist=10, min_samples=10, col='snp7'):
 
 def remove_outliers_zscore(gdf, threshold=3):
     """
-    Remove outliers from a GeoDataFrame using the Z-score method.
+    Remove outliers from a GeoDataFrame using distance from the centroid.
     :param gdf: GeoDataFrame with a 'geometry' column containing points.
-    :param threshold: Z-score threshold for identifying outliers.
+    :param threshold: Z-score threshold for identifying outliers based on distances.
     :return: GeoDataFrame with outliers removed.
     """
-
+    import numpy as np
     from scipy.stats import zscore
+
     # Extract x and y coordinates
     gdf['x'] = gdf.geometry.x
     gdf['y'] = gdf.geometry.y
     gdf = gdf.dropna(subset=['x', 'y']).copy()
-    # Calculate Z-scores for x and y coordinates
-    gdf['zscore_x'] = zscore(gdf['x'])
-    gdf['zscore_y'] = zscore(gdf['y'])
+    # Calculate centroid of the points
+    centroid = gdf[['x', 'y']].mean()
+    # Calculate Euclidean distance of each point from the centroid
+    gdf['distance'] = np.sqrt((gdf['x'] - centroid['x'])**2 + (gdf['y'] - centroid['y'])**2)
+    # Calculate Z-scores for distances
+    gdf['distance_zscore'] = zscore(gdf['distance'])
     # Filter based on the threshold
-    gdf_filtered = gdf[(np.abs(gdf['zscore_x']) < threshold) & (np.abs(gdf['zscore_y']) < threshold)]
+    gdf_filtered = gdf[np.abs(gdf['distance_zscore']) < threshold]
     # Drop the helper columns
-    gdf_filtered = gdf_filtered.drop(columns=['x', 'y', 'zscore_x', 'zscore_y'])
+    gdf_filtered = gdf_filtered.drop(columns=['x', 'y', 'distance', 'distance_zscore'])
+    #print (len(gdf),len(gdf_filtered))
+    return gdf_filtered
+
+def remove_outliers_dbscan(gdf, eps=0.1, min_samples=5):
+    """
+    Remove outliers from a GeoDataFrame using DBSCAN clustering.
+    :param gdf: GeoDataFrame with a 'geometry' column containing points.
+    :param eps: Maximum distance between two samples for them to be considered as in the same neighborhood.
+    :param min_samples: Minimum number of points to form a cluster.
+    :return: GeoDataFrame with outliers removed.
+    """
+
+    from sklearn.cluster import DBSCAN
+    coords = np.array([(point.x, point.y) for point in gdf.geometry])
+    db = DBSCAN(eps=eps, min_samples=min_samples).fit(coords)
+    gdf['cluster'] = db.labels_  # Assign cluster labels
+    # Keep only points in clusters (label >= 0)
+    gdf_filtered = gdf[gdf['cluster'] >= 0].drop(columns=['cluster'])
+    return gdf_filtered
+
+def remove_outliers_mahalanobis(gdf, threshold=3):
+    """
+    Remove outliers using the Mahalanobis distance.
+    :param gdf: GeoDataFrame with a 'geometry' column containing points.
+    :param threshold: Mahalanobis distance threshold for identifying outliers.
+    :return: GeoDataFrame with outliers removed.
+    """
+
+    from scipy.spatial.distance import mahalanobis
+    coords = np.array([(point.x, point.y) for point in gdf.geometry])
+    # Compute the mean and covariance matrix
+    mean = np.mean(coords, axis=0)
+    cov_matrix = np.cov(coords, rowvar=False)
+    inv_cov_matrix = np.linalg.inv(cov_matrix)
+    # Compute Mahalanobis distance for each point
+    distances = [mahalanobis(point, mean, inv_cov_matrix) for point in coords]
+    # Filter points within the threshold
+    gdf_filtered = gdf[np.array(distances) < threshold].copy()
     return gdf_filtered
 
 def flatten_matrix(df):
@@ -546,7 +591,7 @@ def flatten_matrix(df):
 def get_ordinal_columns(df):
     """Try to get ordinal columns from table"""
 
-    ignore = ['sample','Aliquot','geometry','Animal_ID','X_COORD','Y_COORD']
+    ignore = ['sample','Aliquot','geometry','Animal_ID','X_COORD','Y_COORD','LONG','LAT']
     ocols = []
     for col in df.columns:
         count = df[col].nunique()
@@ -798,12 +843,13 @@ def shared_borders(parcels, lpis):
     return found
 
 def plot_neighbours(pcl,df,col=None,pad=.3,ax=None):
+
     if ax==None:
         fig,ax=plt.subplots()
     point = pcl.iloc[0].geometry.centroid
-    df.plot(lw=.5,ec='black',alpha=0.8,column=col,legend=False,cmap='Set3',ax=ax)
-    pcl.plot(color='red',lw=1,ec='black',ax=ax)
-    x1,y1,x2,y2=df.union_all().bounds
+    df.plot(lw=.5,ec='black',alpha=0.6,column=col,legend=False,cmap='Set3',ax=ax)
+    pcl.plot(color='red',lw=0,ec='black',ax=ax)
+    x1,y1,x2,y2 = df.union_all().bounds
     pad = (x2-x1)*pad
     ax.set_xlim(point.x-pad,point.x+pad)
     ax.set_ylim(point.y-pad,point.y+pad)

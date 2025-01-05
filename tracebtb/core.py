@@ -24,6 +24,7 @@ import sys,os,subprocess,glob,re
 import time, datetime
 import platform
 import geopandas as gpd
+from . import tools
 
 home = os.path.expanduser("~")
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
@@ -110,6 +111,8 @@ host_colors = {
 
 counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:3857")
 counties_gdf['geometry'] = counties_gdf.geometry.simplify(300)
+#hex grid of ireland
+iregrid = tools.create_hex_grid(counties_gdf,n_cells=30)
 
 def git_version() -> str:
     """Get get version"""

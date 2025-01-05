@@ -67,10 +67,24 @@ stylesheet = """
     font-size: 11px;
 }
 """
+dm_css = """
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-title {
+  transform: rotate(-90deg);
+  white-space: normal;
+  text-overflow: clip;
+  font-size: 10px;
+  width: 20px;
+}
+.tabulator-cell {
+    font-size: 10px;
+    width: 10px;
+}
+"""
+
 icsize = '1.9em'
 defaults = {'dashboard':{'lpis_master_file':'','tree_file':None}}
 scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','Region','class_2021',
-         'IE_clade','snp7','snp12','snp20']
+         'IE_clade','strain_name','snp7']
 
 def get_icon(name):
     """Get svg icon"""
@@ -212,7 +226,7 @@ class Dashboard:
         self.testing = testing
         self.view_history = []
         self.current_index = 0
-        self.cols = [None]+tools.get_ordinal_columns(self.meta)
+        self.cols = [None]+tools.get_ordinal_columns(self.meta)+['snp7','snp12']
         self.layout = self.setup_widgets()
         return
 
@@ -244,7 +258,7 @@ class Dashboard:
         """Groupby widgets"""
 
         w=140
-        self.groupby_input = pnw.Select(name='group by',options=self.cols,value='snp7',width=w)
+        self.groupby_input = pnw.Select(name='group by',options=self.cols,value='strain_name',width=w)
         self.groups_table = pnw.Tabulator(disabled=True, widths={'count': 30}, layout='fit_columns',
                                           pagination=None, height=200, width=w,
                                           stylesheets=[stylesheet])
@@ -328,7 +342,7 @@ class FullDashboard(Dashboard):
         self.split_pane = pn.Column(sizing_mode='stretch_both')
 
         cols = self.cols
-        tccols = ['','snp7','snp5','snp12']
+        tccols = ['','snp7','snp5']
         small_style = """
             .bk-root .bk-select {
                 font-size: 10px;
@@ -347,7 +361,7 @@ class FullDashboard(Dashboard):
         pn.bind(self.select_from_table, self.showselected_btn, watch=True)
         self.selectrelated_btn = pnw.Button(name='Find Related', button_type='primary', align="end")
         pn.bind(self.select_related, self.selectrelated_btn, watch=True)
-        self.threshold_input = pnw.IntInput(name='Threshold', value=7, step=1, start=2, end=20,width=60)
+        self.threshold_input = pnw.IntInput(name='Threshold', value=5, step=1, start=2, end=20,width=60)
         #search  table
         self.search_input = pnw.TextInput(name="Search", value='',sizing_mode='stretch_width')
         self.searchcol_select = pnw.Select(name='Column',value='HERD_NO',options=scols,width=100)
@@ -387,6 +401,10 @@ class FullDashboard(Dashboard):
 
         self.tree_pane = pn.Column(sizing_mode='stretch_both')
         self.mst_pane = pn.Column(sizing_mode='stretch_both')
+        self.sdist_pane = pn.pane.DataFrame(sizing_mode='stretch_both')
+        #self.sdist_pane = pnw.Tabulator(show_index=True,disabled=True,page_size=100,layout='fit_data_stretch',
+        #                                stylesheets=[dm_css],
+        #                                sizing_mode='stretch_both')
         #details
         self.details_pane = pn.pane.DataFrame(sizing_mode='stretch_both')
 
@@ -431,7 +449,7 @@ class FullDashboard(Dashboard):
         self.labelsize_input = pnw.IntSlider(name='label size', value=18, start=6, end=80,width=w)
         self.legendsize_input = pnw.IntSlider(name='legend size', value=12, start=6, end=40,width=w)
         self.hexbins_input = pnw.IntSlider(name='hex bins', value=10, start=5, end=100,width=w)
-        self.scalebar_input = pnw.Checkbox(name='show scalebar',value=False)
+        self.scalebar_input = pnw.Checkbox(name='show scalebar',value=True)
         self.randseed_input = pnw.IntSlider(name='random color seed', value=647, start=1, end=5000,width=w)
         self.tipsize_input = pnw.IntSlider(name='tree tip size', value=8, start=1, end=25,width=w)
         self.tiplabelsize_input = pnw.IntSlider(name='tip label font size', value=9, start=6, end=20,width=w)
@@ -466,7 +484,7 @@ class FullDashboard(Dashboard):
         widgets1 = pn.Tabs(('search',search_widgets),('groups',group_widgets))
 
         #options
-        self.colorby_input = pnw.Select(name='color by',options=cols,value='snp7',width=w)
+        self.colorby_input = pnw.Select(name='color by',options=cols,value='strain_name',width=w)
         self.cmap_input = pnw.Select(name='colormap',options=colormaps,value='Set1',width=w)
         self.tiplabel_input = pnw.Select(name='tip label',options=list(self.meta.columns),value='sample',width=w)
         self.provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
@@ -501,9 +519,9 @@ class FullDashboard(Dashboard):
         self.homebredbox = pnw.Checkbox(name='Homebred',value=False)
         self.findrelated_btn = pnw.Button(name='Find Related', button_type='primary', align="end")
         pn.bind(self.find_related, self.findrelated_btn, watch=True)
-        self.related_col_input = pnw.Select(options=cols,value='snp7',width=90)
+        #self.related_col_input = pnw.Select(options=cols,value='snp7',width=90)
 
-        filters = pn.Row(self.findrelated_btn,self.related_col_input,self.timeslider,self.clustersizeslider,self.homebredbox)
+        filters = pn.Row(self.findrelated_btn,self.threshold_input,self.timeslider,self.clustersizeslider)#,self.homebredbox)
 
         self.groupby_input.param.watch(self.update_groups, 'value')
         self.groups_table.param.watch(self.select_group, 'selection')
@@ -568,8 +586,8 @@ class FullDashboard(Dashboard):
                                 sizing_mode='stretch_both'),
                             ),
                     pn.Tabs(('Overview',pn.Column(self.overview_pane,
-                                            pn.Column(self.timeline_pane,self.timelinecolor_input), width=500)),
-                                    ('Tree',self.tree_pane),('MST',self.mst_pane),
+                                            pn.Column(self.timeline_pane), width=500)),
+                                    ('Tree',self.tree_pane),('MST',self.mst_pane),('SNPdist',self.sdist_pane),
                                     ('Details',self.details_pane),
                                     dynamic=True,width=500),
                 max_width=2600,min_height=600
@@ -577,7 +595,7 @@ class FullDashboard(Dashboard):
         app.sizing_mode='stretch_both'
         self.meta_pane.value = self.meta
         self.update_groups()
-        self.selected = self.meta[self.meta.snp7.isin(['24'])].copy()
+        self.selected = self.meta.sample(4).copy()
         self.update(sub=self.selected)
         return app
 
@@ -598,6 +616,9 @@ class FullDashboard(Dashboard):
 
         if sub is None:
             sub = self.selected
+
+        if 'snp7' not in sub.columns:
+            sub = self.update_clusters(sub)
 
         if len(sub[col].unique()) > 20:
             cmap = None
@@ -706,10 +727,11 @@ class FullDashboard(Dashboard):
             ts = self.tipsize_input.value
             self.update_tree(sub=sub, col=col, tip_size=ts, font_size=fs, labelcol=labelcol)
             self.update_mst(sub=sub, node_size=ms)
+            self.update_snpdist(sub=sub)
 
         # Update summaries
         self.update_herd_summary()
-        self.update_cluster_summary()
+        self.update_group_summary()
         return
 
     def point_selected(self, event):
@@ -773,7 +795,7 @@ class FullDashboard(Dashboard):
         self.herds_table.value = h
         return
 
-    def update_cluster_summary(self, event=None):
+    def update_group_summary(self, event=None):
 
         col = self.colorby_input.value
         cl = tools.cluster_summary(self.selected, col, 5, self.snpdist)
@@ -889,9 +911,15 @@ class FullDashboard(Dashboard):
     def find_related(self, event=None):
         """Find related samples"""
 
-        col = self.related_col_input.value
-        cl = list(self.selected[col].unique())
-        sub = self.meta[(self.meta[col].isin(cl))].copy()
+        sub = self.selected
+        idx = list(sub.index)
+        dist = self.threshold_input.value
+        names=[]
+        for i in idx:
+            found = tools.get_within_distance(self.snpdist, i, dist)
+            names.extend(found)
+        names = list(set(names))
+        sub = self.meta.loc[names]
         self.update(sub=sub)
         self.add_to_history()
         return
@@ -942,6 +970,21 @@ class FullDashboard(Dashboard):
         self.split_pane.append(pn.pane.Bokeh(f))
         return
 
+    def update_clusters(self, sub):
+        """Get clusters within the selection - useful for within clade divisions"""
+
+        from . import clustering
+        number_to_letter = {i: chr(64 + i) for i in range(1, 100)}
+        idx = list(sub.index)
+        dm = self.snpdist.loc[idx,idx]
+        if len(dm)>2:
+            clusts,members = clustering.get_cluster_levels(dm, levels=[5,7,12], linkage='average')
+            clusts = clusts.replace(number_to_letter)
+            sub = sub.merge(clusts,left_index=True,right_index=True,how='left')
+        else:
+            sub['snp7'] = 'A'
+        return sub
+
     def update_mst(self, event=None, sub=None, **kwargs):
         """Update mst"""
 
@@ -951,6 +994,17 @@ class FullDashboard(Dashboard):
         #self.mst_pane.object = p
         self.mst_pane.objects.clear()
         self.mst_pane.append(pn.pane.Bokeh(p))
+        return
+
+    def update_snpdist(self, event=None, sub=None):
+        """Update snpdist pane"""
+
+        idx = sub.index
+        if len(idx)<50:
+            dm = self.snpdist.loc[idx,idx]
+            self.sdist_pane.object = dm
+        else:
+            self.sdist_pane.object = None
         return
 
     def do_search(self, event=None):
@@ -1276,7 +1330,7 @@ class QueryDashboard(FullDashboard):
         #mst
         self.update_mst(sub=sub, node_size=ns, labels=False)
         self.info_pane.object = f'**{len(sub)} samples**'
-        scols = ['sample','Animal_ID','Year','HERD_NO','snp5','snp7','snp12','IE_clade','County','SB']
+        scols = ['sample','Animal_ID','Year','HERD_NO','snp5','snp7','IE_clade','County','SB']
         self.selected_pane.value = sub[scols]
         return
 
