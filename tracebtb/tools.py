@@ -607,7 +607,7 @@ def herd_summary(df, moves, snpdist=None):
     res=[]
     for herd, sdf in df.groupby('HERD_NO'):
         #print (herd)
-        clades = len(sdf.snp7.unique())
+        clades = len(sdf.short_name.unique())
         m = moves[moves.move_to == herd]
         #only farm to farm moves
         m = m[m.data_type=='F_to_F']
@@ -626,11 +626,11 @@ def herd_summary(df, moves, snpdist=None):
             hbred = None
         if 'County' in sdf.columns:
             cty = ';'.join(list(sdf.dropna(subset='County').County.unique()))
-        if 'snp7' in sdf.columns:
-            cl = ';'.join(list(sdf.snp7.astype(str).unique()))
+        if 'short_name' in sdf.columns:
+            cl = ';'.join(list(sdf.short_name.astype(str).unique()))
         res.append([herd,len(sdf),clades,len(m),mediandist,hbred,cl,cty,sdf.iloc[0].class_2021])
     res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves',
-                                     'median_dist','homebred','snp7_cl','County','class_2021'])
+                                     'median_dist','homebred','strain_names','County','class_2021'])
     res = res.sort_values('strains',ascending=False)
     return res
 

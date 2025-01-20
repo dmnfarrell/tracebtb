@@ -31,13 +31,13 @@ def generate_strain_names(df):
     Returns:
         new strain names in a dataframe
     """
-    
+
     new = []
     #print (df.columns)
     for idx, sample in df.iterrows():
         #short_name = f"IE{sample['Level.1']}"
-        strain_name = f"MB{sample['Level.1']}.{sample['Level.2']}.{sample['Level.3']}"       
-        df.loc[idx,'IE_clade'] = f"MB{sample['Level.1']}-{sample['Level.2']}"        
+        strain_name = f"MB{sample['Level.1']}.{sample['Level.2']}.{sample['Level.3']}"
+        df.loc[idx,'IE_clade'] = f"MB{sample['Level.1']}-{sample['Level.2']}"
         df.loc[idx,'strain_name'] = strain_name
     return df
 
@@ -49,7 +49,7 @@ def identify_clade_defining_snps(snp_df, threshold=0.55, min_size=None):
         snp_table (pd.DataFrame): A DataFrame where rows are SNP positions and columns are samples.
                                  The first row contains reference nucleotides.
                                  The last column indicates the clade assignment for each sample.
-        threshold (float): The minimum frequency of the ALT allele within a clade to consider it clade-defining. 
+        threshold (float): The minimum frequency of the ALT allele within a clade to consider it clade-defining.
                             0.55 is the lowest value that seems to be useful before clade assignment will start to fail
 
     Returns:
@@ -57,13 +57,13 @@ def identify_clade_defining_snps(snp_df, threshold=0.55, min_size=None):
     """
     if min_size != None:
         c=snp_df['clade'].value_counts()
-        omit = c[c<=min_size].index
+        omit = c[c<min_size].index
         snp_df = snp_df[~snp_df['clade'].isin(omit)]
-    
+    print (f'running {len(snp_df)} samples')
     # Extract the reference row and clade information
     ref_row = snp_df.iloc[0, :-1]  # First row, excluding clade column
     clade_column = snp_df.iloc[1:, -1]  # Clade information, excluding the reference row
-    
+
     # List to store clade-defining SNPs
     unique_snps = []
 
@@ -87,7 +87,7 @@ def identify_clade_defining_snps(snp_df, threshold=0.55, min_size=None):
             if clade_alt_freq >= threshold and non_clade_ref_freq == 1.0:
                 unique_snps.append({
                     "ref": ref_row[position],
-                    "snp": clade_alleles.mode()[0],
+                    "alt": clade_alleles.mode()[0],
                     "clade": clade,
                     "pos": position,
                     "freq": clade_alt_freq
@@ -110,7 +110,7 @@ def assign_clade(new_sample, unique_snps_df):
     """
     # Extract SNP positions, clades, and alleles from the unique SNPs DataFrame
     snp_positions = unique_snps_df["pos"].values
-    snp_alleles = unique_snps_df["snp"].values
+    snp_alleles = unique_snps_df["alt"].values
     clade_labels = unique_snps_df["clade"].values
 
     # Filter the new sample to include only SNP positions of interest
@@ -143,11 +143,11 @@ def introduce_mutations(genome, mutation_rate):
 def mutate_genome(genome, mutation_rate):
     """
     Introduce random mutations into a genome.
-    
+
     Parameters:
     genome (str): The original genome sequence.
     mutation_rate (float): Probability of mutation at each site.
-    
+
     Returns:
     str: A mutated genome sequence.
     """
@@ -156,64 +156,65 @@ def mutate_genome(genome, mutation_rate):
         if random.random() < mutation_rate:
             genome_list[i] = random.choice([base for base in 'ACGT' if base != genome_list[i]])
     return ''.join(genome_list)
-    
+
 def simulate_hierarchical_clades(ref_genome, num_clades, num_subclades, samples_per_subclade, mutation_rate):
     """
     Simulate hierarchical clades with a nested structure.
-    
+
     Parameters:
     ref_genome (str): Reference genome sequence.
     num_clades (int): Number of main clades.
     num_subclades (int): Number of subclades per main clade.
     samples_per_subclade (int): Number of samples per subclade.
     mutation_rate (float): Mutation rate for introducing changes to genomes.
-    
+
     Returns:
     dict: A dictionary where keys are clade/subclade identifiers and values are lists of genome sequences.
     """
     clades = {}
-    
+
     for clade_idx in range(num_clades):
         # Generate a main clade genome by mutating the reference genome
         clade_genome = mutate_genome(ref_genome, mutation_rate)
         clade_name = f"Clade{clade_idx+1}"
-        
+
         for subclade_idx in range(num_subclades):
-          
+
             # Generate a subclade genome by further mutating the clade genome
             # Subclades diverge less than main clades
-            subclade_genome = mutate_genome(clade_genome, mutation_rate / 2)  
-                       
+            subclade_genome = mutate_genome(clade_genome, mutation_rate / 2)
+
             # Generate individual genomes for the subclade
             subclade_sequences = [
                 # Individual variation within the subclade
-                mutate_genome(subclade_genome, mutation_rate / 4) 
+                mutate_genome(subclade_genome, mutation_rate / 4)
                 for _ in range(samples_per_subclade)
             ]
             clades[clade_name] = subclade_sequences
-    
+
     return clades
-    
+
 def generate_snp_table(clades, reference):
+
     snp_data = {}
     clade_info = {}
-    
+
     # Iterate through each clade and its samples
     for clade, genomes in clades.items():
         for sample_id, genome in enumerate(genomes):
             sample_name = f"{clade}_S{sample_id + 1}"
             snp_data[sample_name] = list(genome)
             clade_info[sample_name] = clade  # Store the clade for each sample
-    
+
     # Create a DataFrame with SNP data
     snp_df = pd.DataFrame(snp_data, index=[f"{i + 1}" for i in range(len(reference))])
     snp_df.insert(0, "ref", list(reference))  # Add reference genome as the first column
-    
+
     # Add clade information as a new row
     clade_row = pd.Series(clade_info)
-    snp_df.loc['clade'] = clade_row    
+    snp_df.loc['clade'] = clade_row
     return snp_df
-    
+
 def snp_table_to_fasta(snp_table, output_fasta="output.fasta"):
     """
     Converts SNP table to FASTA format.
@@ -232,7 +233,7 @@ def snp_table_to_fasta(snp_table, output_fasta="output.fasta"):
 def test_simulated():
 
     ref_genome = generate_reference_genome(length=50)
-    clades = simulate_hierarchical_clades(ref_genome, num_clades=5, num_subclades=5, 
+    clades = simulate_hierarchical_clades(ref_genome, num_clades=5, num_subclades=5,
                                           samples_per_subclade=3, mutation_rate=0.1)
     sim_table = generate_snp_table(clades, ref_genome)
     snp_table_to_fasta(sim_table[:-1], "simulated.fa")
