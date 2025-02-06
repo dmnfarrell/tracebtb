@@ -39,7 +39,7 @@ def make_legend(fig, colormap, loc='best', title='',fontsize=12):
     for c in colormap:
         pts.append(mpatches.Patch(color=colormap[c],label=c))
 
-    fig.legend(handles=pts,loc=loc,fontsize=fontsize,
+    fig.legend(handles=pts,fontsize=fontsize,
                frameon=False,draggable=True,title=title)
     return pts
 
@@ -322,19 +322,20 @@ def plot_top_category_in_grid(gdf, col, n_cells=10, cmap='viridis', ax=None):
     ax.axis('off')
     return
 
-def plot_grid(grid, mask=None, cmap='plasma', fontsize=7):
+def plot_grid(grid, mask=None, cmap='plasma', fontsize=7, counts=True, ax=None):
     """Plot values from a pre-made grid, optionally mask the grid with a gdf"""
 
     if mask is not None:
         #mask for plotting
         mask_gdf = gpd.GeoDataFrame(geometry=[mask], crs='EPSG:29902')
         grid = gpd.overlay(grid, mask_gdf, how='intersection')
-    fig, ax = plt.subplots(figsize=(9, 10))
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(9, 10))
     grid.plot(column='count', ax=ax, legend=True, cmap=cmap,
               edgecolor='k', linewidth=0.3, legend_kwds={"shrink":.5})
     ax.axis('off')
-    ax.set_title('gaps in coverage')
-    plot_grid_counts(grid, ax, fontsize)
+    if counts==True:
+        plot_grid_counts(grid, ax, fontsize)
     return
 
 def plot_grid_counts(grid, ax, fontsize=7, color='white'):

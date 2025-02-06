@@ -34,6 +34,7 @@ from Bio import SeqIO
 from Bio import Phylo, AlignIO, Align
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
+from . import core
 
 module_path = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(module_path,'data')
@@ -373,7 +374,6 @@ def create_grid(gdf=None, bounds=None, n_cells=10, overlap=False, crs="EPSG:2990
     returns: a GeoDataFrame of grid polygons
     """
 
-    import geopandas as gpd
     import shapely
 
     if bounds != None:
@@ -406,7 +406,6 @@ def create_hex_grid(gdf=None, bounds=None, n_cells=10, overlap=False, crs="EPSG:
     """
 
     from shapely.geometry import Polygon
-    import geopandas as gpd
     if bounds != None:
         xmin, ymin, xmax, ymax= bounds
     else:
@@ -436,27 +435,27 @@ def create_hex_grid(gdf=None, bounds=None, n_cells=10, overlap=False, crs="EPSG:
         ]))
 
     grid = gpd.GeoDataFrame({'geometry': hexagons},crs=crs)
-    grid["grid_area"] = grid.area
+    #grid["grid_area"] = grid.area
     grid = grid.reset_index().rename(columns={"index": "grid_id"})
     if overlap == True:
-        cols = ['grid_id','geometry','grid_area']
+        cols = ['grid_id','geometry']#,'grid_area']
         grid = grid.sjoin(gdf, how='inner').drop_duplicates('geometry')[cols]
     return grid
 
-def count_points_in_grid(grid, gdf, value_column='count', threshold=None):
+def count_points_in_grid(grid, gdf, value_column='count', threshold=0):
     """
-    Count the number of points in each grid cell.
+    Count the number of points in a gdf in each grid cell.
 
     Parameters:
     - grid: GeoDataFrame, the hexagonal grid created by `create_hex_grid`.
     - gdf: GeoDataFrame, the GeoDataFrame of points.
     - value_column: str, the name of the column to store point counts in the grid GeoDataFrame.
-    - threshold: only return cells with counts above this value
+    - threshold: only return cells with counts above this value, None to ignore
 
     Returns:
     - grid: GeoDataFrame with a new column `value_column` containing the count of points.
     """
-    import geopandas as gpd
+
     import matplotlib.pyplot as plt
 
     # Perform a spatial join to find points within each hexagon
@@ -497,6 +496,29 @@ def find_nearest_point(multipolygon, points_gdf):
     except:
         return
     return nearest_point
+
+def find_points_within_distance(gdf, target_point, distance):
+    """
+    Find points in a GeoDataFrame within a specified distance from a target point.
+
+    Parameters:
+        gdf (GeoDataFrame): A GeoDataFrame containing point geometries.
+        target_point (Point): A Shapely Point representing the target location.
+        distance (float): The maximum distance to search.
+
+    Returns:
+        GeoDataFrame: A GeoDataFrame of points within the specified distance.
+    """
+    # Ensure the GeoDataFrame has a valid geometry column
+    if 'geometry' not in gdf or gdf.geometry.is_empty.any():
+        raise ValueError("GeoDataFrame must contain a valid geometry column with point data.")
+    # Ensure the GeoDataFrame and target point are in the same CRS
+    if gdf.crs is None:
+        raise ValueError("GeoDataFrame must have a defined CRS.")
+    # Buffer the target point by the distance and check for intersection
+    buffer = target_point.buffer(distance)
+    points_within_distance = gdf[gdf.geometry.intersects(buffer)]
+    return points_within_distance
 
 def find_outliers(gdf, min_dist=10, min_samples=10, col='snp7'):
     """
@@ -577,6 +599,51 @@ def remove_outliers_mahalanobis(gdf, threshold=3):
     # Filter points within the threshold
     gdf_filtered = gdf[np.array(distances) < threshold].copy()
     return gdf_filtered
+
+def remove_outliers_convex_hull(gdf, threshold=1.5):
+    """
+    Removes outliers based on distance from the convex hull.
+
+    Parameters:
+    gdf (GeoDataFrame): A GeoDataFrame containing spatial points.
+    threshold (float): The distance threshold for considering a point as an outlier.
+
+    Returns:
+    GeoSeries: the hull polygon
+    GeoDataFrame: Filtered GeoDataFrame without outliers.
+    """
+    from scipy.spatial import ConvexHull
+    if gdf.empty or len(gdf) < 3:
+        print("Not enough points to form a convex hull.")
+        return gdf
+
+    coords = np.array([[p.x, p.y] for p in gdf.geometry])
+    # Compute convex hull
+    hull = ConvexHull(coords)
+    hull_polygon = gpd.GeoSeries([Point(coords[i]) for i in hull.vertices]).union_all().convex_hull
+    # Compute distance of each point from the convex hull
+    gdf["hull_distance"] = gdf.geometry.apply(lambda p: p.distance(hull_polygon))
+    # Identify outliers using a threshold (e.g., 1.5 * IQR rule)
+    q1, q3 = np.percentile(gdf["hull_distance"], [25, 75])
+    iqr = q3 - q1
+    cutoff = iqr * threshold
+    upper_bound = q3 + cutoff
+    # Filter out the outliers
+    filtered_gdf = gdf[gdf["hull_distance"] <= upper_bound].drop(columns=["hull_distance"])
+    hull_df = gpd.GeoDataFrame(geometry=[hull_polygon])
+    return hull_df, filtered_gdf
+
+def get_area(gdf):
+    """Compute the convex hull area of the points"""
+
+    from scipy.spatial import ConvexHull
+    coords = np.array([(point.x, point.y) for point in gdf.drop_duplicates('geometry').geometry])
+    if len(coords) < 3:
+        return
+    hull = ConvexHull(coords)
+    hull_polygon = gpd.GeoSeries([gpd.points_from_xy(coords[hull.vertices, 0], coords[hull.vertices, 1]).union_all().convex_hull])
+    # Return the area of the convex hull
+    return hull_polygon.area.values[0]/1000
 
 def flatten_matrix(df):
     """Flatten a symmetrical matrix"""
@@ -810,7 +877,10 @@ def spatial_cluster(gdf, eps=3000):
     return gdf
 
 def find_neighbours(gdf, dist, lpis_cent, lpis):
-    """Find neighbouring herds"""
+    """
+    Find neighbouring herds from lpis given a set of points.
+    Returns: herd land parcels
+    """
 
     found = []
     for x in gdf.geometry:
@@ -826,7 +896,9 @@ def find_neighbours(gdf, dist, lpis_cent, lpis):
     return x
 
 def shared_borders(parcels, lpis):
-    """Find neighbouring herds with shared borders"""
+    """
+    Find neighbouring herds with shared borders using land parcels.
+    """
 
     found = []
     if type(parcels) is pd.Series:
@@ -948,3 +1020,69 @@ def plot_herd_graph(G, gdf=None, ns=200, title='', ax=None):
     from matplotlib_scalebar.scalebar import ScaleBar
     ax.add_artist(ScaleBar(dx=1, location=4))
     return fig
+
+def get_homerange_grid(gdf, herd_summary, snpdist, min_size=12, n_cells=30, test=False):
+
+    clean = herd_summary[herd_summary.clean==True]
+    iregrid = create_hex_grid(gdf,n_cells=n_cells)
+    res=[]
+    counts=[]
+    #if test==True:
+    #    fig,axs=plt.subplots(2,3,figsize=(18,15))
+    #    axs=axs.flat
+    i=0
+    level = 'short_name'
+    #get groups at level.4
+    #without duplicates on farms first to avoid bias where one farm has many identical samples
+    groups = gdf.drop_duplicates(['HERD_NO','Year']).groupby(level).size()
+    groups = groups[groups>=min_size]
+    if test==True:
+        groups = groups.sample(6)#, random_state=12))
+    for name, df in gdf.groupby(level):
+        if not name in groups:
+            continue
+        df = df[~df.geometry.is_empty]
+        #print (df.HERD_NO.value_counts())
+        #get which farms are clean plus badgers
+        cl = df[(df.HERD_NO.isin(clean.herd)) | (df.Species=='Badger')]
+        #sub = tracebtb.tools.remove_outliers_zscore(sub,3)
+        sub = remove_outliers_mahalanobis(df, 1.8)
+        if len(sub.HERD_NO.unique())==1:
+            continue
+
+        badger = sub[sub.Species=='Badger']
+        #hull = get_area(sub)
+
+        idx = df['sample']
+        dm = snpdist.loc[idx,idx]
+        msdist = dm.stack().median()
+        #add samples within dist of the clean herds as they would very likely be local spread. exclude remainder
+        #temporal depth
+
+        #assign to hex bins to define extent of range?
+        grid = count_points_in_grid(iregrid, cl, threshold=0)
+        grid['name'] = str(name)
+        counts.append(grid)
+
+        res.append([name, len(df), len(cl), len(badger),len(badger)/len(df),msdist,len(grid)])
+
+    #summary
+    res = pd.DataFrame(res,columns=['name','total','clean','badgers','frac_badger','median_snpdist','cells'])
+    #grid stores all hex cells with count for each clade
+    countgrid = pd.concat(counts)
+    return res, countgrid
+
+def add_clusters(sub, snpdist):
+    """Get genetic clusters within a selection - usually used for within clade divisions"""
+
+    from tracebtb import clustering
+    number_to_letter = {i: chr(64 + i) for i in range(1, 100)}
+    idx = list(sub.index)
+    dm = snpdist.loc[idx,idx]
+    if len(dm)>2:
+        clusts,members = clustering.get_cluster_levels(dm, levels=[5,7,12], linkage='average')
+        clusts = clusts.replace(number_to_letter)
+        sub = sub.merge(clusts,left_index=True,right_index=True,how='left')
+    else:
+        sub['snp7'] = 'A'
+    return sub

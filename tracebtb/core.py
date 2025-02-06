@@ -109,8 +109,8 @@ host_colors = {
     'Llama': '#FFCC00'
 }
 
-counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp')).to_crs("EPSG:3857")
-counties_gdf['geometry'] = counties_gdf.geometry.simplify(300)
+counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp'))
+counties_gdf['geometry'] = counties_gdf.to_crs("EPSG:3857").geometry.simplify(300)
 #hex grid of ireland
 iregrid = tools.create_hex_grid(counties_gdf,n_cells=30)
 

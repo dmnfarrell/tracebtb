@@ -973,17 +973,7 @@ class FullDashboard(Dashboard):
     def update_clusters(self, sub):
         """Get clusters within the selection - useful for within clade divisions"""
 
-        from . import clustering
-        number_to_letter = {i: chr(64 + i) for i in range(1, 100)}
-        idx = list(sub.index)
-        dm = self.snpdist.loc[idx,idx]
-        if len(dm)>2:
-            clusts,members = clustering.get_cluster_levels(dm, levels=[5,7,12], linkage='average')
-            clusts = clusts.replace(number_to_letter)
-            sub = sub.merge(clusts,left_index=True,right_index=True,how='left')
-        else:
-            sub['snp7'] = 'A'
-        return sub
+        return tools.add_clusters(sub, self.snpdist)
 
     def update_mst(self, event=None, sub=None, **kwargs):
         """Update mst"""
