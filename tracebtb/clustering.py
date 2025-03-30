@@ -56,7 +56,7 @@ def prep(tree, support, resolve_polytomies=True, suppress_unifurcations=True):
     return leaves
 
 def cut(node):
-    """cut out the current node's subtree (by setting all nodes' DELETED to True) 
+    """cut out the current node's subtree (by setting all nodes' DELETED to True)
     and return list of leaves"""
 
     from queue import PriorityQueue,Queue
@@ -220,7 +220,7 @@ def hdbscan_cluster(distance_matrix, min_cluster_size=1, min_samples=None, alpha
         list: a list of cluster labels for each sample
         dict: a dictionary of the clusters that each sample is in
     """
-    
+
     import hdbscan
     if min_samples is None:
         min_samples = min_cluster_size
@@ -251,8 +251,8 @@ def dm_cluster(distance_matrix, t, prev_clusters=None, linkage='single'):
         linkage: linkage method - 'single', 'complete', 'ward'
 
     Returns:
-        list: a list of cluster labels for each sample
-        dataframe: a dataframe of the clusters that each sample is in
+        labels: a list of cluster labels for each sample
+        clusters: a dataframe of the clusters that each sample is in
     """
 
     from sklearn.cluster import AgglomerativeClustering
@@ -272,25 +272,25 @@ def reassign_clusters(clusters, labels, prevclusters):
     df=clusters.merge(prevclusters,left_index=True,right_index=True)
     cnt = max(prevclusters.cluster)+1
     for c,g in clusters.groupby('cluster'):
-        #print (c)       
+        #print (c)
         f = df.loc[df.index.isin(g.index)]
         #print (f)
         if len(f)>0:
-            nc = f.iloc[0].cluster_y            
+            nc = f.iloc[0].cluster_y
         else:
             nc = cnt
             cnt+=1
         g['cluster'] = nc
         #print(g)
         new.append(g)
-        
+
     final = pd.concat(new)
     final = final.loc[clusters.index]
     #print('curr labels:',labels)
     newlabels=list(final.cluster)
     return newlabels, final
 
-def get_cluster_levels(S, cluster_members=None, linkage='single',
+def get_cluster_levels(S, cluster_members=None, method='default', linkage='single',
                        levels=None):
     """Cluster a distance matrix at different threshold levels.
     Args:
@@ -299,7 +299,7 @@ def get_cluster_levels(S, cluster_members=None, linkage='single',
         linkage: linkage method - 'single', 'complete', 'ward'
         levels: threshold levels, a list of 1 or more levels, optional
     returns:
-        a dataframe of cluster labels for each sample n the matrix and 
+        a dataframe of cluster labels for each sample n the matrix and
         a dataframe of cluster labels in long form
     """
 
@@ -312,8 +312,13 @@ def get_cluster_levels(S, cluster_members=None, linkage='single',
             prev = cluster_members[cluster_members.level==t]
         else:
             prev = None
-        labels,cl = dm_cluster(S, t, prev, linkage=linkage)
-        df['snp'+str(t)] = labels
+        if method == 'default':
+            labels,cl = dm_cluster(S, t, prev, linkage=linkage)
+            df['snp'+str(t)] = labels
+        else:
+            cl = create_loose_clusters(S, t)
+            df['snp'+str(t)] = cl.cluster
+
         cl['level'] = t
         clusts.append(cl)
     clusts = pd.concat(clusts)
@@ -340,13 +345,13 @@ def generate_short_code(input_string):
     import hashlib
     hash_object = hashlib.sha1(input_string.encode())
     hex_dig = hash_object.hexdigest()
-    short_code = hex_dig[:8]  
+    short_code = hex_dig[:8]
     return short_code
 
 def generate_strain_names(cl):
     """Generate strain names from cluster levels
     Args:
-        cl (dataframe): cluster level labels 
+        cl (dataframe): cluster level labels
     Returns:
         new strain names in a dataframe
     """
@@ -358,7 +363,7 @@ def generate_strain_names(cl):
     col4 = 'snp500'
     # Iterate over each clade and assign a reference sample and strain names to each sample
     new = []
-    for cluster,df in cl.groupby(col): 
+    for cluster,df in cl.groupby(col):
         # Find the reference sample for this clade
         #reference_sample = find_reference_sample(cluster, snpdist, cl)
         # Assign a strain name to each sample in the clade
@@ -366,12 +371,12 @@ def generate_strain_names(cl):
         s=1
         df=df.replace(-1,'X')
         for id, sample in df.iterrows():
-            #print (sample)            
+            #print (sample)
             #fs = f'{s:04d}'
             strain_name = f"ST-{sample[col4]}-{sample[col3]}-{sample[col2]}-{sample[col]}"
             code = generate_short_code(strain_name)
             #if id == reference_sample:
-            #    strain_name += "-ref"            
+            #    strain_name += "-ref"
             s+=1
             df.loc[id,'strain_name'] = strain_name
             df.loc[id,'code'] = code
@@ -387,3 +392,40 @@ def nonredundant_samples(df, col='snp3'):
     df['dup'] = df[col].replace(-1,np.nan)
     x = df[(~df.duplicated('dup')) | (df.dup.isnull())]
     return x
+
+def create_loose_clusters(distance_matrix, snp_threshold):
+    """
+    Implements loose cluster definition using SNP threshold and returns a DataFrame with cluster assignments.
+
+    Parameters:
+    - distance_matrix (np.ndarray): NxN matrix with pairwise SNP distances.
+    - snp_threshold (int): SNP cutoff for clustering.
+    - sample_names (list, optional): List of sample names. Defaults to indices if not provided.
+
+    Returns:
+    - pd.DataFrame: DataFrame with 'Sample' and 'Cluster' columns.
+    """
+
+    import networkx as nx
+    num_isolates = distance_matrix.shape[0]
+    sample_names = list(distance_matrix.index)
+
+    distance_matrix = distance_matrix.to_numpy()
+    # Create a graph where nodes are isolates and edges exist if SNP distance <= threshold
+    G = nx.Graph()
+    G.add_nodes_from(range(num_isolates))
+
+    for i in range(num_isolates):
+        for j in range(i + 1, num_isolates):
+            if distance_matrix[i, j] <= snp_threshold:
+                G.add_edge(i, j)
+
+    # Find connected components (loose clusters)
+    clusters = {node: cluster_id for cluster_id, component in enumerate(nx.connected_components(G)) for node in component}
+
+    # Create DataFrame with sample names and cluster assignments
+    cluster_df = pd.DataFrame({
+        'cluster': [clusters[i]+1 for i in range(num_isolates)]
+    }, index=sample_names)
+
+    return cluster_df

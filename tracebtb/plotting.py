@@ -117,7 +117,7 @@ def get_color_mapping(df, col, cmap=None, seed=1):
         cmap = mpl.cm.get_cmap(cmap)
         rcolors = [cmap(i) for i in range(len(c))]
     colormap = dict(zip(c, rcolors))
-    newcolors =  [colormap[i] if i in colormap else 'Black' for i in df[col]]
+    newcolors = [colormap[i] if i in colormap else 'Black' for i in df[col]]
     return newcolors, colormap
 
 def plot_selection(df, col=None, cmap=None, color=None, margin=None, ms=40,

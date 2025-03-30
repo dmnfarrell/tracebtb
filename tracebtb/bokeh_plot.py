@@ -221,7 +221,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         return p
     if not 'color' in gdf.columns:
         gdf['color'] = 'blue'
-    gdf['marker'] = gdf.Species.map(speciesmarkers)
+    gdf['marker'] = gdf.Species.map(speciesmarkers).fillna('circle')
     geojson = gdf.to_crs('EPSG:3857').to_json()
     geo_source = GeoJSONDataSource(geojson=geojson)
 
@@ -248,8 +248,8 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
                                             ("Herd/Sett", "@HERD_NO"),
                                             ("Year", "@Year"),
                                             ("Homebred","@Homebred"),
-                                            ("Clade", "@IE_clade"),
-                                            ("Strain", "@strain_name"),
+                                            ("Lineage", "@lineage"),
+                                            ("Strain", "@short_name"),
                                             ('snp7',"@snp7")
                                            ]))
     p.add_tools(h2)
@@ -855,36 +855,70 @@ def plot_phylogeny(tree, df, tip_size=10, lw=1, font_size='10pt',
     p.add_tools(TapTool())
     return p
 
-def plot_network(G, df, pos=None, node_size=12, labels=False):
+def plot_network(G, df, pos=None, node_size=12, show_node_labels=False,
+                 show_edge_labels=True):
     """
-    Plot a networkx graph.
+    Plot a networkx graph with edge weights displayed.
     """
 
+    import networkx as nx
     from bokeh.plotting import from_networkx
+
+    if pos is None:
+        pos = nx.spring_layout(G)  # Default layout if not provided
+
     graph = from_networkx(G, pos, scale=1)
+
     df['marker'] = df.Species.map(speciesmarkers).fillna('asterisk')
     for key in ['sample','Animal_ID','HERD_NO','Year','snp7','marker','color']:
         if key in df.columns:
             graph.node_renderer.data_source.data[key] = [df.loc[node][key] for node in G.nodes()]
+
     graph.node_renderer.glyph.update(size=node_size, fill_color="color", marker='marker')
+
+    # Extract edge weights
+    edge_weights = [G[u][v].get('weight', 1) for u, v in G.edges()]  # Default weight = 1 if not set
+    graph.edge_renderer.data_source.data['edge_weights'] = edge_weights
 
     p = figure(tools="pan,wheel_zoom,box_zoom,reset,save", tooltips=None,
                sizing_mode='stretch_both')
     p.renderers.append(graph)
-    if labels == True:
-        x, y = zip(*graph.layout_provider.graph_layout.values())
+
+    if show_edge_labels:
+
+        # Add edge weight labels at edge midpoints
+        edge_labels_source = ColumnDataSource(data={
+            'x': [(pos[u][0] + pos[v][0]) / 2 for u, v in G.edges()],
+            'y': [(pos[u][1] + pos[v][1]) / 2 for u, v in G.edges()],
+            'weight': [str(round(w, 2)) for w in edge_weights]
+        })
+
+        edge_labels = LabelSet(x='x', y='y', text='weight', level='glyph',
+                            text_color='black', text_font_size='8pt',
+                            background_fill_color="white",
+                            source=edge_labels_source)
+        p.add_layout(edge_labels)
+
+    # Add node labels if requested
+    if show_node_labels:
+        x, y = zip(*pos.values())
         node_labels = graph.node_renderer.data_source.data['sample']
-        source = ColumnDataSource(data=dict(x=x, y=y, label=node_labels))
-        labels = LabelSet(x='x', y='y', text='name', level='glyph', text_color='black',
-                text_baseline='middle', x_offset=0, text_font_size='9pt',
-                source=source)
-    h = HoverTool(renderers=[graph], tooltips=([("index", "@index"),
-                                           ("Animal_id", "@Animal_ID"),
-                                            ("Herd/Sett", "@HERD_NO"),
-                                            ("Year", "@Year"),
-                                            ('snp7',"@snp7")
-                                           ]))
+        node_source = ColumnDataSource(data=dict(x=x, y=y, label=node_labels))
+        node_labels = LabelSet(x='x', y='y', text='label', level='glyph',
+                               text_color='black', text_baseline='middle', x_offset=0,
+                               text_font_size='9pt', source=node_source)
+        p.add_layout(node_labels)
+
+    h = HoverTool(renderers=[graph], tooltips=[
+        ("index", "@index"),
+        ("Animal_id", "@Animal_ID"),
+        ("Herd/Sett", "@HERD_NO"),
+        ("Year", "@Year"),
+        ('snp7', "@snp7"),
+        ('Edge Weight', "@edge_weights")  # Show edge weight in hover
+    ])
     p.add_tools(h)
+
     p.xaxis.visible = False
     p.yaxis.visible = False
     p.grid.grid_line_color = None

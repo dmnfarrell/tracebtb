@@ -84,7 +84,7 @@ dm_css = """
 icsize = '1.9em'
 defaults = {'dashboard':{'lpis_master_file':'','tree_file':None}}
 scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','Region','class_2021',
-         'IE_clade','strain_name','snp7']
+         'IE_clade','strain_name','snp3','snp7']
 
 def get_icon(name):
     """Get svg icon"""
@@ -226,7 +226,7 @@ class Dashboard:
         self.testing = testing
         self.view_history = []
         self.current_index = 0
-        self.cols = [None]+tools.get_ordinal_columns(self.meta)+['snp7','snp12']
+        self.cols = [None]+tools.get_ordinal_columns(self.meta)+['snp1','snp2','snp3','snp5','snp7','snp12']
         self.layout = self.setup_widgets()
         return
 
@@ -288,13 +288,52 @@ class Dashboard:
 
         self.add_to_recent(query)
         self.update(sub=found)
+        self.add_to_history()
         return
 
     def add_to_recent(self, query):
+        """Add query to recents list"""
+
         x = list(self.recents_select.options)
         if query not in x:
             x = [query] + x
         self.recents_select.options = x
+        return
+
+    def add_to_history(self):
+        """Add current selection to history"""
+
+        view_history = self.view_history
+        view_history.append(self.selected.index)
+        if len(view_history) > 20:
+            view_history.pop(0)
+        # Move the current index to the new end
+        self.current_index = len(view_history)-1
+        return
+
+    def back(self, event=None):
+        """Go back"""
+
+        view_history = self.view_history
+        if len(view_history) == 0:
+            return
+        if self.current_index <= 0:
+            return
+        self.current_index -= 1
+        idx = view_history[self.current_index]
+        sub = self.meta.loc[idx]
+        self.update(sub=sub)
+        return
+
+    def forward(self, event=None):
+
+        view_history = self.view_history
+        if len(view_history) == 0 or self.current_index >= len(view_history)-1:
+            return
+        self.current_index += 1
+        idx = view_history[self.current_index]
+        sub = self.meta.loc[idx]
+        self.update(sub=sub)
         return
 
     def update_tree(self, event=None, sub=None, col='snp7',
@@ -361,7 +400,7 @@ class FullDashboard(Dashboard):
         pn.bind(self.select_from_table, self.showselected_btn, watch=True)
         self.selectrelated_btn = pnw.Button(name='Find Related', button_type='primary', align="end")
         pn.bind(self.select_related, self.selectrelated_btn, watch=True)
-        self.threshold_input = pnw.IntInput(name='Threshold', value=5, step=1, start=2, end=20,width=60)
+        self.threshold_input = pnw.IntInput(name='Threshold', value=5, step=1, start=1, end=20,width=60)
         #search  table
         self.search_input = pnw.TextInput(name="Search", value='',sizing_mode='stretch_width')
         self.searchcol_select = pnw.Select(name='Column',value='HERD_NO',options=scols,width=100)
@@ -616,8 +655,8 @@ class FullDashboard(Dashboard):
 
         if sub is None:
             sub = self.selected
-
-        if 'snp7' not in sub.columns:
+        #print (sub.columns)
+        if 'snp3' not in sub.columns:
             sub = self.update_clusters(sub)
 
         if len(sub[col].unique()) > 20:
@@ -1030,6 +1069,7 @@ class FullDashboard(Dashboard):
         idx = self.selections[name]['indexes']
         self.selected = self.meta.loc[idx]
         self.update(sub=self.selected)
+        self.add_to_history()
         return
 
     def delete_selection(self, event=None):
@@ -1111,42 +1151,6 @@ class FullDashboard(Dashboard):
                 gdf = self.layers[l]
                 bokeh_plot.plot_gdf(gdf, p, line_width=2, line_color=colors[i])
                 i+=1
-        return
-
-    def add_to_history(self):
-        """Add current selection to history"""
-
-        view_history = self.view_history
-        view_history.append(self.selected.index)
-        if len(view_history) > 20:
-            view_history.pop(0)
-        # Move the current index to the new end
-        self.current_index = len(view_history)-1
-        return
-
-    def back(self, event=None):
-        """Go back"""
-
-        view_history = self.view_history
-        if len(view_history) == 0:
-            return
-        if self.current_index <= 0:
-            return
-        self.current_index -= 1
-        idx = view_history[self.current_index]
-        sub = self.meta.loc[idx]
-        self.update(sub=sub)
-        return
-
-    def forward(self, event=None):
-
-        view_history = self.view_history
-        if len(view_history) == 0 or self.current_index >= len(view_history)-1:
-            return
-        self.current_index += 1
-        idx = view_history[self.current_index]
-        sub = self.meta.loc[idx]
-        self.update(sub=sub)
         return
 
     def update_catplot(self, event=None, sub=None):
@@ -1320,7 +1324,7 @@ class QueryDashboard(FullDashboard):
         #mst
         self.update_mst(sub=sub, node_size=ns, labels=False)
         self.info_pane.object = f'**{len(sub)} samples**'
-        scols = ['sample','Animal_ID','Year','HERD_NO','snp5','snp7','IE_clade','County','SB']
+        scols = ['sample','Animal_ID','Year','HERD_NO','snp3','snp5','snp7','IE_clade','County','SB']
         self.selected_pane.value = sub[scols]
         return
 
@@ -1342,12 +1346,8 @@ class QueryDashboard(FullDashboard):
         found = self.meta[(self.meta[col].isin(cl))].copy()
         #same herd?
         self.update(sub=found)
-
-        x = list(self.recents_select.options)
-        if query not in x:
-            #x.append(query)
-            x = [query] + x
-        self.recents_select.options = x
+        self.add_to_history()
+        self.add_to_recent(query)
         return
 
 class HerdSelectionDashboard(Dashboard):

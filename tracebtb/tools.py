@@ -58,6 +58,16 @@ def update_project(filename, new, field, save=True):
         pickle.dump(data, open(filename,'wb'))
     return
 
+def remove_from_project(filename, field):
+    """Remove a key from the project dict"""
+
+    import pickle
+    data = pickle.load(open(filename,'rb'))
+    if field in data:
+        del data[field]
+    pickle.dump(data, open(filename,'wb'))
+    return
+
 def random_hex_color():
     """random hex color"""
 
@@ -639,7 +649,7 @@ def get_area(gdf):
     from scipy.spatial import ConvexHull
     coords = np.array([(point.x, point.y) for point in gdf.drop_duplicates('geometry').geometry])
     if len(coords) < 3:
-        return
+        return 0
     hull = ConvexHull(coords)
     hull_polygon = gpd.GeoSeries([gpd.points_from_xy(coords[hull.vertices, 0], coords[hull.vertices, 1]).union_all().convex_hull])
     # Return the area of the convex hull
@@ -720,10 +730,10 @@ def cluster_summary(df, col, min_size=5, snpdist=None):
             hbred = None
         #species=sub.Species.value_counts()
         badger = len(sub[sub.Species=='Badger'])
-        clade = sub.iloc[0].IE_clade
+        clade = sub.iloc[0].lineage
         row = [c,len(sub),hbred,herds,badger,mediandist,clade]
         res.append(row)
-    res=pd.DataFrame(res, columns=['cluster','isolates','homebred','herds','badger','median_dist','IE_clade'])
+    res=pd.DataFrame(res, columns=['group','isolates','homebred','herds','badger','median_dist','lineage'])
     res=res.sort_values('isolates',ascending=False)
     return res
 
@@ -1072,17 +1082,18 @@ def get_homerange_grid(gdf, herd_summary, snpdist, min_size=12, n_cells=30, test
     countgrid = pd.concat(counts)
     return res, countgrid
 
-def add_clusters(sub, snpdist):
+def add_clusters(sub, snpdist, method='default'):
     """Get genetic clusters within a selection - usually used for within clade divisions"""
 
     from tracebtb import clustering
     number_to_letter = {i: chr(64 + i) for i in range(1, 100)}
     idx = list(sub.index)
     dm = snpdist.loc[idx,idx]
-    if len(dm)>2:
-        clusts,members = clustering.get_cluster_levels(dm, levels=[5,7,12], linkage='average')
+    if len(dm)>=2:
+        #clusts,members = clustering.get_cluster_levels(dm, levels=[1,3,5,7,12], linkage='average')
+        clusts,members = clustering.get_cluster_levels(dm, levels=[1,2,3,5,7,12])
         clusts = clusts.replace(number_to_letter)
         sub = sub.merge(clusts,left_index=True,right_index=True,how='left')
     else:
-        sub['snp7'] = 'A'
+        sub['snp12'] = sub['snp7'] = sub['snp5'] = sub['snp3'] =sub['snp2'] = sub['snp1'] = 'A'
     return sub

@@ -140,7 +140,8 @@ def main():
             if args.interface == 'full':
                 title='TracebTB'
                 bkgr='#4B7CC1 '
-                app = dashboards.FullDashboard(layers=layers, treefile=treefile, **data)
+                app = dashboards.FullDashboard(layers=layers, treefile=treefile,
+                                                selections=selections, **data)
             elif args.interface == 'test':
                 title = 'TracebTB Testing'
                 bkgr='#30833C'
