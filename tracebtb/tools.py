@@ -21,6 +21,7 @@
 """
 
 import sys,os,subprocess,glob,shutil,re
+import pickle
 import random,time
 import json
 import platform
@@ -45,6 +46,17 @@ def resource_path(relative_path):
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
 
+def save_project(filename, data):
+    """Save an initial project"""
+
+    keys = ['meta','moves','parcels','lpis_cent','aln','snpdist',
+            'lpis_cent','lpis_master_file','testing']
+    for k in keys:
+        if k not in data:
+            print (f'warning. {k} not found in dict')
+    pickle.dump(data, open(filename,'wb'))
+    return
+
 def update_project(filename, new, field, save=True):
     """Update tracebtb project file with data"""
 
@@ -54,7 +66,7 @@ def update_project(filename, new, field, save=True):
     if field in data:
         print ('overwriting field %s' %field)
     data[field] = new
-    if save==True:
+    if save == True:
         pickle.dump(data, open(filename,'wb'))
     return
 
@@ -226,7 +238,7 @@ def snp_dist_matrix(aln, threads=4):
 
 def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, colormap=None,
                        cmap='Set1', node_size=4, font_size=8, with_labels=False,
-                       edge_labels=False, legend_loc=(1, .7), ax=None):
+                       edge_labels=False, legend=True, legend_loc=(1, .7), ax=None):
     """Dist matrix to minimum spanning tree"""
 
     from . import plotting
@@ -263,7 +275,8 @@ def dist_matrix_to_mst(distance_matrix, df=None, colorcol=None, labelcol=None, c
         #checks that colormap matches nodes so legend doesn't have crap in it
         cmap = check_keys(cmap, df[colorcol].unique())
         #add legend for node colors
-        p = plotting.make_legend(ax.figure, cmap, loc=legend_loc, title=colorcol,fontsize=9)
+        if legend == True:
+            p = plotting.make_legend(ax.figure, cmap, loc=legend_loc, title=colorcol, fontsize=12)
 
     else:
         node_colors = 'black'
@@ -758,6 +771,26 @@ def get_moves_bytag(df, move_df, lpis_cent):
     return m
 
 def apply_jitter(gdf, radius=100):
+    """
+    Apply jitter to the points in a GeoDataFrame.
+
+    Parameters:
+        gdf (GeoDataFrame): A GeoDataFrame with Point geometries.
+        jitter_amount (float): The amount of jitter to apply (default: 0.001 degrees).
+
+    Returns:
+        GeoDataFrame: A new GeoDataFrame with jittered points.
+    """
+    def jitter_point(point):
+        return Point(
+            point.x + np.random.uniform(-radius, radius),
+            point.y + np.random.uniform(-radius, radius)
+        )
+    gdf_jittered = gdf.copy()
+    gdf_jittered["geometry"] = gdf_jittered["geometry"].apply(jitter_point)
+    return gdf_jittered
+
+def jitter_by_farm(gdf, radius=100):
     """Apply jitter to points on same farm"""
 
     def circular_jitter(centroid, points, radius):
@@ -885,6 +918,17 @@ def spatial_cluster(gdf, eps=3000):
     nclusters = clusterer.p
     gdf = gdf.assign(cl=clusterer.labels_)
     return gdf
+
+def find_neighbouring_points(gdf, sub, dist, key='HERD_NO'):
+    """Find nearby points from one dataframe to another.
+    use key to exclude points belonging to source gdf e.g. HERD_NO
+    """
+
+    point = sub.iloc[0].geometry
+    p = find_points_within_distance(gdf, point, dist)
+    #print (len(p))
+    p = p[~p[key].isin(list(sub[key]))]
+    return p
 
 def find_neighbours(gdf, dist, lpis_cent, lpis):
     """
@@ -1082,16 +1126,19 @@ def get_homerange_grid(gdf, herd_summary, snpdist, min_size=12, n_cells=30, test
     countgrid = pd.concat(counts)
     return res, countgrid
 
-def add_clusters(sub, snpdist, method='default'):
-    """Get genetic clusters within a selection - usually used for within clade divisions"""
+def add_clusters(sub, snpdist, linkage='single'):
+    """
+    Get genetic clusters within a selection - usually used for within clade divisions.
+    Args:
+        linkage: linkage method - 'single', 'average', 'complete' or 'ward'
+    """
 
     from tracebtb import clustering
     number_to_letter = {i: chr(64 + i) for i in range(1, 100)}
     idx = list(sub.index)
     dm = snpdist.loc[idx,idx]
     if len(dm)>=2:
-        #clusts,members = clustering.get_cluster_levels(dm, levels=[1,3,5,7,12], linkage='average')
-        clusts,members = clustering.get_cluster_levels(dm, levels=[1,2,3,5,7,12])
+        clusts,members = clustering.get_cluster_levels(dm, levels=[1,2,3,5,7,12], linkage=linkage)
         clusts = clusts.replace(number_to_letter)
         sub = sub.merge(clusts,left_index=True,right_index=True,how='left')
     else:

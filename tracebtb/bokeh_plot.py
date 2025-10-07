@@ -20,6 +20,7 @@
 
 import os, sys, random, math
 import string
+import json
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
@@ -32,7 +33,7 @@ from . import core
 
 try:
     from bokeh.io import show
-    from bokeh.models import (ColumnDataSource, GeoJSONDataSource, GMapOptions, GMapPlot, TileSource, FactorRange,
+    from bokeh.models import (ColumnDataSource, GeoJSONDataSource, GMapOptions, GMapPlot, TileSource, FactorRange, Range1d,
                                 HoverTool, BoxZoomTool, TapTool, CustomJS,
                                 Legend, LegendItem, GlyphRenderer, ColorBar, LinearColorMapper, LabelSet, Label,
                                 Arrow, NormalHead, OpenHead, VeeHead)
@@ -199,7 +200,7 @@ def add_scalebar(p):
 
 def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
                    legend=False, legend_fontsize=12,  label_fontsize=14,
-                   title=None, ms=10, lw=1, labels=False, scalebar=True,
+                   title=None, ms=10, lw=1.2, labels=False, scalebar=True,
                    p=None):
     """
     Plot geodataframe selections with bokeh
@@ -230,7 +231,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         parcelsjson = parcels.to_crs('EPSG:3857').to_json()
         poly_source = GeoJSONDataSource(geojson=parcelsjson)
         r1 = p.patches('xs', 'ys', source=poly_source, fill_color='color',
-                       fill_alpha=0.5, line_width=1, line_color='black', name='parcels')
+                       fill_alpha=0.7, line_width=1, line_color='black', name='parcels')
         #r1.selection_glyph = p.circle(size=15, fill_color="firebrick",
         #                                 line_color="black", alpha=.6)
         #hover tool
@@ -242,7 +243,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
     #plot_setts(gdf, p)
     #draw points
     r2 = p.scatter('x', 'y', source=geo_source, color='color', line_width=lw,
-                   line_color='black', marker="marker", fill_alpha=0.7, size=ms, name='points')
+                   line_color='black', marker="marker", fill_alpha=0.8, size=ms, name='points')
     h2 = HoverTool(renderers=[r2], tooltips=([("Sample", "@sample"),
                                             ("Animal_id", "@Animal_ID"),
                                             ("Herd/Sett", "@HERD_NO"),
@@ -266,6 +267,16 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
                           text_align='right', background_fill_color='white', background_fill_alpha=0.8,
                           text_font_size = f"{label_fontsize}px")
         p.add_layout(labels)
+
+    #if only one sample and no parcels set ranges
+    if len(gdf)<=1 and parcels is None:
+        print (len(gdf))
+        geo_data = json.loads(geojson)
+        coords = geo_data["features"][0]["geometry"]["coordinates"]
+        x_point, y_point = coords[0], coords[1]
+        radius = 200
+        p.x_range = Range1d(x_point - radius, x_point + radius)
+        p.y_range = Range1d(y_point - radius, y_point + radius)
 
     if scalebar == True:
         add_scalebar(p)

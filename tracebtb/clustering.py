@@ -296,7 +296,7 @@ def get_cluster_levels(S, cluster_members=None, method='default', linkage='singl
     Args:
         S: snp distance matrix
         cluster_members (dataframe): previous sets of clusters at each level
-        linkage: linkage method - 'single', 'complete', 'ward'
+        linkage: linkage method - 'single', 'average', 'complete' or 'ward'
         levels: threshold levels, a list of 1 or more levels, optional
     returns:
         a dataframe of cluster labels for each sample n the matrix and

@@ -85,16 +85,62 @@ def check_settings_file(filename):
     print (settings)
     return settings
 
+def create_bootstrap_layout_cls(dashboard_cls, title, bkgr, logo=None, **kwargs):
+    """
+    Returns a callable that creates a fresh BootstrapTemplate
+    with the given dashboard class and parameters.
+
+    dashboard_cls: class of your dashboard (e.g., FullDashboard)
+    title: page title
+    bkgr: header background color
+    kwargs: passed to the dashboard constructor
+    """
+    if logo == None:
+        logo = logoimg
+    def _layout():
+        # create a fresh dashboard instance for this session
+        app = dashboard_cls(**kwargs)
+        layout = app.show()
+        bootstrap = pn.template.BootstrapTemplate(
+            title=title,
+            favicon=logo,
+            logo=logo,
+            header_color='white',
+            header_background=bkgr
+        )
+
+        menu_html = pn.pane.HTML("""
+        <div class="dropdown">
+        <button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+            Apps
+        </button>
+        <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="/">Main Dashboard</a></li>
+            <li><a class="dropdown-item" href="/herd">Herd Selection</a></li>
+            <li><a class="dropdown-item" href="/moves">Movement</a></li>
+        </ul>
+        </div>
+        """, width=150)
+
+        #bootstrap.header.append(menu_html)
+        bootstrap.main.append(layout)
+        return bootstrap
+    return _layout
+
 def main():
     "Run the application"
     from argparse import ArgumentParser
     parser = ArgumentParser(description='TracebTB')
-    parser.add_argument("-p", "--proj", dest="project",default=None,
+    parser.add_argument("-f", "--proj", dest="project",default=None,
                             help="load project file", metavar="FILE")
     parser.add_argument("-s", "--settings", dest="settings",default=configfile,
                             help="load a json settings file", metavar="FILE")
     parser.add_argument("-i", "--interface", dest="interface",default='full',
-                            help="type of dashboard to launch", metavar="FILE")
+                            help="type of dashboard to launch")
+    parser.add_argument("-p", "--port", dest="port",default=5010,
+                            help="port to run server on")
+    parser.add_argument("-nl", "--nolpis", dest="nolpis", action="store_true", default=False,
+                            help="don't load LPIS (testing mode)")
     parser.add_argument("-t", "--test", dest="test", action="store_true",
                         help="dummy test app")
     args = parser.parse_args()
@@ -106,18 +152,6 @@ def main():
         print ('please provide a project file')
         exit()
     else:
-        #load config file
-        if not os.path.exists(args.settings):
-            with open(configfile, "w") as outfile:
-                json.dump(defaults, outfile)
-            lpis_master_file = None
-            treefile = None
-        else:
-            print('found settings file')
-            settings = check_settings_file(args.settings)
-            lpis_master_file = settings['lpis_master_file']
-            treefile = settings['tree_file']
-
         data = pickle.load(open(args.project,'rb'))
         meta = data['meta']
         moves = data['moves']
@@ -125,7 +159,23 @@ def main():
         parcels = data['parcels']
         snpdist = data['snpdist']
         testing = data['testing']
-
+        #load config file
+        lpis = None
+        if not os.path.exists(args.settings):
+            with open(configfile, "w") as outfile:
+                json.dump(defaults, outfile)
+            treefile = None
+        else:
+            print('found settings file')
+            settings = check_settings_file(args.settings)
+            lpis_master_file = settings['lpis_master_file']
+            treefile = settings['tree_file']
+        if args.nolpis == True:
+            #for testing only so server launches faster
+            lpis_master_file = None
+        else:
+            lpis = gpd.read_file(lpis_master_file).set_crs('EPSG:29902')
+            print ('loaded LPIS')
         if os.path.exists(selections_file):
             selections = json.load(open(selections_file,'r'))
         else:
@@ -135,49 +185,61 @@ def main():
         else:
             layers = {}
 
-        def create_app():
-            #Generate a new dashboard instance per session
-            if args.interface == 'full':
-                title='TracebTB'
-                bkgr='#4B7CC1 '
-                app = dashboards.FullDashboard(layers=layers, treefile=treefile,
-                                                selections=selections, **data)
-            elif args.interface == 'test':
-                title = 'TracebTB Testing'
-                bkgr='#30833C'
-                app = dashboards.TestingDashboard(layers=layers, treefile=treefile, **data)
-            elif args.interface == 'abm':
-                title = 'TracebTB Agent Based Model'
-                bkgr='#168F8B'
-                app = dashboards.ABMDashboard(settings=settings, **data)
-            else:
-                print ('unknown dashboard option')
-                return
-            app.project_file = args.project
-            app.settings = settings
-            app.treefile = treefile
-            layout = app.show()
-            # Create a session-specific app function
-            bootstrap = pn.template.BootstrapTemplate(
-                title=title,
-                favicon=logoimg,
-                logo=logoimg,
-                header_color='white',
-                header_background=bkgr
-            )
-            bootstrap.main.append(layout)
-            bootstrap.servable()
-            return bootstrap
+        #Generate multiple dashboard instances anbd put them on different URLs
+        bkgr='#4B7CC1'
+        nav_links = pn.Row(
+            pn.pane.Markdown("[🏠 Main](/)", sizing_mode="fixed", width=100),
+            pn.pane.Markdown("[🐄 Herd](/herd)", sizing_mode="fixed", width=100),
+            pn.pane.Markdown("[🚚 Moves](/moves)", sizing_mode="fixed", width=100),
+            align="center",
+            margin=(10, 20),
+        )
+        layout1 = create_bootstrap_layout_cls(
+            dashboards.FullDashboard,
+            'TracebTB',
+            '#4B7CC1',           
+            layers=layers,
+            treefile=treefile,
+            lpis=lpis,
+            selections=selections,
+            **data
+        )
 
+        layout2 = create_bootstrap_layout_cls(
+            dashboards.HerdSelectionDashboard,
+            'TracebTB Herd Query',
+            "#438328",
+            logo=os.path.join(module_path, 'cow.png'),
+            layers=layers,
+            treefile=treefile,
+            lpis=lpis,
+            **data
+        )
+
+        layout3 = create_bootstrap_layout_cls(
+            dashboards.MovesDashboard,
+            'TracebTB Movement',
+            "#903E3E",
+            layers=layers,
+            treefile=treefile,
+            lpis=lpis,
+            **data
+        )
+
+        layouts = {'/':layout1, '/herd':layout2, 'moves':layout3}
+        port = int(args.port)
         if 'reverse_proxy' in settings:
             #using nginx proxy with basic auth
             s = settings['reverse_proxy']
-            pn.serve(create_app, port=5010, prefix=s['prefix'],
+            pn.serve(layouts, port=port, prefix=s['prefix'],
                 websocket_origin=s['origin'], #basic_auth='credentials.json',
                 cookie_secret='cookie_secret')
         else:
             #default - no security
-            pn.serve(create_app, port=5010, websocket_origin=["localhost:5010"],
+            if port in settings:
+                port = settings['port']
+            origin = f"localhost:{port}"
+            pn.serve(layouts, port=port, websocket_origin=[origin],
                      cookie_secret='cookie_secret')
 
 if __name__ == '__main__':

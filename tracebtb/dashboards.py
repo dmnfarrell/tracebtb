@@ -17,9 +17,9 @@ import pylab as plt
 import pandas as pd
 import geopandas as gpd
 
-from bokeh.io import show
+from bokeh.io import show, curdoc
 from bokeh.plotting import figure
-from bokeh.models import Range1d, CustomJS, TapTool
+from bokeh.models import Range1d, CustomJS, TapTool, Div
 from bokeh.events import Tap
 import panel as pn
 import panel.widgets as pnw
@@ -39,7 +39,7 @@ else:
     configpath = os.path.join(home, '.config','tracebtb')
 if not os.path.exists(configpath):
     os.makedirs(configpath, exist_ok=True)
-configfile = os.path.join(configpath, 'settings.json')
+
 report_file = 'report.html'
 selections_file = os.path.join(configpath,'selections.json')
 layers_file = os.path.join(configpath,'layers.gpkg')
@@ -183,10 +183,83 @@ def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
     report = pn.Column(header, main)
     return report
 
+def get_bokeh_widgets(panel_obj):
+    """
+    Recursively retrieves *all* underlying Bokeh widget models from a Panel layout.
+    Returns a dict of {widget_name: bokeh_widget_model}.
+    """
+
+    from bokeh.models import Widget as BkWidget, Model
+    from bokeh.document import Document
+    from bokeh.core.property.descriptors import UnsetValueError
+
+    doc = Document()
+    root = panel_obj.get_root(doc)
+
+    widgets = {}
+
+    def walk(model):
+        # Store the model if it's a Bokeh widget
+        if isinstance(model, BkWidget):
+            name = getattr(model, "name", None) or model.__class__.__name__
+            widgets[name] = model
+
+        if isinstance(model, Model):
+            for attr_name in model.properties():
+                try:
+                    val = getattr(model, attr_name)
+                except UnsetValueError:
+                    continue  # Skip properties that aren't set yet
+                except Exception:
+                    continue  # Skip any weird attributes safely
+
+                # Recurse into any nested Bokeh models or lists
+                if isinstance(val, Model):
+                    walk(val)
+                elif isinstance(val, (list, tuple, set)):
+                    for v in val:
+                        if isinstance(v, Model):
+                            walk(v)
+
+    walk(root)
+    return widgets
+
+# --- JS to save all widget states into localStorage ---
+save_js_code = """
+// Collect all widget values into a settings object
+console.log("Saving settings...");
+const settings = {};
+for (const [name, widget] of Object.entries(widgets)) {
+    if (widget.type === 'CheckboxGroup') {
+        settings[name] = widget.active;
+    } else {
+        settings[name] = widget.value;
+    }
+}
+localStorage.setItem('tracebtb_settings', JSON.stringify(settings));
+"""
+
+# --- JS to load settings from localStorage ---
+load_js_code = """
+const saved = localStorage.getItem('tracebtb_settings');
+if (saved) {
+    const settings = JSON.parse(saved);
+    for (const [name, widget] of Object.entries(widgets)) {
+        if (settings.hasOwnProperty(name)) {
+            if (widget.type === 'CheckboxGroup') {
+                widget.active = settings[name];
+            } else {
+                widget.value = settings[name];
+            }
+        }
+    }
+}
+"""
+
 class Dashboard:
 
     def __init__(self, meta, parcels, moves=None, lpis_cent=None,
-                snpdist=None, lpis_master_file=None, treefile=None,
+                snpdist=None, lpis=None, treefile=None,
                 testing=None, settings={},
                 selections={}, layers={},
                 parent=None,
@@ -207,14 +280,14 @@ class Dashboard:
         self.badger = self.meta[self.meta.Species=='Badger']
         self.moves = moves
         self.lpis_cent = lpis_cent
+        self.lpis = lpis
         self.parcels = parcels
         self.snpdist = snpdist
-        self.lpis = None
-        self.lpis_master_file = lpis_master_file
         self.selections = selections
         self.layers = layers
         self.hmoves = None
         self.settings = settings
+        self.treefile = treefile
         self.parent = parent
         if treefile is not None and os.path.exists(treefile):
             from Bio import Phylo
@@ -223,7 +296,7 @@ class Dashboard:
         else:
             print ('no tree found')
             self.tree = None
-        self.testing = testing
+        self.testing = testing.set_index('HERD_NO')
         self.view_history = []
         self.current_index = 0
         self.cols = [None]+tools.get_ordinal_columns(self.meta)+['snp1','snp2','snp3','snp5','snp7','snp12']
@@ -231,9 +304,13 @@ class Dashboard:
         return
 
     def load_lpis(self, event=None):
+        """Load LPIS"""
 
+        if self.lpis_master_file is None:
+            print ('no LPIS file')
         if self.lpis_master_file != None:
             self.lpis = gpd.read_file(self.lpis_master_file).set_crs('EPSG:29902')
+            print ('loaded LPIS file')
         return
 
     def setup_widgets(self):
@@ -258,7 +335,7 @@ class Dashboard:
         """Groupby widgets"""
 
         w=140
-        self.groupby_input = pnw.Select(name='group by',options=self.cols,value='strain_name',width=w)
+        self.groupby_input = pnw.Select(name='group by',options=self.cols,value='short_name',width=w)
         self.groups_table = pnw.Tabulator(disabled=True, widths={'count': 30}, layout='fit_columns',
                                           pagination=None, height=200, width=w,
                                           stylesheets=[stylesheet])
@@ -289,6 +366,17 @@ class Dashboard:
         self.add_to_recent(query)
         self.update(sub=found)
         self.add_to_history()
+        return
+
+    def set_provider(self, event=None):
+        """Change map provider"""
+
+        p = self.plot_pane.object
+        #remove old tile
+        p.renderers = [x for x in p.renderers if not str(x).startswith('TileRenderer')]
+        provider = self.provider_input.value
+        if provider in bokeh_plot.providers:
+            p.add_tile(provider, retina=True)
         return
 
     def add_to_recent(self, query):
@@ -416,9 +504,12 @@ class FullDashboard(Dashboard):
         self.table_pane = pn.Column(self.meta_pane,self.table_widgets,sizing_mode='stretch_both')
 
         #selected table
-        self.selected_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
+        self.selected_table = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
                                     frozen_columns=['sample'],stylesheets=[stylesheet],
                                     sizing_mode='stretch_both')
+        downloadselection_btn = pnw.FileDownload(callback=pn.bind(self.selection_file),
+                                            filename='selection.csv', button_type='success')
+        self.selected_pane = pn.Column(self.selected_table,pn.Row(downloadselection_btn))
         #moves table
         self.moves_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
                                     frozen_columns=['tag'],stylesheets=[stylesheet],
@@ -478,9 +569,9 @@ class FullDashboard(Dashboard):
                         width=340, styles=card_style)
 
         #lpis
-        self.loadlpis_btn = pnw.Button(name='Load LPIS', button_type='primary')
-        pn.bind(self.load_lpis, self.loadlpis_btn, watch=True)
-        card3 = pn.Column('## LPIS', self.loadlpis_btn, width=340, styles=card_style)
+        #self.loadlpis_btn = pnw.Button(name='Load LPIS', button_type='primary')
+        #pn.bind(self.load_lpis, self.loadlpis_btn, watch=True)
+        #card3 = pn.Column('## LPIS', self.loadlpis_btn, width=340, styles=card_style)
 
         #settings
         self.markersize_input = pnw.IntSlider(name='marker size', value=10, start=0, end=80,width=w)
@@ -493,11 +584,21 @@ class FullDashboard(Dashboard):
         self.tipsize_input = pnw.IntSlider(name='tree tip size', value=8, start=1, end=25,width=w)
         self.tiplabelsize_input = pnw.IntSlider(name='tip label font size', value=9, start=6, end=20,width=w)
         #self.showtiplabels_input = pnw.Checkbox(name='show tree tip labels',value=True)
-        savesettings_btn = pnw.Button(name='Save Settings',button_type='primary')
-        pn.bind(self.save_settings, savesettings_btn, watch=True)
+        save_js = """
+        var settings = {
+            marker_size: document.querySelector('[id*="marker size"]').value,
+            marker_edge_width: document.querySelector('[id*="marker edge width"]').value,
+            label_size: document.querySelector('[id*="label size"]').value,
+            legend_size: document.querySelector('[id*="legend size"]').value,
+        };
+        localStorage.setItem('tracebtb_settings', JSON.stringify(settings));
+        """
+        savesettings_btn = pnw.Button(name="Save Settings",button_type='primary')
+        savesettings_btn.js_on_click(code=save_js)
+
         card4 = pn.Row(pn.Column('## Settings', self.markersize_input,self.edgewidth_input,self.labelsize_input,
                           self.legendsize_input, self.hexbins_input, self.scalebar_input, self.randseed_input),
-                          pn.Column(self.tipsize_input,self.tiplabelsize_input),
+                          pn.Column(self.tipsize_input,self.tiplabelsize_input, savesettings_btn),
                           width=340, styles=card_style)
 
         #reporting
@@ -507,7 +608,7 @@ class FullDashboard(Dashboard):
         card5 = pn.Column('## Reporting', self.doreport_btn, self.savereport_btn, width=340, styles=card_style)
         pn.bind(self.create_report, self.doreport_btn, watch=True)
 
-        utils_pane = pn.FlexBox(*[card1,card2, card3, card4, card5], flex_direction='column', min_height=400,
+        utils_pane = pn.FlexBox(*[card1,card2, card4, card5], flex_direction='column', min_height=400,
                                 styles={'margin': '10px'}, sizing_mode='stretch_both')
 
         #nav buttons
@@ -523,14 +624,14 @@ class FullDashboard(Dashboard):
         widgets1 = pn.Tabs(('search',search_widgets),('groups',group_widgets))
 
         #options
-        self.colorby_input = pnw.Select(name='color by',options=cols,value='strain_name',width=w)
+        self.colorby_input = pnw.Select(name='color by',options=cols,value='short_name',width=w)
         self.cmap_input = pnw.Select(name='colormap',options=colormaps,value='Set1',width=w)
         self.tiplabel_input = pnw.Select(name='tip label',options=list(self.meta.columns),value='sample',width=w)
         self.provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
         self.pointstyle_input = pnw.Select(name='points display',options=['default','pie'],value='default',width=w)
         widgets2 = pn.Column(pn.WidgetBox(nav_pane,
                                         self.colorby_input,self.cmap_input,self.tiplabel_input,
-                                        self.provider_input,self.pointstyle_input),self.info_pane,width=w+30)
+                                        self.provider_input,self.pointstyle_input),width=w+30)
         #button toolbar
         self.split_btn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size=icsize)
         self.selectregion_btn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size=icsize)
@@ -560,7 +661,7 @@ class FullDashboard(Dashboard):
         pn.bind(self.find_related, self.findrelated_btn, watch=True)
         #self.related_col_input = pnw.Select(options=cols,value='snp7',width=90)
 
-        filters = pn.Row(self.findrelated_btn,self.threshold_input,self.timeslider,self.clustersizeslider)#,self.homebredbox)
+        filters = pn.Row(self.findrelated_btn,self.threshold_input,self.timeslider,self.clustersizeslider,self.info_pane)
 
         self.groupby_input.param.watch(self.update_groups, 'value')
         self.groups_table.param.watch(self.select_group, 'selection')
@@ -631,11 +732,32 @@ class FullDashboard(Dashboard):
                                     dynamic=True,width=500),
                 max_width=2600,min_height=600
         ))
+
+        #widgets = get_bokeh_widgets(app)
+        #print (widgets)
+        # Attach JS callbacks to save options
+        '''save_callback = CustomJS(args=dict(widgets=widgets), code=save_js_code)
+        load_callback = CustomJS(args=dict(widgets=widgets), code=load_js_code)
+
+        for w in widgets.values():
+            if hasattr(w, 'js_on_change'):
+                print (w)
+                if hasattr(w, "value"):
+                    w.js_on_change("value", save_callback)
+                elif hasattr(w, "active"):
+                    w.js_on_change("active", save_callback)
+
+        # ✅ Create a dummy Div to attach the startup event
+        trigger = Div()
+        trigger.js_on_event("document_ready", load_callback)
+        #curdoc().add_root(pn.column(trigger, *widgets.values()))'''
+
         app.sizing_mode='stretch_both'
         self.meta_pane.value = self.meta
         self.update_groups()
         self.selected = self.meta.sample(4).copy()
         self.update(sub=self.selected)
+        #self.load_lpis()
         return app
 
     def update(self, event=None, sub=None):
@@ -675,7 +797,7 @@ class FullDashboard(Dashboard):
         herds = list(sub.HERD_NO)
         mov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
 
-        if mov is not None and self.moves_btn.value is True:
+        if mov is not None:# and self.moves_btn.value is True:
             herds.extend(mov.move_to)
 
         sp = self.parcels[self.parcels.SPH_HERD_N.isin(herds)].copy()
@@ -723,7 +845,7 @@ class FullDashboard(Dashboard):
             shb['color'] = shb.apply(tools.random_grayscale_color, 1)
             bokeh_plot.plot_lpis(shb, p, line_width=1)
 
-        mov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
+        #mov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
 
         if self.moves_btn.value is True:
             bokeh_plot.plot_moves(p, mov, self.lpis_cent)
@@ -735,13 +857,13 @@ class FullDashboard(Dashboard):
 
         self.plot_pane.object = p
 
-        self.selected_pane.value = sub.drop(columns=['geometry'])
+        self.selected_table.value = sub.drop(columns=['geometry'])
 
         def highlight(x):
             color = self.speciescolors[x]
             return 'background-color: %s' % color
 
-        self.selected_pane.style.apply(highlight, subset=['Species'], axis=1)
+        self.selected_table.style.apply(highlight, subset=['Species'], axis=1)
 
         # Timeline plot
         tlc = self.timelinecolor_input.value
@@ -771,6 +893,20 @@ class FullDashboard(Dashboard):
         # Update summaries
         self.update_herd_summary()
         self.update_group_summary()
+        return
+
+    def update_view(self, event):
+
+        p = self.plot_pane.object
+        cur_x = p.x_range.start, p.x_range.end
+        cur_y = p.y_range.start, p.y_range.end
+        self.update(event)
+        p = self.plot_pane.object
+        p.x_range.start, p.x_range.end = cur_x
+        p.y_range.start, p.y_range.end = cur_y
+
+        #p.x_range = Range1d(cur_x[0], cur_x[1])
+        #p.y_range = Range1d(cur_y[0], cur_y[1])
         return
 
     def point_selected(self, event):
@@ -862,17 +998,6 @@ class FullDashboard(Dashboard):
         if self.homebredbox.value == True:
             df = df[df.Homebred=='yes'].copy()
         return df
-
-    def set_provider(self, event=None):
-        """Change map provider"""
-
-        p = self.plot_pane.object
-        #remove old tile
-        p.renderers = [x for x in p.renderers if not str(x).startswith('TileRenderer')]
-        provider = self.provider_input.value
-        if provider in bokeh_plot.providers:
-            p.add_tile(provider, retina=True)
-        return
 
     def update_groups(self, event=None):
         """Change group choices"""
@@ -980,6 +1105,15 @@ class FullDashboard(Dashboard):
         sio.seek(0)
         return sio
 
+    def selection_file(self):
+        """Return selection table for export"""
+
+        df = self.selected_table.value
+        sio = io.StringIO()
+        df.to_csv(sio,index=False)
+        sio.seek(0)
+        return sio
+
     def select_clusters(self, event=None):
 
         df = self.clusters_table.selected_dataframe
@@ -1012,7 +1146,7 @@ class FullDashboard(Dashboard):
     def update_clusters(self, sub):
         """Get clusters within the selection - useful for within clade divisions"""
 
-        return tools.add_clusters(sub, self.snpdist)
+        return tools.add_clusters(sub, self.snpdist, linkage='average')
 
     def update_mst(self, event=None, sub=None, **kwargs):
         """Update mst"""
@@ -1029,11 +1163,12 @@ class FullDashboard(Dashboard):
         """Update snpdist pane"""
 
         idx = sub.index
-        if len(idx)<50:
-            dm = self.snpdist.loc[idx,idx]
+        dm = self.snpdist.loc[idx,idx]
+        if len(idx)<60:
             self.sdist_pane.object = dm
         else:
             self.sdist_pane.object = None
+        print (dm.to_numpy().flatten().max())
         return
 
     def do_search(self, event=None):
@@ -1178,14 +1313,25 @@ class FullDashboard(Dashboard):
         return
 
     def save_settings(self, event=None):
-        """Save settings"""
+        """Save user interface settings"""
 
-        #print (self.settings)
-        #d = {'colorby':self.col, 'ms':self.ms}
-        #self.settings.update(d)
-        #with open(configfile, "w") as outfile:
-        #    json.dump(self.settings, outfile)
+        ignored_types = [pnw.Tabulator]
+        settings_dict = {
+            name: widget.value
+            for name in dir(self)
+            if isinstance((widget := getattr(self, name, None)), pnw.Widget)
+            and hasattr(widget, "value")
+            and not isinstance(widget, tuple(ignored_types))  # Exclude certain types
+        }
+        print (settings_dict)
         return
+
+    def restore_settings(self, settings_dict):
+
+        for name, value in settings_dict.items():
+            widget = getattr(self, name, None)
+            if isinstance(widget, pnw.Widget) and hasattr(widget, "value"):
+                widget.value = value  # Restore the value
 
     def current_data_info(self):
         """Currently loaded data summary"""
@@ -1247,9 +1393,12 @@ class QueryDashboard(FullDashboard):
         self.colorby_input = pnw.Select(name='color by',options=cols,value='snp5',width=w)
         self.colorby_input.param.watch(self.update, 'value')
         self.plot_pane = pn.pane.Bokeh()
-        self.selected_pane = pnw.Tabulator(disabled=True,page_size=100,
+        self.selected_table = pnw.Tabulator(disabled=True,page_size=100,
                                           pagination=None, sizing_mode='stretch_both',
                                           stylesheets=[stylesheet])
+        downloadselection_btn = pnw.FileDownload(callback=pn.bind(self.selection_file),
+                                            filename='selection.csv', button_type='success')
+        self.selected_pane = pn.Column(self.selected_table,pn.Row(downloadselection_btn))
         self.tree_pane = pn.Column(sizing_mode='stretch_both')
         self.mst_pane = pn.Column(sizing_mode='stretch_both')
         self.details_pane = pn.pane.DataFrame(sizing_mode='stretch_both')
@@ -1325,7 +1474,7 @@ class QueryDashboard(FullDashboard):
         self.update_mst(sub=sub, node_size=ns, labels=False)
         self.info_pane.object = f'**{len(sub)} samples**'
         scols = ['sample','Animal_ID','Year','HERD_NO','snp3','snp5','snp7','IE_clade','County','SB']
-        self.selected_pane.value = sub[scols]
+        self.selected_table.value = sub[scols]
         return
 
     def quick_search(self, event=None, query=None):
@@ -1354,7 +1503,7 @@ class HerdSelectionDashboard(Dashboard):
 
     def __init__(self, **kwargs):
         super(HerdSelectionDashboard, self).__init__(**kwargs)
-        self.load_lpis()
+        #self.load_lpis()
         self.get_test_stats()
         return
 
@@ -1374,22 +1523,24 @@ class HerdSelectionDashboard(Dashboard):
         pn.bind(self.random_herd, sim_btn, watch=True)
         refresh_btn = pnw.Button(name='Refresh',width=w,button_type='success')
         pn.bind(self.update, refresh_btn, watch=True)
-        sendquery_btn = pnw.Button(name='Samples Query',width=w)
-        pn.bind(self.send_to_query_dashboard, sendquery_btn, watch=True)
-
+        #sendquery_btn = pnw.Button(name='Samples Query',width=w)
+        #pn.bind(self.send_to_query_dashboard, sendquery_btn, watch=True)
         self.dist_input = pnw.IntSlider(name='Dist Threshold',width=w,value=1000,
                                         start=100,end=10000,step=100)
         opts = ['within any parcel','contiguous parcels']
         self.dist_method = pnw.Select(name='Dist Method',value='within any parcel',
                                       options=opts,width=w)
+        self.provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
+        self.provider_input.param.watch(self.set_provider, 'value')
         self.herdinfo_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet], sizing_mode='stretch_both')
-        widgets = pn.Column(search_widgets,sim_btn,refresh_btn,sendquery_btn,
-                            self.dist_method,self.dist_input,self.indicator)
+        widgets = pn.Column(search_widgets,sim_btn,refresh_btn,
+                            self.dist_method,self.dist_input,self.provider_input,self.indicator)
 
         app = pn.Row(widgets,
                   pn.Column(self.plot_pane,sizing_mode='stretch_both'),
-                  pn.Column(pn.Tabs(('tree',self.tree_pane),('fragments',self.fragments_pane)),
-                            self.herdinfo_pane,self.testingplot_pane,width=500),
+                  pn.Column(pn.Tabs(('herd info',self.herdinfo_pane),('tree',self.tree_pane),
+                                    ('fragments',self.fragments_pane)),
+                            self.testingplot_pane,width=500),
                     sizing_mode='stretch_both')
 
         app.sizing_mode='stretch_both'
@@ -1409,7 +1560,7 @@ class HerdSelectionDashboard(Dashboard):
             herd = self.herd
         else:
             self.herd = herd
-        print (herd)
+        #print (herd)
         lpis = self.lpis
         meta = self.meta
         dist = self.dist_input.value
@@ -1430,7 +1581,7 @@ class HerdSelectionDashboard(Dashboard):
         #then get any known strains present in area, including in herd itself
         qry = list(nb.SPH_HERD_N) + list(bdg.HERD_NO) + [herd]
         found = meta[meta.HERD_NO.isin(qry)]
-        found['color'],cm = tools.get_color_mapping(found, 'IE_clade', cmap='Set1')
+        found['color'],cm = tools.get_color_mapping(found, 'short_name', cmap='Set1')
         self.found = found
         p = self.plot_neighbours(pcl,nb)
         bokeh_plot.plot_selection(found, legend=True, ms=20, lw=2, p=p)
@@ -1442,7 +1593,7 @@ class HerdSelectionDashboard(Dashboard):
         #nearest sampled herd
         self.nearest = tools.find_nearest_point(pcl.iloc[0].geometry, found)
         #tree
-        self.update_tree(sub=found, col='IE_clade', labelcol='HERD_NO')
+        self.update_tree(sub=found, col='short_name', labelcol='HERD_NO')
         #fragments
         mp = pcl.iloc[0]
         G,ns = tools.fragments_to_graph(mp)
@@ -1477,7 +1628,7 @@ class HerdSelectionDashboard(Dashboard):
         else:
             p = bokeh_plot.init_figure()
         df['color'] = 'blue'
-        bokeh_plot.plot_lpis(df, p, fill_alpha=0.8, line_width=3)
+        bokeh_plot.plot_lpis(df, p, fill_alpha=0.7, line_width=3)
         #p.x_range = Range1d(point.x-pad,point.x+pad)
         return p
 
@@ -1506,7 +1657,7 @@ class HerdSelectionDashboard(Dashboard):
         sampled = meta[meta.HERD_NO==pcl.SPH_HERD_N]
 
         if len(self.found)>0:
-            strains = self.found.IE_clade.unique()
+            strains = self.found.lineage.unique()
             nearest_herd = self.nearest.HERD_NO
             bdg = len(self.found[self.found.Species=='Badger'])
         else:
