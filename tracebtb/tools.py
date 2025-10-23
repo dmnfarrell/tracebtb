@@ -620,7 +620,7 @@ def remove_outliers_mahalanobis(gdf, threshold=3):
     # Compute Mahalanobis distance for each point
     distances = [mahalanobis(point, mean, inv_cov_matrix) for point in coords]
     # Filter points within the threshold
-    gdf_filtered = gdf[np.array(distances) < threshold].copy()
+    gdf_filtered = gdf[np.array(distances) <= threshold].copy()
     return gdf_filtered
 
 def remove_outliers_convex_hull(gdf, threshold=1.5):
@@ -769,6 +769,14 @@ def get_moves_bytag(df, move_df, lpis_cent):
         )
     m = gpd.GeoDataFrame(m)
     return m
+
+def get_last_move(df, moves):
+    """Add last move to animal level data"""
+
+    last_moves = moves.loc[moves.groupby('tag')['move_date'].idxmax()].reset_index(drop=True)[['tag','move_date','data_type']]
+    last_moves.columns=['tag','last_move','last_move_type']
+    df = df.merge(last_moves,left_on='Animal_ID',right_on='tag',how='left').set_index(df.index).drop(columns='tag')
+    return df
 
 def apply_jitter(gdf, radius=100):
     """
@@ -1126,11 +1134,13 @@ def get_homerange_grid(gdf, herd_summary, snpdist, min_size=12, n_cells=30, test
     countgrid = pd.concat(counts)
     return res, countgrid
 
-def add_clusters(sub, snpdist, linkage='single'):
+def add_clusters(sub, snpdist, linkage='single', prefix=''):
     """
     Get genetic clusters within a selection - usually used for within clade divisions.
     Args:
+        snpdist: SNP dista matrix for subset
         linkage: linkage method - 'single', 'average', 'complete' or 'ward'
+        prefix: prefix to add to snp label - default empty
     """
 
     from tracebtb import clustering
@@ -1142,5 +1152,5 @@ def add_clusters(sub, snpdist, linkage='single'):
         clusts = clusts.replace(number_to_letter)
         sub = sub.merge(clusts,left_index=True,right_index=True,how='left')
     else:
-        sub['snp12'] = sub['snp7'] = sub['snp5'] = sub['snp3'] =sub['snp2'] = sub['snp1'] = 'A'
+        sub['snp12'] = sub['snp7'] = sub['snp5'] = sub['snp3'] =sub['snp2'] = sub['snp1'] = prefix+'A'
     return sub

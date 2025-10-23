@@ -97,6 +97,7 @@ def create_bootstrap_layout_cls(dashboard_cls, title, bkgr, logo=None, **kwargs)
     """
     if logo == None:
         logo = logoimg
+
     def _layout():
         # create a fresh dashboard instance for this session
         app = dashboard_cls(**kwargs)
@@ -108,21 +109,13 @@ def create_bootstrap_layout_cls(dashboard_cls, title, bkgr, logo=None, **kwargs)
             header_color='white',
             header_background=bkgr
         )
-
         menu_html = pn.pane.HTML("""
-        <div class="dropdown">
-        <button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-            Apps
-        </button>
-        <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="/">Main Dashboard</a></li>
-            <li><a class="dropdown-item" href="/herd">Herd Selection</a></li>
-            <li><a class="dropdown-item" href="/moves">Movement</a></li>
-        </ul>
+        <div style="display:flex; align-items:center; gap:1.2rem; font-size:.9rem;">
+        <a href="/" style="color:white; text-decoration:none;">Main Dashboard</a>
+        <a href="/herd" style="color:white; text-decoration:none;">Herd Query</a>
         </div>
-        """, width=150)
-
-        #bootstrap.header.append(menu_html)
+        """ , width=150)
+        bootstrap.header.append(menu_html)
         bootstrap.main.append(layout)
         return bootstrap
     return _layout
@@ -135,8 +128,6 @@ def main():
                             help="load project file", metavar="FILE")
     parser.add_argument("-s", "--settings", dest="settings",default=configfile,
                             help="load a json settings file", metavar="FILE")
-    parser.add_argument("-i", "--interface", dest="interface",default='full',
-                            help="type of dashboard to launch")
     parser.add_argument("-p", "--port", dest="port",default=5010,
                             help="port to run server on")
     parser.add_argument("-nl", "--nolpis", dest="nolpis", action="store_true", default=False,
@@ -185,7 +176,7 @@ def main():
         else:
             layers = {}
 
-        #Generate multiple dashboard instances anbd put them on different URLs
+        #Generate multiple dashboard instances and put them on different URLs
         bkgr='#4B7CC1'
         nav_links = pn.Row(
             pn.pane.Markdown("[🏠 Main](/)", sizing_mode="fixed", width=100),
@@ -197,14 +188,13 @@ def main():
         layout1 = create_bootstrap_layout_cls(
             dashboards.FullDashboard,
             'TracebTB',
-            '#4B7CC1',           
+            '#4B7CC1',
             layers=layers,
             treefile=treefile,
             lpis=lpis,
             selections=selections,
             **data
         )
-
         layout2 = create_bootstrap_layout_cls(
             dashboards.HerdSelectionDashboard,
             'TracebTB Herd Query',
@@ -215,7 +205,6 @@ def main():
             lpis=lpis,
             **data
         )
-
         layout3 = create_bootstrap_layout_cls(
             dashboards.MovesDashboard,
             'TracebTB Movement',

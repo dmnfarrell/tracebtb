@@ -35,7 +35,8 @@ setup(
     entry_points = {
         'gui_scripts': [
             'tracebtb=tracebtb.gui:main',
-            'tracebtb-web=tracebtb.weblauncher:main']
+            'tracebtb-web=tracebtb.weblauncher:main',
+            'tracebtb-prep=tracebtb.prepare:main']
             },
     classifiers = ['Operating System :: OS Independent',
             'Programming Language :: Python :: 3.7',

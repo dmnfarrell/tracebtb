@@ -83,8 +83,8 @@ dm_css = """
 
 icsize = '1.9em'
 defaults = {'dashboard':{'lpis_master_file':'','tree_file':None}}
-scols = ['sample','Year','HERD_NO','Animal_ID','Species','County','Region','class_2021',
-         'IE_clade','strain_name','snp3','snp7']
+mainsearchcols = ['sample','Year','HERD_NO','Animal_ID','Species','County','Region','class_2021',
+         'lineage','strain_name','short_name','last_move_type']
 
 def get_icon(name):
     """Get svg icon"""
@@ -444,6 +444,9 @@ class Dashboard:
         p.on_event(Tap, self.tip_selected)
         return
 
+    def random_herd(self):
+        return self.meta.sample(1).iloc[0].HERD_NO
+
     def tip_selected(self, event):
         """Point click callback"""
         return
@@ -491,7 +494,7 @@ class FullDashboard(Dashboard):
         self.threshold_input = pnw.IntInput(name='Threshold', value=5, step=1, start=1, end=20,width=60)
         #search  table
         self.search_input = pnw.TextInput(name="Search", value='',sizing_mode='stretch_width')
-        self.searchcol_select = pnw.Select(name='Column',value='HERD_NO',options=scols,width=100)
+        self.searchcol_select = pnw.Select(name='Column',value='HERD_NO',options=mainsearchcols,width=100)
         self.search_btn = pnw.Button(icon=get_icon('search'), icon_size='1.8em', align="end")
         pn.bind(self.do_search, self.search_btn, watch=True)
 
@@ -753,11 +756,13 @@ class FullDashboard(Dashboard):
         #curdoc().add_root(pn.column(trigger, *widgets.values()))'''
 
         app.sizing_mode='stretch_both'
-        self.meta_pane.value = self.meta
+        self.meta_pane.value = self.meta.fillna('')
         self.update_groups()
-        self.selected = self.meta.sample(4).copy()
+        #select random cluster
+        #self.selected = self.meta.sample(4).copy()
+        strain = self.meta.sample(1).iloc[0].strain_name
+        self.selected = self.meta[self.meta.strain_name==strain]
         self.update(sub=self.selected)
-        #self.load_lpis()
         return app
 
     def update(self, event=None, sub=None):
@@ -857,7 +862,9 @@ class FullDashboard(Dashboard):
 
         self.plot_pane.object = p
 
-        self.selected_table.value = sub.drop(columns=['geometry'])
+        scols = ['sample','Animal_ID','Year','HERD_NO','snp3','snp5','snp7','lineage','short_name',
+                 'County','Region','SB','last_move','last_move_type']
+        self.selected_table.value = sub[scols].fillna('')
 
         def highlight(x):
             color = self.speciescolors[x]
@@ -1176,12 +1183,16 @@ class FullDashboard(Dashboard):
 
         query = self.search_input.value
         col = self.searchcol_select.value
-        found = self.meta[self.meta[col]==query]
-        self.meta_pane.value = found.drop(columns=['geometry'])
+        #found = self.meta[self.meta[col]==query]
+        found = self.meta[self.meta[col].astype(str).str.contains(query, case=False, na=False)]
+        print (found)
+        self.meta_pane.value = found.drop(columns=['geometry']).fillna('')
         return
 
     def reset_table(self, event=None):
-        self.meta_pane.value = self.meta
+        """Reset main table"""
+
+        self.meta_pane.value = self.meta.fillna('')
         return
 
     def create_report(self, event=None):
@@ -1473,7 +1484,7 @@ class QueryDashboard(FullDashboard):
         #mst
         self.update_mst(sub=sub, node_size=ns, labels=False)
         self.info_pane.object = f'**{len(sub)} samples**'
-        scols = ['sample','Animal_ID','Year','HERD_NO','snp3','snp5','snp7','IE_clade','County','SB']
+        scols = ['sample','Animal_ID','Year','HERD_NO','snp3','snp5','snp7','lineage','County','SB']
         self.selected_table.value = sub[scols]
         return
 
@@ -1547,6 +1558,7 @@ class HerdSelectionDashboard(Dashboard):
         return app
 
     def random_herd(self, event=None, herd=None):
+        """Select herd at random"""
 
         #herd = self.lpis.sample(1).iloc[0].SPH_HERD_N
         herd = self.random_breakdown_herd()
@@ -1555,6 +1567,7 @@ class HerdSelectionDashboard(Dashboard):
         return
 
     def update(self, event=None, herd=None):
+        """Update display"""
 
         if herd is None:
             herd = self.herd
@@ -1609,7 +1622,9 @@ class HerdSelectionDashboard(Dashboard):
         return
 
     def send_to_query_dashboard(self, event=None):
-        """Send herd query to samples query dashboard"""
+        """Send herd query to samples query dashboard
+        - will need to use pn.state.location?
+        """
 
         dash = self.parent.query_dashboard
         herds = ','.join(list(self.found.HERD_NO))
