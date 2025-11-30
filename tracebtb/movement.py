@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-    tracebtb movement functions
+    tracebtb movement functions with polars
     Created Oct 2024
     Copyright (C) Damien Farrell
 
@@ -33,12 +33,12 @@ from . import core
 home = os.path.expanduser("~")
 module_path = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(module_path,'data')
-BASEFILE = None
+BASEFILE = None #file with all cleaned movements
 
 def get_default_query():
-    """    
+    """
     This is a base out of memory query for the large movement table using polars.
-    Set BASEFILE before running this.
+    Set movements BASEFILE before running this.
     """
     if BASEFILE is None:
         print ('set BASEFILE attribute of module')
@@ -67,6 +67,7 @@ def get_default_query():
     return default_query
 
 def get_moves_with_tags(tags):
+    """Get moves from a list of tags"""
 
     q = get_default_query().filter((pl.col("tag").is_in(tags)))
     print (q.explain(streaming=True))

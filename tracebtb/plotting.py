@@ -120,6 +120,25 @@ def get_color_mapping(df, col, cmap=None, seed=1):
     newcolors = [colormap[i] if i in colormap else 'Black' for i in df[col]]
     return newcolors, colormap
 
+def get_hex_color_mapping(df, col, cmap=None, seed=1):
+    """Get random color map for categorical dataframe column"""
+
+    import matplotlib.colors as mcolors
+    c = df[col].unique()
+    if cmap is None:
+        # keep your random_colors if you have it
+        rcolors = random_colors(len(c), seed)
+        # convert to hex
+        rcolors = [mcolors.to_hex(rc) for rc in rcolors]
+    else:
+        cmap = mpl.cm.get_cmap(cmap)
+        # convert all colors from colormap to hex
+        rcolors = [mcolors.to_hex(cmap(i)) for i in range(len(c))]
+
+    colormap = dict(zip(c, rcolors))
+    newcolors = [colormap.get(i, '#000000') for i in df[col]]  # default black
+    return newcolors, colormap
+
 def plot_selection(df, col=None, cmap=None, color=None, margin=None, ms=40,
                    alpha=0.7, edgecolor=None, legend=False, title='', ax=None):
     """Plot a single map view of a set of points/farms"""

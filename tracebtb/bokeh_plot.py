@@ -430,7 +430,7 @@ def split_view(gdf, col, parcels=None, provider=None, limit=9, kde=False, **kwar
     return grid
 
 def get_timeline_data(mov, meta, limit=300):
-    """Get data from timeline plot"""
+    """Get data for timeline plot"""
 
     if mov is None:
         return

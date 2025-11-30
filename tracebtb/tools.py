@@ -325,15 +325,15 @@ def get_coords_data(df):
     coords = df[:-1].apply(lambda x: LineString([x.geometry,x.P2]),1)
     return coords
 
-def pca(matrix):
+def pca(matrix, n_components=3):
     """Perform PCA"""
 
     import sklearn
     from sklearn import decomposition
     from sklearn import manifold
 
-    pca = decomposition.PCA(n_components=3)
-    mds = manifold.MDS(n_components=3)
+    pca = decomposition.PCA(n_components=n_components)
+    mds = manifold.MDS(n_components=n_components)
     pos = mds.fit(matrix).embedding_
     X = pca.fit_transform(pos)
     #X = pca.transform(C)
@@ -1134,6 +1134,34 @@ def get_homerange_grid(gdf, herd_summary, snpdist, min_size=12, n_cells=30, test
     countgrid = pd.concat(counts)
     return res, countgrid
 
+def get_cluster_label(n):
+    """
+    Converts an integer (n >= 0) to its corresponding
+    Excel-style column string (0 -> A, 25 -> Z, 26 -> AA, 27 -> AB, etc.).
+
+    Args:
+        n (int): The cluster index (0-based).
+
+    Returns:
+        str: The multi-letter label.
+    """
+    if n < 0:
+        raise ValueError("Input must be a non-negative integer.")
+    result = ""
+    num = n + 1
+    while num > 0:
+        # 1. Find the remainder when divided by 26 (A=1, B=2, ... Z=26)
+        # We subtract 1 to make it 0-based remainder for modulo operations (A=0, Z=25)
+        # This is the 'digit' in base 26.
+        remainder = (num - 1) % 26
+        # 2. Convert the remainder to a character (0 -> 'A', 25 -> 'Z')
+        # chr(65) is 'A'
+        char = chr(65 + remainder)
+        # 3. Prepend the character to the result string
+        result = char + result
+        num = (num - 1) // 26
+    return result
+
 def add_clusters(sub, snpdist, linkage='single', prefix=''):
     """
     Get genetic clusters within a selection - usually used for within clade divisions.
@@ -1149,7 +1177,9 @@ def add_clusters(sub, snpdist, linkage='single', prefix=''):
     dm = snpdist.loc[idx,idx]
     if len(dm)>=2:
         clusts,members = clustering.get_cluster_levels(dm, levels=[1,2,3,5,7,12], linkage=linkage)
-        clusts = clusts.replace(number_to_letter)
+        #clusts = clusts.replace(number_to_letter)
+        clusts = clusts.map(lambda x: get_cluster_label(x))
+        #print (clusts)
         sub = sub.merge(clusts,left_index=True,right_index=True,how='left')
     else:
         sub['snp12'] = sub['snp7'] = sub['snp5'] = sub['snp3'] =sub['snp2'] = sub['snp1'] = prefix+'A'
