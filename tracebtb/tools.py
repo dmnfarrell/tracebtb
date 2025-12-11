@@ -1083,6 +1083,31 @@ def plot_herd_graph(G, gdf=None, ns=200, title='', ax=None):
     ax.add_artist(ScaleBar(dx=1, location=4))
     return fig
 
+def get_irish_grid(n_cells=30):
+    """Get ireland hex grid"""
+
+    counties = core.counties_gdf.to_crs('EPSG:29902')
+    grid = create_hex_grid(counties,n_cells=n_cells)
+    grid = grid[grid.geometry.intersects(counties.union_all())].copy()
+    #get county for grid
+    counties['County'] = counties.NAME_TAG
+    intersected = grid.sjoin(
+        counties[['County', 'geometry']],
+        how='left',
+        predicate='intersects'
+    ).drop_duplicates('grid_id')
+    # calculate the area of the intersection polygon for each row
+    intersected['overlap_area'] = intersected.geometry.area
+    idx_max_overlap = intersected.groupby('grid_id')['overlap_area'].idxmax()
+    dominant_counties = intersected.loc[idx_max_overlap, ['grid_id', 'County']]
+    grid = grid.merge(
+        dominant_counties[['County']],
+        left_on='grid_id',
+        right_index=True,
+        how='left'
+    )
+    return grid
+
 def get_homerange_grid(gdf, herd_summary, snpdist, min_size=12, n_cells=30, test=False):
 
     clean = herd_summary[herd_summary.clean==True]
@@ -1134,6 +1159,41 @@ def get_homerange_grid(gdf, herd_summary, snpdist, min_size=12, n_cells=30, test
     countgrid = pd.concat(counts)
     return res, countgrid
 
+def grid_cell_from_sample(row, grid):
+    """Get grid cell containing a sample (row)"""
+
+    if type(row) is not gpd.GeoDataFrame:
+        row = gpd.GeoDataFrame(row, geometry=row.geometry)
+    cols = grid.columns
+    cell = gpd.sjoin(grid, row, how="inner")
+    if len(cell)>0:
+        return cell[cols]
+    else:
+        return
+
+def plot_grid_cells(cell, gdf, parcels=None, ax=None):
+    """Plot cell(s) of grid with points inside"""
+
+    if ax == None:
+        fig,ax=plt.subplots(figsize=(6, 6))
+    else:
+        fig=None
+
+    row = cell.iloc[0]
+    sub = gpd.sjoin(gdf, cell, how='inner', predicate='intersects')
+    cell.plot(color='none',ax=ax)
+    if parcels is not None and len(parcels)>0:
+        parcels.plot(lw=.5,color='blue',ec='black',ax=ax)
+    if 'color' in sub.columns:
+        sub.plot(color=sub.color,markersize=90,ax=ax)
+    else:
+        sub.plot(column='short_name',markersize=90,ax=ax)
+    ax.set_title(f'samples={len(sub)};{row.County};{round(row.goods_coverage,2)}',fontsize=10)
+    ax.axis('off')
+    from matplotlib_scalebar.scalebar import ScaleBar
+    ax.add_artist(ScaleBar(dx=1, location=4))
+    return fig
+
 def get_cluster_label(n):
     """
     Converts an integer (n >= 0) to its corresponding
@@ -1162,7 +1222,7 @@ def get_cluster_label(n):
         num = (num - 1) // 26
     return result
 
-def add_clusters(sub, snpdist, linkage='single', prefix=''):
+def add_clusters(sub, snpdist, linkage='single', prefix='', method='simple'):
     """
     Get genetic clusters within a selection - usually used for within clade divisions.
     Args:
@@ -1177,9 +1237,11 @@ def add_clusters(sub, snpdist, linkage='single', prefix=''):
     dm = snpdist.loc[idx,idx]
     if len(dm)>=2:
         clusts,members = clustering.get_cluster_levels(dm, levels=[1,2,3,5,7,12], linkage=linkage)
-        #clusts = clusts.replace(number_to_letter)
-        clusts = clusts.map(lambda x: get_cluster_label(x))
+        if method == 'simple':
+            clusts = clusts.replace(number_to_letter)
         #print (clusts)
+        else:
+            clusts = clusts.map(lambda x: get_cluster_label(x))
         sub = sub.merge(clusts,left_index=True,right_index=True,how='left')
     else:
         sub['snp12'] = sub['snp7'] = sub['snp5'] = sub['snp3'] =sub['snp2'] = sub['snp1'] = prefix+'A'

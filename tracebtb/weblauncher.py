@@ -214,7 +214,6 @@ def main():
             lpis=lpis,
             **data
         )
-
         layouts = {'/':layout1, '/herd':layout2, 'moves':layout3}
         port = int(args.port)
         if 'reverse_proxy' in settings:
