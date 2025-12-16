@@ -269,12 +269,12 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         p.add_layout(labels)
 
     #if only one sample and no parcels set ranges
-    if len(gdf)<=1 and parcels is None:
-        print (len(gdf))
+    if len(gdf)==1 and parcels is None:
+        #print (len(gdf))
         geo_data = json.loads(geojson)
         coords = geo_data["features"][0]["geometry"]["coordinates"]
         x_point, y_point = coords[0], coords[1]
-        radius = 200
+        radius = 1000
         p.x_range = Range1d(x_point - radius, x_point + radius)
         p.y_range = Range1d(y_point - radius, y_point + radius)
 

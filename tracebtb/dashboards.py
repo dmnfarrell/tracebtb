@@ -325,8 +325,9 @@ class Dashboard:
         self.search_btn = pnw.Button(name='Search', icon=get_icon('search'), icon_size='1.8em', width=w)
         pn.bind(self.quick_search, self.search_btn, watch=True)
         #self.search_input.bind('return', self.quick_search)
-        self.recents_select = pnw.Select(name='Recent Searches',value='',options=[],width=w,size=recent_items)
+        self.recents_select = pnw.Select(name='Recent',value='',options=[],width=w,size=recent_items)
         self.recents_select.param.watch(self.recent_search,'value')
+        herds_with_samples = list(self.meta.HERD_NO.dropna().sort_values().unique())
         widgets = pn.WidgetBox(self.search_input,self.search_btn,
                                self.recents_select,width=w+20)
         return widgets
@@ -349,7 +350,7 @@ class Dashboard:
         return
 
     def quick_search(self, event=None, query=None):
-        """Search query string - override for custom behaviour"""
+        """Search herd query string"""
 
         if query == None:
             query = self.search_input.value
@@ -360,12 +361,19 @@ class Dashboard:
         #found = self.meta[self.meta.map(lambda x: str(query).lower() in str(x).lower()).any(axis=1)]
         query_list = [q.strip().lower() for q in query.split(",")]
         found = self.meta[self.meta.map(lambda x: any(q in str(x).lower() for q in query_list)).any(axis=1)]
-        if len(found)>1000 or len(found)==0:
+        if len(found)>100 or len(found)==0:
             return
 
         self.add_to_recent(query)
         self.update(sub=found)
         self.add_to_history()
+        return
+
+    def sampled_herd_search(self, event=None):
+        """Search for herd selection"""
+
+        query = str(self.sampled_herds_select.value)
+        self.quick_search(query=query)
         return
 
     def set_provider(self, event=None):
@@ -1518,21 +1526,35 @@ class HerdSelectionDashboard(Dashboard):
         self.get_test_stats()
         self.feedlots = kwargs['feedlots']
         self.iregrid = kwargs['ireland_grid']
+        self.herd = None
         return
 
     def setup_widgets(self):
+        """Add widgets"""
 
         w=140
         self.plot_pane = pn.pane.Bokeh()
+        self.seqselection_pane = pnw.Tabulator(show_index=False,disabled=True)
+        self.seqselection_pane.value = pd.DataFrame()
         self.tree_pane = pn.Column(sizing_mode='stretch_both')
         self.fragments_pane = pn.pane.Matplotlib(sizing_mode='stretch_both')
         self.grid_pane = pn.pane.Matplotlib(sizing_mode='stretch_both')
+        self.samples_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
+                                          stylesheets=[stylesheet], sizing_mode='stretch_both')
+        self.moves_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
+                                    frozen_columns=['tag'],stylesheets=[stylesheet],
+                                    sizing_mode='stretch_both')
         self.testingplot_pane = pn.pane.Bokeh(height=200)
         self.indicator = pn.indicators.Number(
                     name='Priority',
                     value=0, format="{value}",
                     colors=[(0, "red"), (1, "green")])
         search_widgets = self.search_widgets(4)
+        herds_with_samples = self.get_sampled_herds()
+        self.sampled_herds_select = pnw.Select(name='Sampled Herds',value='',
+                                               options=herds_with_samples,width=w,size=4)
+        self.sampled_herds_select.param.watch(self.sampled_herd_search,'value')
+
         sim_btn = pnw.Button(name='Random Herd',button_type='primary',width=w)
         pn.bind(self.random_herd, sim_btn, watch=True)
         refresh_btn = pnw.Button(name='Refresh',width=w,button_type='success')
@@ -1547,19 +1569,29 @@ class HerdSelectionDashboard(Dashboard):
         self.provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
         self.provider_input.param.watch(self.set_provider, 'value')
         self.herdinfo_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet], sizing_mode='stretch_both')
-        widgets = pn.Column(search_widgets,sim_btn,refresh_btn,
-                            self.dist_method,self.dist_input,self.provider_input,self.indicator)
+        widgets = pn.Column(search_widgets,self.sampled_herds_select,sim_btn,refresh_btn,
+                            self.dist_method,self.dist_input,self.provider_input)
 
         app = pn.Row(widgets,
-                  pn.Column(self.plot_pane,sizing_mode='stretch_both'),
+                  #pn.Column(self.plot_pane,sizing_mode='stretch_both'),
+                  pn.Tabs(('Map',self.plot_pane),#('Sequence Selection',self.seqselection_pane),
+                             dynamic=True,
+                             sizing_mode='stretch_both'),
                   pn.Column(pn.Tabs(('herd info',self.herdinfo_pane),('tree',self.tree_pane),
                                     ('fragments',self.fragments_pane),
-                                    ('grid',self.grid_pane)),
+                                    ('grid',self.grid_pane),
+                                    ('samples',self.samples_pane),
+                                    ('moves',self.moves_pane)),
                             self.testingplot_pane,width=500),
                     sizing_mode='stretch_both')
 
         app.sizing_mode='stretch_both'
         return app
+
+    def get_sampled_herds(self):
+
+        b = self.meta[self.meta.Species=='Bovine']
+        return list(b.HERD_NO.dropna().sort_values().unique())
 
     def random_herd(self, event=None, herd=None):
         """Select herd at random"""
@@ -1570,55 +1602,13 @@ class HerdSelectionDashboard(Dashboard):
         self.add_to_recent(herd)
         return
 
-    def herd_info(self, cell=None):
+    def herd_info(self):
         """Get herd metrics"""
 
-        meta = self.meta
-        pcl = self.parcels.iloc[0]
-        area = pcl.geometry.area
-        frag = tools.count_fragments(pcl.geometry)
-        sampled = meta[meta.HERD_NO==pcl.SPH_HERD_N]
-        feedlots = self.feedlots
-        fl = feedlots[feedlots.herd_no==self.herd]
-
-        if len(fl)==0:
-            cfu=False
-        else:
-            cfu=True
-        if type(cell) is gpd.GeoDataFrame:
-            cell=cell.iloc[0]
-        if cell is None:
-            grid_id='NA'
-            diversity='NA'
-            coverage='NA'
-        else:
-            grid_id = cell.grid_id
-            diversity = cell.shannon_diversity
-            coverage = cell.goods_coverage
-        if len(self.found)>0:
-            strains = self.found.lineage.unique()
-            nearest_herd = self.nearest.HERD_NO
-            bdg = len(self.found[self.found.Species=='Badger'])
-        else:
-            strains=''
-            nearest_herd=''
-            bdg=0
-        s = pd.Series({'name':self.herd,
-                       'area':area,
-                       'herd fragments':frag,
-                       'contiguous herds':len(self.cont_parcels),
-                       'farm already sampled':bool(len(sampled)),
-                       'nearest sampled herd/sett':nearest_herd,
-                       'badger samples':bdg,
-                       'strains':strains,
-                       'CFU':cfu,
-                       'grid_id':grid_id, #grid this sample belongs to
-                       'goods coverage': coverage,
-                       'shannon diversity': diversity,
-                       'moves in':'?',
-                       'local moves': '?',
-                       'risky moves':'?'})
-
+        herd_no = self.herd
+        data = tools.herd_metrics(herd_no, self.meta, self.moves, self.testing,
+                               self.feedlots, self.lpis, self.lpis_cent, cell)
+        s = pd.Series(data)
         self.herdinfo_pane.object = pd.DataFrame(s,columns=['value'])
         return
 
@@ -1629,23 +1619,35 @@ class HerdSelectionDashboard(Dashboard):
             herd = self.herd
         else:
             self.herd = herd
+        if herd is None:
+            return
         #print (herd)
         lpis = self.lpis
         meta = self.meta
         dist = self.dist_input.value
 
-        #find neighbours and others
-        self.parcels = pcl = lpis[lpis.SPH_HERD_N==herd].copy()
-        pcl['HERD_NO'] = pcl.SPH_HERD_N
-        self.cont_parcels = tools.shared_borders(pcl, lpis)
+        #herd context gets everything about the herd in a dict
+        hc = tools.get_herd_context(self.herd, self.meta, self.moves, self.testing,
+                               self.feedlots, self.lpis, self.lpis_cent, self.iregrid, dist=dist)
+        hdata = hc['data']
+        s = pd.Series(hc['metrics'])
+        self.herdinfo_pane.object = pd.DataFrame(s,columns=['value'])
+
+        #get neighbours and others
+        #self.parcels = pcl = lpis[lpis.SPH_HERD_N==herd].copy()
+        #pcl['HERD_NO'] = pcl.SPH_HERD_N
+        self.parcels = pcl = hdata['herd_parcels']
+        #self.cont_parcels = tools.shared_borders(pcl, lpis)
+        self.neighbours = hdata['neighbour_parcels']
+        self.cont_parcels = hdata['contiguous_parcels']
+
         if self.dist_method.value=='within any parcel':
-            nb = tools.find_neighbours(pcl, dist, self.lpis_cent, lpis)
+            nb = self.neighbours
         else:
             nb = self.cont_parcels
-        self.neighbours = nb
+
         #nearby badgers
-        buffered_area = pcl.geometry.union_all().buffer(dist)
-        bdg = self.badger[self.badger.geometry.within(buffered_area)]
+        bdg = hdata['near_badger']
 
         #then get any known strains present in area, including in herd itself
         qry = list(nb.SPH_HERD_N) + list(bdg.HERD_NO) + [herd]
@@ -1663,25 +1665,23 @@ class HerdSelectionDashboard(Dashboard):
         self.nearest = tools.find_nearest_point(pcl.iloc[0].geometry, found)
         #tree
         self.update_tree(sub=found, col='short_name', labelcol='HERD_NO')
-        #populate herd info
-        #get grid cell
-        point = self.lpis_cent[self.lpis_cent.SPH_HERD_N==herd]
-        cell = tools.grid_cell_from_sample(point,self.iregrid)
-        #herd info
-        self.herd_info(cell)
-        #combine herd info with herd_context?
-        #from . import source_attribution
-        #hc = source_attribution.get_herd_context(self.herd, meta, self.parcels,
-        #                                         self.moves, self.testing, self.lpis_cent)
-
-        #fragments
+        #plot fragments
         mp = pcl.iloc[0]
         G,ns = tools.fragments_to_graph(mp)
         fig = tools.plot_herd_graph(G, gdf=found, title=herd)
         self.fragments_pane.object = fig
         #grid cells plot
-        fig = tools.plot_grid_cells(cell, gdf=self.meta, parcels=pcl)
+        cell = hdata['grid_cell']
+        fig = tools.plot_grid_cells(cell, gdf=self.meta, parcels=pcl, neighbours=nb)
         self.grid_pane.object = fig
+        #samples
+        cols = ['sample','HERD_NO','Animal_ID','Species','short_name','last_move']
+        self.samples_pane.value = found[cols]
+        #moves
+        mov = hdata['isolate_moves']
+        if mov is not None:
+            self.moves_pane.value = mov.reset_index().drop(columns=['geometry'])
+
         #use indicator later for selection priority?
         if len(found)==0:
             self.indicator.value=1
@@ -1753,7 +1753,7 @@ class HerdSelectionDashboard(Dashboard):
         df = sr.loc[herd]
         x = list(df.index)
         vals = df.values
-        p = figure(x_range=x, height=350, title="Std Reactors",
+        p = figure(x_range=x, height=250, title="Std Reactors",
                 toolbar_location=None, tools="")
         p.vbar(x=x, top=vals, width=0.9)
         self.testingplot_pane.object = p

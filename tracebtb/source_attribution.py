@@ -50,65 +50,6 @@ MOVEMENT_WINDOW_YEARS = 2
 
 from typing import Dict, Any, List, Set
 
-def get_herd_context(herd_no, metadata, parcels, moves, testing, lpis_cent, dist=5000):
-    """
-    Computes and returns all WGS and epidemiological context for a single target herd.
-    Args:
-        herd_no: The HERD_NO to process
-        metadata: geodataframe of all metadata
-        moves: relevant movement data
-        testing: per herd testing data
-        lpis_cent: centroid points of all herds in lpis
-        dist: distance at which to consider neighbours
-    Returns:
-        A dictionary containing all context elements for the target herd.
-    """
-
-    # --- A. Current Herd Data (Isolates) ---
-    herd_isolates = metadata[metadata['HERD_NO'] == herd_no].copy()
-    # --- B. Neighboring Herds Data ---
-    if herd_isolates is not None:
-        neighbour_data = tools.find_neighbouring_points(metadata, herd_isolates, dist)
-        neighbour_strains = set(neighbour_data['snp5'].dropna())
-    else:
-        neighbour_data = None
-        neighbour_strains = None
-    # --- C. Movement Data ---
-    # Get moves into this herd for all sampled animals
-    herd_movements = tools.get_moves_bytag(herd_isolates, moves, lpis_cent)
-    if herd_movements is not None:
-        herd_movements = herd_movements.reset_index()
-    # Get all moves into the herd in past 5 years! TODO
-    all_movements = None
-    # 3. Assemble context dict
-    current_strains = set(herd_isolates['short_name'].dropna())
-    current_snp5 = set(herd_isolates['snp5'].dropna())
-    is_singleton: bool = len(herd_isolates) <= 1
-    if herd_no in testing.index:
-        te = testing.loc[herd_no]
-    else:
-        te = None
-
-    herd_context = {
-        # Core data for this breakdown
-        'herd_isolates': herd_isolates,
-        'is_singleton': is_singleton,
-        # WGS context for Residual/Within-Herd
-        'current_strains': current_strains,
-        'current_snp5': current_snp5,
-        # Spatial Context (Local Pathway)
-        'neighbour_herds': neighbour_data,
-        'neighbour_strains': neighbour_strains,
-        # Movement Context (Movement Pathway)
-        'moves': herd_movements,
-        'breakdown_history': te
-        #
-        #'herd_summary': herd_summary
-        # NOTE: Residual (Past Infections) requires historical data lookup here
-        # E.g., 'historical_strains': tools.get_historic_strains(target_herd_no)
-    }
-    return herd_context
-
 def score_within_herd(animal_row, context) -> int:
     """
     Scores the likelihood of within-herd transmission (0-10) using SNP5 cluster size

@@ -934,7 +934,6 @@ def find_neighbouring_points(gdf, sub, dist, key='HERD_NO'):
 
     point = sub.iloc[0].geometry
     p = find_points_within_distance(gdf, point, dist)
-    #print (len(p))
     p = p[~p[key].isin(list(sub[key]))]
     return p
 
@@ -1171,7 +1170,7 @@ def grid_cell_from_sample(row, grid):
     else:
         return
 
-def plot_grid_cells(cell, gdf, parcels=None, ax=None):
+def plot_grid_cells(cell, gdf, parcels=None, neighbours=None, ax=None):
     """Plot cell(s) of grid with points inside"""
 
     if ax == None:
@@ -1184,10 +1183,14 @@ def plot_grid_cells(cell, gdf, parcels=None, ax=None):
     cell.plot(color='none',ax=ax)
     if parcels is not None and len(parcels)>0:
         parcels.plot(lw=.5,color='blue',ec='black',ax=ax)
+    if neighbours is not None:
+        neighbours.plot(lw=.5,color='none',ec='black',ax=ax)
     if 'color' in sub.columns:
-        sub.plot(color=sub.color,markersize=90,ax=ax)
+        sub.plot(color=sub.color,markersize=70,ax=ax)
     else:
-        sub.plot(column='short_name',markersize=90,ax=ax)
+        sub.plot(column='short_name',markersize=70,legend=True,
+                 legend_kwds={'fontsize': 9, 'ncol': 2},
+                 cmap='tab20',ax=ax)
     ax.set_title(f'samples={len(sub)};{row.County};{round(row.goods_coverage,2)}',fontsize=10)
     ax.axis('off')
     from matplotlib_scalebar.scalebar import ScaleBar
@@ -1237,12 +1240,222 @@ def add_clusters(sub, snpdist, linkage='single', prefix='', method='simple'):
     dm = snpdist.loc[idx,idx]
     if len(dm)>=2:
         clusts,members = clustering.get_cluster_levels(dm, levels=[1,2,3,5,7,12], linkage=linkage)
+        print (clusts)
         if method == 'simple':
             clusts = clusts.replace(number_to_letter)
-        #print (clusts)
-        else:
-            clusts = clusts.map(lambda x: get_cluster_label(x))
+        elif method=='complex':
+            clusts = clusts.applymap(lambda x: get_cluster_label(x))
         sub = sub.merge(clusts,left_index=True,right_index=True,how='left')
     else:
         sub['snp12'] = sub['snp7'] = sub['snp5'] = sub['snp3'] =sub['snp2'] = sub['snp1'] = prefix+'A'
     return sub
+
+def herd_metrics(herd_no, metadata, moves, testing,
+               feedlots, lpis, lpis_cent, cell=None):
+    """Get herd metrics"""
+
+    herd_isolates = metadata[metadata['HERD_NO'] == herd_no].copy()
+    pcl = lpis[lpis.SPH_HERD_N==herd_no].copy()
+    pcl['HERD_NO'] = pcl.SPH_HERD_N
+    pcl = pcl.iloc[0]
+    area = pcl.geometry.area
+    frag = count_fragments(pcl.geometry)
+    sampled = metadata[metadata.HERD_NO==pcl.SPH_HERD_N]
+    nearest = find_nearest_point(pcl.geometry, herd_isolates)
+    cont_parcels = shared_borders(pcl, lpis)
+
+    te = testing
+    sr = te.filter(regex='^Sr')
+    lp = te.filter(regex='^Lp')
+    srtotal = sr.loc[herd_no].sum()
+    lptotal = lp.loc[herd_no].sum()
+    fl = feedlots[feedlots.herd_no==herd_no]
+
+    if len(fl)==0:
+        cfu=False
+    else:
+        cfu=True
+    if type(cell) is gpd.GeoDataFrame:
+        cell=cell.iloc[0]
+    if cell is None:
+        grid_id='NA'
+        diversity='NA'
+        coverage='NA'
+    else:
+        grid_id = cell.grid_id
+        diversity = cell.shannon_diversity
+        coverage = cell.goods_coverage
+    if len(herd_isolates)>0:
+        strains = herd_isolates.lineage.unique()
+        nearest_herd = nearest.HERD_NO
+        bdg = len(herd_isolates[herd_isolates.Species=='Badger'])
+    else:
+        strains=''
+        nearest_herd=''
+        bdg=0
+    data = pd.Series({'name':herd_no,
+                    'area':area,
+                    'herd fragments':frag,
+                    'contiguous herds':len(cont_parcels),
+                    'farm already sampled':bool(len(sampled)),
+                    'nearest sampled herd/sett':nearest_herd,
+                    'badger samples':bdg,
+                    'strains':strains,
+                    'CFU':cfu,
+                    'std reactors': srtotal,
+                    'lesion positives': lptotal,
+                    'moves in':'?',
+                    'local moves': '?',
+                    'risky moves':'?',
+                    'grid_id':grid_id, #grid this sample belongs to
+                    'goods coverage': coverage,
+                    'shannon diversity': diversity
+                    })
+    return data
+
+def get_herd_context(herd_no, metadata, moves, testing, feedlots,
+                     lpis, lpis_cent, grid=None, dist=1000):
+    """
+    Computes and returns all WGS and epidemiological context for a single target herd.
+    Args:
+        herd_no: The HERD_NO to process
+        metadata: geodataframe of all metadata
+        moves: relevant movement data
+        testing: per herd testing data
+        feedlots: CFU data
+        lpis: all land parcels, a geodataframe
+        lpis_cent: centroid points of all herds in lpis, a geodataframe
+        grid: hex grid for ireland
+        dist: distance at which to consider near neighbours
+    Returns:
+        A dictionary containing all context elements for the target herd.
+    """
+
+    MOVEMENT_WINDOW_YEARS = 2
+    badger = metadata[metadata.Species=='Badger']
+    # --- Current Herd Data (Isolates) ---
+    herd_isolates = metadata[metadata.HERD_NO == herd_no].copy()
+    # --- Parcels ---
+    herd_parcels = lpis[lpis.SPH_HERD_N==herd_no].copy()
+    herd_parcels['HERD_NO'] = herd_parcels.SPH_HERD_N
+    pcl = herd_parcels.iloc[0]
+    point = lpis_cent[lpis_cent.SPH_HERD_N==herd_no]
+    cell = grid_cell_from_sample(point, grid)
+
+    # --- Neighbouring Herd Samples ---
+    cont_parcels = shared_borders(pcl, lpis)
+    nb = find_neighbours(herd_parcels, dist, lpis_cent, lpis)
+    #nearby badgers
+    buffered_area = herd_parcels.geometry.union_all().buffer(dist)
+    near_badger = badger[badger.geometry.within(buffered_area)]
+    #then get any known strains present in area, including in herd itself
+    qry = list(nb.SPH_HERD_N) + list(near_badger.HERD_NO)
+    neighbour_isolates = metadata[metadata.HERD_NO.isin(qry)]
+    neighbour_strains = set(neighbour_isolates['short_name'].dropna())
+    nearest = find_nearest_point(pcl.geometry, herd_isolates)
+
+    # --- Movement Data ---
+    # Get moves into this herd for sampled animals
+    herd_movements = get_moves_bytag(herd_isolates, moves, lpis_cent)
+    if herd_movements is not None:
+        herd_movements = herd_movements.reset_index()
+    # TODO Get all moves into the herd in past 5 years?
+    #can't do this for all herds... we could precalculate total moves per herd.
+    #calculate all moves from test positive herds?
+    all_movements = None
+
+    if herd_no in testing.index:
+        te = testing.loc[herd_no]
+    else:
+        te = None
+
+    #herd metrics (single values)
+    area = pcl.geometry.area
+    frag = count_fragments(pcl.geometry)
+    nearest = find_nearest_point(pcl.geometry, herd_isolates)
+
+    te = testing
+    sr = te.filter(regex='^Sr')
+    lp = te.filter(regex='^Lp')
+    srtotal = sr.loc[herd_no].sum()
+    lptotal = lp.loc[herd_no].sum()
+    fl = feedlots[feedlots.herd_no==herd_no]
+
+    if len(fl)==0:
+        cfu=False
+    else:
+        cfu=True
+    #if type(cell) is gpd.GeoDataFrame:
+    #    cell=cell.iloc[0]
+    if cell is None:
+        grid_id='NA'
+        diversity='NA'
+        coverage='NA'
+    else:
+        c1=cell.iloc[0]
+        grid_id = c1.grid_id
+        diversity = c1.shannon_diversity
+        coverage = c1.goods_coverage
+    if len(herd_isolates)>0:
+        current_strains = set(herd_isolates['short_name'].dropna())
+        nearest_herd = nearest.HERD_NO
+        bdg = len(near_badger)
+    else:
+        current_strains=''
+        nearest_herd=''
+        bdg=0
+    is_singleton: bool = len(herd_isolates) == 1
+    current_strains = herd_isolates['short_name'].unique()
+    nb_strains = neighbour_isolates['short_name'].unique()
+    if 'snp5' in herd_isolates.columns:
+        current_snp5 = set(herd_isolates['snp5'].dropna())
+    else:
+        current_snp5 = ''
+    if herd_movements is not None:
+        sample_moves_in = len(herd_movements)
+    else:
+        sample_moves_in = None
+    # Assemble context dict
+    metrics = {'name':herd_no,
+                'area':area,
+                'herd_fragments':frag,
+                'contiguous herds':len(cont_parcels),
+                'herd_isolates':len(herd_isolates),
+                'neighbour_isolates':len(neighbour_isolates),
+                #is_singleton': is_singleton,
+                'nearest_sampled_herd':nearest_herd,
+                'badger_isolates':bdg,
+                'herd_strains': current_strains,
+                'neighbour_strains': nb_strains,
+                #'herd snp5': current_snp5,
+                'CFU':cfu,
+                'std_reactors': srtotal,
+                'lesion_positives': lptotal,
+                'sample_moves_in': sample_moves_in,
+                'local_moves': '?',
+                'risky_moves':'?',
+                'grid_id':grid_id, #grid this sample belongs to
+                'goods_coverage': coverage,
+                'shannon_diversity': diversity
+                }
+
+    data = {
+        # Core data for this breakdown
+        'herd_isolates': herd_isolates,
+        'herd_parcels': herd_parcels,
+        'neighbour_parcels': nb,
+        'contiguous_parcels': cont_parcels,
+        'near_badger': near_badger,
+        'grid_cell': cell,
+        # Spatial Context
+        'neighbour_herd_isolates': neighbour_isolates,
+        'neighbour_strains': neighbour_strains,
+        # Movement Context
+        'isolate_moves': herd_movements,
+        'breakdown_history': te
+        # NOTE: Residual (Past Infections) requires historical data lookup here
+        # E.g., 'historical_strains': tools.get_historic_strains(target_herd_no)
+        #herd density in area?
+    }
+    herd_context = {'data':data, 'metrics':metrics}
+    return herd_context

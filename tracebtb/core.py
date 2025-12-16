@@ -112,7 +112,7 @@ host_colors = {
 counties_gdf = gpd.read_file(os.path.join(data_path,'counties.shp'))
 counties_gdf['geometry'] = counties_gdf.to_crs("EPSG:3857").geometry.simplify(300)
 #hex grid of ireland
-iregrid = tools.create_hex_grid(counties_gdf,n_cells=30)
+#iregrid = tools.get_irish_grid()
 
 def git_version() -> str:
     """Get get version"""
