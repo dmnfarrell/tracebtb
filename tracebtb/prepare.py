@@ -65,17 +65,24 @@ def run(folder, filename):
     lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_combined.shp').set_crs('EPSG:29902')
     lpis_cent = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_cent.shp').set_crs('EPSG:29902')
     moves = pd.read_csv('/storage/btbgenie/monaghan/metadata/movement/primary_moves.csv')
+    feedlots=pd.read_csv('/storage/btbgenie/monaghan/metadata/feedlots.csv')
     herds = list(final.HERD_NO)
     if moves is not None:
         herds.extend(moves.move_to)
     gdf = tools.get_last_move(gdf, moves)
-
+    #parcels for sampled herds
     parcels = lpis[lpis.SPH_HERD_N.isin(herds)]
 
     for col in ['dob','move_date']:
         if col in moves.columns:
             moves[col] = pd.to_datetime(moves[col])
+    #testing data
     testing = pd.read_csv(os.path.join(folder, 'tb_testing.csv'))
+    #grid
+    iregrid = tools.get_irish_grid()
+    cgrid, mask = tools.get_count_grid(gdf,grid=iregrid,n_cells=30)
+    cgrid['shannon_diversity'] = tools.grid_shannon_index(cgrid, gdf)
+    cgrid['goods_coverage'] = tools.grid_goods_coverage(cgrid, gdf)
 
     #new project
     data={}
@@ -85,6 +92,8 @@ def run(folder, filename):
     data['parcels'] = parcels
     data['moves'] = moves
     data['testing'] = testing
+    data['feedlots'] = feedlots
+    data['ireland_grid'] = cgrid
     print (data.keys())
 
     tracebtb.tools.save_project(filename, data)

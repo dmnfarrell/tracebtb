@@ -287,20 +287,31 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
     return p
 
 def add_legend(p, gdf, col, fontsize=14):
-    """Add legend to figure given gdf and col color"""
+    """
+    Add legend to figure given gdf and col color.
+    If the column is numeric we add a colorbar.
+    """
 
-    vals = gdf[col].astype(str)
-    color_map = OrderedDict(zip(vals,gdf.color))
-    legend_items = []
-    x = (p.x_range.end-p.x_range.start)/2
-    y = (p.y_range.end-p.y_range.start)/2
-    for c, color in color_map.items():
-        r = p.scatter(x=[x], y=[y], color=color, size=5)
-        legend_items.append(LegendItem(label=c,renderers=[r]))
-        r.visible=False
-    legend = Legend(items=legend_items, location="top_left", title=col)
-    p.add_layout(legend, 'right')
-    p.legend.label_text_font_size = f'{fontsize}pt'
+    if gdf[col].dtype == object:
+        vals = gdf[col].astype(str)
+        color_map = OrderedDict(zip(vals,gdf.color))
+        legend_items = []
+        x = (p.x_range.end-p.x_range.start)/2
+        y = (p.y_range.end-p.y_range.start)/2
+        for c, color in color_map.items():
+            r = p.scatter(x=[x], y=[y], color=color, size=5)
+            legend_items.append(LegendItem(label=c,renderers=[r]))
+            r.visible=False
+        legend = Legend(items=legend_items, location="top_left", title=col)
+        p.add_layout(legend, 'right')
+        p.legend.label_text_font_size = f'{fontsize}pt'
+    else:
+        vals = gdf[col]
+        clrs = gdf.sort_values(col)['color']
+        from bokeh.palettes import Viridis256
+        mapper = LinearColorMapper(palette=Viridis256, low=vals.min(), high=vals.max())
+        color_bar = ColorBar(color_mapper=mapper, label_standoff=12, location=(0,0))
+        p.add_layout(color_bar, 'right')
     return
 
 def plot_setts(gdf, p):
@@ -323,6 +334,7 @@ def plot_gdf(gdf, p, **kwargs):
     return
 
 def plot_counties(p):
+    """Plot county borders"""
 
     geojson = counties_gdf.to_json()
     source = GeoJSONDataSource(geojson=geojson)
@@ -342,7 +354,10 @@ def plot_lpis(gdf, p=None, provider='CartoDB Positron', **kwargs):
     source = GeoJSONDataSource(geojson=parcelsjson)
     r = p.patches('xs', 'ys', source=source, fill_color='color',
                            line_color='black', **kwargs)
-    h = HoverTool(renderers=[r], tooltips=([("Herd", "@SPH_HERD_N")]))
+    h = HoverTool(renderers=[r], tooltips=([("Herd", "@SPH_HERD_N"),
+                                            ('area', "@AREA"),
+                                            ('base year', "@base_year"),
+                                            ('std reactors', "@sr_total")]))
     p.add_tools(h)
     return p
 

@@ -296,7 +296,8 @@ class Dashboard:
         else:
             print ('no tree found')
             self.tree = None
-        self.testing = testing.set_index('HERD_NO')
+        te = self.testing = testing.set_index('HERD_NO')
+        self.sr = te.filter(regex='^Sr')
         self.view_history = []
         self.current_index = 0
         self.cols = [None]+tools.get_ordinal_columns(self.meta)+['snp1','snp2','snp3','snp5','snp7','snp12']
@@ -466,6 +467,45 @@ class Dashboard:
 
     def show(self):
         return self.layout
+
+    def current_data_info(self):
+        """Currently loaded data summary"""
+
+        m=f"{len(self.meta)} rows loaded\n"
+        empty = len(self.meta[self.meta.geometry.is_empty])
+        m+=f"{empty} rows with no geometry\n"
+        return m
+
+    def about(self):
+        """About details"""
+
+        try:
+            from . import core
+            VERSION = core.git_version()
+        except:
+            from . import __version__ as VERSION
+        pandasver = pd.__version__
+        gpdver = gpd.__version__
+        import bokeh
+        bokehver = bokeh.__version__
+
+        m="# TracebTB\n"
+        m+="This software has been developed as part of a DAFM PSSRC grant (2022PSS113)\n"
+        m+="Licensed under the GPL v.3.0\n"
+        m+="## Software\n"
+        m+=f"* Version {VERSION}\n"
+        m+=f"* pandas v{pandasver}\n"
+        m+=f"* panel v{pn.__version__}\n"
+        m+=f"* bokeh v{bokehver}\n"
+        m+=f"* geopandas v{gpdver}\n"
+        m+="## Links\n"
+        m+="* [Homepage](https://github.com/dmnfarrell/tracebtb)\n"
+
+        m+="## Current data\n"
+        m+=self.current_data_info()
+        #m+=f'![tracebtb]({logoimg})'
+        self.about_pane.object = m
+        return
 
 class FullDashboard(Dashboard):
     """Full dashboard"""
@@ -1019,7 +1059,7 @@ class FullDashboard(Dashboard):
 
         groupby = self.groupby_input.value
         vals = pd.DataFrame(self.meta[groupby].value_counts())
-        vals = vals[vals[groupby]>1]
+        vals = vals[vals['count']>1]
         self.groups_table.value = vals
         return
 
@@ -1352,41 +1392,6 @@ class FullDashboard(Dashboard):
             if isinstance(widget, pnw.Widget) and hasattr(widget, "value"):
                 widget.value = value  # Restore the value
 
-    def current_data_info(self):
-        """Currently loaded data summary"""
-
-        m=f"{len(self.meta)} rows loaded\n"
-        empty = len(self.meta[self.meta.geometry.is_empty])
-        m+=f"{empty} rows with no geometry\n"
-        return m
-
-    def about(self):
-        try:
-            from . import core
-            VERSION = core.git_version()
-        except:
-            from . import __version__ as VERSION
-        pandasver = pd.__version__
-        gpdver = gpd.__version__
-        import bokeh
-        bokehver = bokeh.__version__
-        m="# TracebTB\n"
-        m+="This software is developed as part of a DAFM PSSRC grant (2022PSS113)\n"
-        m+="Licensed under the GPL v.3.0\n"
-        m+="## Software\n"
-        m+=f"* Version {VERSION}\n"
-        m+=f"* pandas v{pandasver}\n"
-        m+=f"* panel v{pn.__version__}\n"
-        m+=f"* bokeh v{bokehver}\n"
-        m+=f"* geopandas v{gpdver}\n"
-        m+="## Links\n"
-        m+="* [Homepage](https://github.com/dmnfarrell/tracebtb)\n"
-
-        m+="## Current data\n"
-        m+=self.current_data_info()
-        self.about_pane.object = m
-        return
-
 class QueryDashboard(FullDashboard):
     def __init__(self, **kwargs):
         super(QueryDashboard, self).__init__(**kwargs)
@@ -1533,6 +1538,7 @@ class HerdSelectionDashboard(Dashboard):
         """Add widgets"""
 
         w=140
+        styles={"margin": "10px", "font-size": "15px"}
         self.plot_pane = pn.pane.Bokeh()
         self.seqselection_pane = pnw.Tabulator(show_index=False,disabled=True)
         self.seqselection_pane.value = pd.DataFrame()
@@ -1545,10 +1551,13 @@ class HerdSelectionDashboard(Dashboard):
                                     frozen_columns=['tag'],stylesheets=[stylesheet],
                                     sizing_mode='stretch_both')
         self.testingplot_pane = pn.pane.Bokeh(height=200)
+        self.herdinfo_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet], sizing_mode='stretch_both')
         self.indicator = pn.indicators.Number(
                     name='Priority',
                     value=0, format="{value}",
                     colors=[(0, "red"), (1, "green")])
+        mstyles={"margin": "10px", "font-size": "17px", "color": 'red'}
+        self.seq_priority_pane = pn.pane.Markdown('',width=480,height=20,styles=mstyles)
         search_widgets = self.search_widgets(4)
         herds_with_samples = self.get_sampled_herds()
         self.sampled_herds_select = pnw.Select(name='Sampled Herds',value='',
@@ -1566,23 +1575,34 @@ class HerdSelectionDashboard(Dashboard):
         opts = ['within any parcel','contiguous parcels']
         self.dist_method = pnw.Select(name='Dist Method',value='within any parcel',
                                       options=opts,width=w)
-        self.provider_input = pnw.Select(name='provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
+        self.provider_input = pnw.Select(name='Provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
         self.provider_input.param.watch(self.set_provider, 'value')
-        self.herdinfo_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet], sizing_mode='stretch_both')
+        colorby = ['SPH_HERD_N','sr_total','AREA','base_year']
+        self.colorby_input = pnw.Select(name='Color Parcels by',value='SPH_HERD_N',options=colorby,width=w)
+
         widgets = pn.Column(search_widgets,self.sampled_herds_select,sim_btn,refresh_btn,
-                            self.dist_method,self.dist_input,self.provider_input)
+                            self.dist_method,self.dist_input,self.provider_input,self.colorby_input)
+        self.about_pane = pn.pane.Markdown('',styles=styles)
+        self.about()
+        self.rules_pane = pn.pane.Markdown('',styles=styles, sizing_mode='stretch_both')
+        doc_path = os.path.join(module_path,'docs','selection_framework.md')
+        rules_txt = open(doc_path,'r').read()
+        #self.rules_pane.object = rules_txt
 
         app = pn.Row(widgets,
                   #pn.Column(self.plot_pane,sizing_mode='stretch_both'),
-                  pn.Tabs(('Map',self.plot_pane),#('Sequence Selection',self.seqselection_pane),
+                  pn.Column(pn.Tabs(('Map',pn.Column(self.plot_pane,sizing_mode='stretch_both')),
+                                    #('Sequence Selection',self.seqselection_pane),
+                                    ('Rules',self.rules_pane),
+                                    ('About',self.about_pane),
                              dynamic=True,
-                             sizing_mode='stretch_both'),
+                             sizing_mode='stretch_both')),
                   pn.Column(pn.Tabs(('herd info',self.herdinfo_pane),('tree',self.tree_pane),
                                     ('fragments',self.fragments_pane),
                                     ('grid',self.grid_pane),
                                     ('samples',self.samples_pane),
                                     ('moves',self.moves_pane)),
-                            self.testingplot_pane,width=500),
+                            self.testingplot_pane,self.seq_priority_pane,width=500),
                     sizing_mode='stretch_both')
 
         app.sizing_mode='stretch_both'
@@ -1625,7 +1645,7 @@ class HerdSelectionDashboard(Dashboard):
         lpis = self.lpis
         meta = self.meta
         dist = self.dist_input.value
-
+        parcelcol = self.colorby_input.value
         #herd context gets everything about the herd in a dict
         hc = tools.get_herd_context(self.herd, self.meta, self.moves, self.testing,
                                self.feedlots, self.lpis, self.lpis_cent, self.iregrid, dist=dist)
@@ -1645,7 +1665,9 @@ class HerdSelectionDashboard(Dashboard):
             nb = self.neighbours
         else:
             nb = self.cont_parcels
-
+        #test data for parcels
+        nb['sr_total'] = nb.apply(lambda x: tools.get_testing_total(x,self.sr),1)
+        print (nb)
         #nearby badgers
         bdg = hdata['near_badger']
 
@@ -1654,7 +1676,7 @@ class HerdSelectionDashboard(Dashboard):
         found = meta[meta.HERD_NO.isin(qry)]
         found['color'],cm = tools.get_color_mapping(found, 'short_name', cmap='Set1')
         self.found = found
-        p = self.plot_neighbours(pcl,nb)
+        p = self.plot_neighbours(pcl,nb,column=parcelcol)
         bokeh_plot.plot_selection(found, legend=True, ms=20, lw=2, p=p)
         p.title = herd
         p.title.text_font_size = '20pt'
@@ -1682,11 +1704,9 @@ class HerdSelectionDashboard(Dashboard):
         if mov is not None:
             self.moves_pane.value = mov.reset_index().drop(columns=['geometry'])
 
-        #use indicator later for selection priority?
-        if len(found)==0:
-            self.indicator.value=1
-        else:
-            self.indicator.value=0
+        priority = tools.get_sequencing_priority(hc)
+        self.seq_priority_pane.object = priority
+        #use indicator for priority value?
         return
 
     def send_to_query_dashboard(self, event=None):
@@ -1699,20 +1719,24 @@ class HerdSelectionDashboard(Dashboard):
         dash.quick_search(query=herds)
         return
 
-    def plot_neighbours(self, df, parcels, col=None, pad=.3):
+    def plot_neighbours(self, df, parcels, column='SPH_HERD_N', pad=.3):
         """Show herd parcels and its neighbours"""
 
         if len(parcels)>0:
             point = parcels.to_crs('EPSG:3857').iloc[0].geometry.centroid
             x1,y1,x2,y2 = df.union_all().bounds
             pad = (x2-x1)*pad
-            parcels['color'], cm = tools.get_color_mapping(parcels, 'SPH_HERD_N', None)
-            p = bokeh_plot.plot_lpis(parcels, fill_alpha=0.4, line_width=0.2)
+            if parcels[column].dtype == object:
+                cmap=None
+            else:
+                cmap='viridis'
+            parcels['color'], cm = tools.get_color_mapping(parcels, column, cmap)
+            p = bokeh_plot.plot_lpis(parcels, fill_alpha=0.5, line_width=0.2)
+            bokeh_plot.add_legend(p, parcels, column, fontsize=12)
         else:
             p = bokeh_plot.init_figure()
         df['color'] = 'blue'
         bokeh_plot.plot_lpis(df, p, fill_alpha=0.7, line_width=3)
-        #p.x_range = Range1d(point.x-pad,point.x+pad)
         return p
 
     def quick_search(self, event=None, query=None):
@@ -1731,7 +1755,7 @@ class HerdSelectionDashboard(Dashboard):
         return
 
     def get_test_stats(self):
-        """Dummary stats from testing file"""
+        """Summary stats from testing file"""
 
         te = self.testing
         sr = te.filter(regex='^Sr')
@@ -1767,6 +1791,11 @@ class HerdSelectionDashboard(Dashboard):
         #sr=sr.sort_values('sum')
         x=sr[sr.total>5]
         return x.sample(1).index[0]
+
+    def plot_breakdown_history(self, herds):
+        """Track multiple herds tests as line graph?"""
+
+        return
 
 class TestingDashboard(FullDashboard):
     """Testing app is a wrapper for various test dashboards"""

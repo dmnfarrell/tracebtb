@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-    btbwgstool core.
+    tracebtb core module
     Created Jan 2022
     Copyright (C) Damien Farrell
 

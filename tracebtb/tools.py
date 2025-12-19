@@ -173,17 +173,25 @@ def show_colors(colors):
 def get_color_mapping(df, col, cmap=None, seed=12):
     """Get random color map for categorical dataframe column"""
 
-    import matplotlib.colors as colors
-    c = df.sort_values(col)[col].unique()
+    import matplotlib.colors as mcolors
+    # 1. Identify unique values
+    unique_vals = np.sort(df[col].unique())
+    n = len(unique_vals)
     if cmap == None:
-        clrs = random_colors(len(c),seed)
+        clrs = random_colors(n,seed)
     else:
-        c_map = mpl.cm.get_cmap(cmap)
-        clrs = [colors.rgb2hex(c_map(i)) for i in range(len(c))]
-        #colors = gen_colors(cmap,len(c))
+        c_map = mpl.colormaps.get(cmap)
+        if pd.api.types.is_numeric_dtype(df[col]):
+            # NUMERIC: Normalize index to [0, 1] for a smooth gradient
+            if n > 1:
+                clrs = [mcolors.rgb2hex(c_map(i/(n-1))) for i in range(n)]
+            else:
+                clrs = [mcolors.rgb2hex(c_map(0.5))]
+        else:
+            clrs = [mcolors.rgb2hex(c_map(i)) for i in range(n)]
 
-    colormap = dict(zip(c, clrs))
-    newcolors =  [colormap[i] if i in colormap else 'Black' for i in df[col]]
+    colormap = dict(zip(unique_vals, clrs))
+    newcolors = [colormap[val] for val in df[col]]
     return newcolors, colormap
 
 def alignment_from_snps(df):
@@ -1086,6 +1094,7 @@ def get_irish_grid(n_cells=30):
     """Get ireland hex grid"""
 
     counties = core.counties_gdf.to_crs('EPSG:29902')
+    counties = counties[counties.geometry.notnull() & ~counties.geometry.is_empty]
     grid = create_hex_grid(counties,n_cells=n_cells)
     grid = grid[grid.geometry.intersects(counties.union_all())].copy()
     #get county for grid
@@ -1240,7 +1249,7 @@ def add_clusters(sub, snpdist, linkage='single', prefix='', method='simple'):
     dm = snpdist.loc[idx,idx]
     if len(dm)>=2:
         clusts,members = clustering.get_cluster_levels(dm, levels=[1,2,3,5,7,12], linkage=linkage)
-        print (clusts)
+        #print (clusts)
         if method == 'simple':
             clusts = clusts.replace(number_to_letter)
         elif method=='complex':
@@ -1250,68 +1259,57 @@ def add_clusters(sub, snpdist, linkage='single', prefix='', method='simple'):
         sub['snp12'] = sub['snp7'] = sub['snp5'] = sub['snp3'] =sub['snp2'] = sub['snp1'] = prefix+'A'
     return sub
 
-def herd_metrics(herd_no, metadata, moves, testing,
-               feedlots, lpis, lpis_cent, cell=None):
-    """Get herd metrics"""
+def grid_shannon_index(grid, gdf, min_isolates = 5):
+    """Calculates Shannon Diversity Index for grid"""
 
-    herd_isolates = metadata[metadata['HERD_NO'] == herd_no].copy()
-    pcl = lpis[lpis.SPH_HERD_N==herd_no].copy()
-    pcl['HERD_NO'] = pcl.SPH_HERD_N
-    pcl = pcl.iloc[0]
-    area = pcl.geometry.area
-    frag = count_fragments(pcl.geometry)
-    sampled = metadata[metadata.HERD_NO==pcl.SPH_HERD_N]
-    nearest = find_nearest_point(pcl.geometry, herd_isolates)
-    cont_parcels = shared_borders(pcl, lpis)
+    import skbio.diversity.alpha as alpha
+    # threshold grids with few isolates
+    joined = gpd.sjoin(gdf, grid, how='inner', predicate='intersects')
+    sm = pd.pivot_table(joined,index='grid_id',columns='short_name',
+                        values='sample',aggfunc='count').fillna(0).astype(int)
+    sm_filtered = sm[sm.sum(axis=1) >= min_isolates].copy()
+    # Calculate one score per grid
+    grid_diversity = sm_filtered.apply(alpha.shannon, axis=1)
+    # You can now join this back to your grid geodataframe to map it
+    return grid.index.map(grid_diversity)
 
-    te = testing
-    sr = te.filter(regex='^Sr')
-    lp = te.filter(regex='^Lp')
-    srtotal = sr.loc[herd_no].sum()
-    lptotal = lp.loc[herd_no].sum()
-    fl = feedlots[feedlots.herd_no==herd_no]
+def calculate_goods_coverage(count_row):
+    """
+    Calculates Good's Coverage Index (C = 1 - N1 / N).
+    Requires a row of counts from the 'sm' matrix.
+    Vector based.
+    """
+    # N is the total number of isolates sampled in this grid area
+    N = count_row.sum()
+    if N == 0:
+        return 0.0
+    # N1 is the number of singletons (strains found exactly once)
+    N1 = (count_row == 1).sum()
+    # Calculate Coverage
+    coverage = 1 - (N1 / N)
+    return coverage
 
-    if len(fl)==0:
-        cfu=False
+def grid_goods_coverage(grid, gdf, min_isolates=5):
+    """Goods coverage for grid"""
+
+    joined = gpd.sjoin(gdf, grid, how='inner', predicate='intersects')
+    #count matrix of samples in grid
+    sm = pd.pivot_table(joined,index='grid_id',columns='short_name',values='sample',
+                        aggfunc='count').fillna(0).astype(int)
+    # Apply to your count matrix 'sm' (where rows are grid_id and columns are strain counts)
+    sm_filtered = sm[sm.sum(axis=1) >= min_isolates].copy()
+    grid_coverage_scores = sm_filtered.apply(calculate_goods_coverage, axis=1).rename('goods_coverage')
+    undersampled_grids = grid_coverage_scores[grid_coverage_scores > 0.95].index.tolist()
+    return grid.index.map(grid_coverage_scores)
+
+def get_testing_total(x, sr):
+    """Vector based get sr total for parcels"""
+
+    herd=x['SPH_HERD_N']
+    if herd in sr.index:
+        return sr.loc[herd].sum()
     else:
-        cfu=True
-    if type(cell) is gpd.GeoDataFrame:
-        cell=cell.iloc[0]
-    if cell is None:
-        grid_id='NA'
-        diversity='NA'
-        coverage='NA'
-    else:
-        grid_id = cell.grid_id
-        diversity = cell.shannon_diversity
-        coverage = cell.goods_coverage
-    if len(herd_isolates)>0:
-        strains = herd_isolates.lineage.unique()
-        nearest_herd = nearest.HERD_NO
-        bdg = len(herd_isolates[herd_isolates.Species=='Badger'])
-    else:
-        strains=''
-        nearest_herd=''
-        bdg=0
-    data = pd.Series({'name':herd_no,
-                    'area':area,
-                    'herd fragments':frag,
-                    'contiguous herds':len(cont_parcels),
-                    'farm already sampled':bool(len(sampled)),
-                    'nearest sampled herd/sett':nearest_herd,
-                    'badger samples':bdg,
-                    'strains':strains,
-                    'CFU':cfu,
-                    'std reactors': srtotal,
-                    'lesion positives': lptotal,
-                    'moves in':'?',
-                    'local moves': '?',
-                    'risky moves':'?',
-                    'grid_id':grid_id, #grid this sample belongs to
-                    'goods coverage': coverage,
-                    'shannon diversity': diversity
-                    })
-    return data
+        return 0
 
 def get_herd_context(herd_no, metadata, moves, testing, feedlots,
                      lpis, lpis_cent, grid=None, dist=1000):
@@ -1435,8 +1433,8 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
                 'local_moves': '?',
                 'risky_moves':'?',
                 'grid_id':grid_id, #grid this sample belongs to
-                'goods_coverage': coverage,
-                'shannon_diversity': diversity
+                'goods_coverage': round(coverage,2),
+                'shannon_diversity': round(diversity,2)
                 }
 
     data = {
@@ -1459,3 +1457,54 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     }
     herd_context = {'data':data, 'metrics':metrics}
     return herd_context
+
+def get_sequencing_priority(herd_context):
+    """
+    Returns the recommended priority level (Tier 1, 2, or 3)
+    based on the bovine TB sequence selection framework.
+    """
+
+    hc = herd_context
+    m = hc['metrics']
+    d = hc['data']
+
+    # --- TIER 1: HIGH PRIORITY (Automatic Sequence) ---
+
+    # 1. Badger Isolates (Expensive/Rare/High Epidemiological Value)
+    if m['badger_isolates'] > 0:
+        return "Tier 1: High (Badger Isolate)"
+
+    # 2. CFU Outbreaks (High risk finishing units)
+    if m.get('CFU') is True:
+        return "Tier 1: High (CFU Breakdown)"
+
+    # 3. Geographic Novelty (First sample in an area)
+    # Define a threshold, e.g., if nearest sampled herd is > 10km away
+    if m['herd_isolates'] <1 and m['neighbour_isolates'] == 0:
+        return "Tier 1: High (Geographic Novelty)"
+
+    # 4. Unusual Strains (Strain seen in neighbours but not in current herd history)
+    # Check if any neighbour strains are not in the herd's current known strains
+    new_local_strains = set(m['neighbour_strains']) - set(m['herd_strains'])
+    if new_local_strains:
+        return "Tier 1: High (Genomic Novelty/New Local Introduction)"
+
+    # 5. Potential Residual Infection (Breakdown recurrence check)
+    # If the herd has isolates from a previous breakdown in 'breakdown_history'
+    if len(d['breakdown_history']) > 1:
+         return "Tier 1: High (Recurrence/Residual Check)"
+
+    # --- TIER 2 & 3: DIVERSITY-BASED SELECTION (Sufficient Sampling) ---
+
+    # 6. Sufficiency Check using Good's Coverage
+    # Threshold recommendation: 0.90 (90%)
+    coverage = m['goods_coverage']
+
+    if coverage < 0.90:
+        return f"Tier 2: Medium (Under-sampled area, Coverage: {coverage})"
+
+    # 7. Redundancy Filter
+    # If coverage is high and we already have identical strains in the herd/neighborhood
+    return f"Tier 3: Low (Sufficiently Sampled, Coverage: {coverage})"
+
+
