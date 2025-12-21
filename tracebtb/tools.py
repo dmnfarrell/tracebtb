@@ -171,7 +171,11 @@ def show_colors(colors):
     return
 
 def get_color_mapping(df, col, cmap=None, seed=12):
-    """Get random color map for categorical dataframe column"""
+    """
+    Get colors for a dataframe column using a mapping.
+    If type is object or categorical, is cmap is None we use random colors.
+    If numeric column use viridis map and add colorbar.
+    """
 
     import matplotlib.colors as mcolors
     # 1. Identify unique values
@@ -191,7 +195,8 @@ def get_color_mapping(df, col, cmap=None, seed=12):
             clrs = [mcolors.rgb2hex(c_map(i)) for i in range(n)]
 
     colormap = dict(zip(unique_vals, clrs))
-    newcolors = [colormap[val] for val in df[col]]
+    values = df[col].fillna(0)
+    newcolors = [colormap[val] for val in values]
     return newcolors, colormap
 
 def alignment_from_snps(df):

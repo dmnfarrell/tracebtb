@@ -23,6 +23,7 @@ from bokeh.models import Range1d, CustomJS, TapTool, Div
 from bokeh.events import Tap
 import panel as pn
 import panel.widgets as pnw
+
 pn.extension('tabulator')
 pn.config.throttled = True
 
@@ -1575,36 +1576,39 @@ class HerdSelectionDashboard(Dashboard):
         opts = ['within any parcel','contiguous parcels']
         self.dist_method = pnw.Select(name='Dist Method',value='within any parcel',
                                       options=opts,width=w)
-        self.provider_input = pnw.Select(name='Provider',options=['']+bokeh_plot.providers,value='CartoDB Positron',width=w)
+        self.provider_input = pnw.Select(name='Provider',options=['']+bokeh_plot.providers,
+                                         value='CartoDB Positron',width=w)
         self.provider_input.param.watch(self.set_provider, 'value')
-        colorby = ['SPH_HERD_N','sr_total','AREA','base_year']
+        colorby = ['SPH_HERD_N','Size','sr_total','COUNT','AREA','base_year']
         self.colorby_input = pnw.Select(name='Color Parcels by',value='SPH_HERD_N',options=colorby,width=w)
 
         widgets = pn.Column(search_widgets,self.sampled_herds_select,sim_btn,refresh_btn,
                             self.dist_method,self.dist_input,self.provider_input,self.colorby_input)
         self.about_pane = pn.pane.Markdown('',styles=styles)
         self.about()
-        self.rules_pane = pn.pane.Markdown('',styles=styles, sizing_mode='stretch_both')
-        doc_path = os.path.join(module_path,'docs','selection_framework.md')
-        rules_txt = open(doc_path,'r').read()
+        #self.rules_pane = pn.pane.Markdown('',styles=styles, sizing_mode='stretch_both')
+        #doc_path = os.path.join(module_path,'docs','selection_framework.md')
+        #rules_txt = open(doc_path,'r').read()
         #self.rules_pane.object = rules_txt
+        from . import agent
+        chat_pane = agent.ai_chat_widget(self.meta)
 
         app = pn.Row(widgets,
                   #pn.Column(self.plot_pane,sizing_mode='stretch_both'),
                   pn.Column(pn.Tabs(('Map',pn.Column(self.plot_pane,sizing_mode='stretch_both')),
                                     #('Sequence Selection',self.seqselection_pane),
-                                    ('Rules',self.rules_pane),
+                                    #('Rules',self.rules_pane),
+                                    ('samples',self.samples_pane),
+                                    ('moves',self.moves_pane),
+                                    ('chat',chat_pane),
                                     ('About',self.about_pane),
                              dynamic=True,
                              sizing_mode='stretch_both')),
                   pn.Column(pn.Tabs(('herd info',self.herdinfo_pane),('tree',self.tree_pane),
                                     ('fragments',self.fragments_pane),
-                                    ('grid',self.grid_pane),
-                                    ('samples',self.samples_pane),
-                                    ('moves',self.moves_pane)),
+                                    ('grid',self.grid_pane)),
                             self.testingplot_pane,self.seq_priority_pane,width=500),
                     sizing_mode='stretch_both')
-
         app.sizing_mode='stretch_both'
         return app
 
@@ -1665,9 +1669,9 @@ class HerdSelectionDashboard(Dashboard):
             nb = self.neighbours
         else:
             nb = self.cont_parcels
-        #test data for parcels
+        #total pos tests over time
         nb['sr_total'] = nb.apply(lambda x: tools.get_testing_total(x,self.sr),1)
-        print (nb)
+        #print (nb.columns)
         #nearby badgers
         bdg = hdata['near_badger']
 
@@ -1719,7 +1723,7 @@ class HerdSelectionDashboard(Dashboard):
         dash.quick_search(query=herds)
         return
 
-    def plot_neighbours(self, df, parcels, column='SPH_HERD_N', pad=.3):
+    def plot_neighbours(self, df, parcels, column='SPH_HERD_N', pad=.3, legend=False):
         """Show herd parcels and its neighbours"""
 
         if len(parcels)>0:
@@ -1730,9 +1734,11 @@ class HerdSelectionDashboard(Dashboard):
                 cmap=None
             else:
                 cmap='viridis'
+                legend = True #always need colorbar
             parcels['color'], cm = tools.get_color_mapping(parcels, column, cmap)
             p = bokeh_plot.plot_lpis(parcels, fill_alpha=0.5, line_width=0.2)
-            bokeh_plot.add_legend(p, parcels, column, fontsize=12)
+            if legend == True:
+                bokeh_plot.add_legend(p, parcels, column, fontsize=12)
         else:
             p = bokeh_plot.init_figure()
         df['color'] = 'blue'

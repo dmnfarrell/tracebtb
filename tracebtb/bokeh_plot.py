@@ -274,7 +274,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
         geo_data = json.loads(geojson)
         coords = geo_data["features"][0]["geometry"]["coordinates"]
         x_point, y_point = coords[0], coords[1]
-        radius = 1000
+        radius = 2000
         p.x_range = Range1d(x_point - radius, x_point + radius)
         p.y_range = Range1d(y_point - radius, y_point + radius)
 
@@ -354,10 +354,11 @@ def plot_lpis(gdf, p=None, provider='CartoDB Positron', **kwargs):
     source = GeoJSONDataSource(geojson=parcelsjson)
     r = p.patches('xs', 'ys', source=source, fill_color='color',
                            line_color='black', **kwargs)
-    h = HoverTool(renderers=[r], tooltips=([("Herd", "@SPH_HERD_N"),
-                                            ('area', "@AREA"),
+    h = HoverTool(renderers=[r], tooltips=([("herd", "@SPH_HERD_N"),
+                                            ('herd size', "@COUNT"),
+                                            ('size', "@Size"),
                                             ('base year', "@base_year"),
-                                            ('std reactors', "@sr_total")]))
+                                            ('total std reactors', "@sr_total")]))
     p.add_tools(h)
     return p
 
