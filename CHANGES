@@ -5,9 +5,13 @@ CHANGES
 0.5.0
 -----
 
-* added bokeh plotting
+* now a web app with panel and bokeh plotting
 * removed folium
-* panel app
+* prepare.py script for making project files
+* multiple dashboards on one server instance
+* herd query dashboard
+* herd context code
+* initial source attribution testing
 
 0.4.0
 -----
