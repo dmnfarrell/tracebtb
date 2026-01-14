@@ -1367,21 +1367,21 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     #calculate all moves from test positive herds?
     all_movements = None
 
+    te = testing
     if herd_no in testing.index:
-        te = testing.loc[herd_no]
+        sr = te.filter(regex='^Sr').loc[herd_no]
+        lp = te.filter(regex='^Lp').loc[herd_no]
+        sr.index = sr.index.str.replace('Sr', '20').astype(int)
+        srtotal = sr.sum()
+        lptotal = lp.sum()
     else:
-        te = None
+        sr = None; lp = None; srtotal=0; lptotal=0
 
     #herd metrics (single values)
     area = pcl.geometry.area
     frag = count_fragments(pcl.geometry)
     nearest = find_nearest_point(pcl.geometry, herd_isolates)
 
-    te = testing
-    sr = te.filter(regex='^Sr')
-    lp = te.filter(regex='^Lp')
-    srtotal = sr.loc[herd_no].sum()
-    lptotal = lp.loc[herd_no].sum()
     fl = feedlots[feedlots.herd_no==herd_no]
 
     if len(fl)==0:
@@ -1455,7 +1455,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         'neighbour_strains': neighbour_strains,
         # Movement Context
         'isolate_moves': herd_movements,
-        'breakdown_history': te
+        'reactor_history': sr
         # NOTE: Residual (Past Infections) requires historical data lookup here
         # E.g., 'historical_strains': tools.get_historic_strains(target_herd_no)
         #herd density in area?
@@ -1496,7 +1496,7 @@ def get_sequencing_priority(herd_context):
 
     # 5. Potential Residual Infection (Breakdown recurrence check)
     # If the herd has isolates from a previous breakdown in 'breakdown_history'
-    if len(d['breakdown_history']) > 1:
+    if len(d['reactor_history']) > 1:
          return "Tier 1: High (Recurrence/Residual Check)"
 
     # --- TIER 2 & 3: DIVERSITY-BASED SELECTION (Sufficient Sampling) ---

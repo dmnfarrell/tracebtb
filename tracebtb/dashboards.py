@@ -27,7 +27,7 @@ import panel.widgets as pnw
 pn.extension('tabulator')
 pn.config.throttled = True
 
-from tracebtb import tools, plotting, trees, bokeh_plot
+from tracebtb import tools, plotting, trees, bokeh_plot, source_attribution
 
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
@@ -1533,6 +1533,9 @@ class HerdSelectionDashboard(Dashboard):
         self.feedlots = kwargs['feedlots']
         self.iregrid = kwargs['ireland_grid']
         self.herd = None
+        #in future we could pre-calculate all snp5 etc clusters
+        self.meta = tools.add_clusters(self.meta, self.snpdist,
+                                       linkage='average', method='complex')
         return
 
     def setup_widgets(self):
@@ -1559,6 +1562,7 @@ class HerdSelectionDashboard(Dashboard):
                     colors=[(0, "red"), (1, "green")])
         mstyles={"margin": "10px", "font-size": "17px", "color": 'red'}
         self.seq_priority_pane = pn.pane.Markdown('',width=480,height=20,styles=mstyles)
+        self.pathways_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet], sizing_mode='stretch_both')
         search_widgets = self.search_widgets(4)
         herds_with_samples = self.get_sampled_herds()
         self.sampled_herds_select = pnw.Select(name='Sampled Herds',value='',
@@ -1600,6 +1604,7 @@ class HerdSelectionDashboard(Dashboard):
                                     #('Rules',self.rules_pane),
                                     ('samples',self.samples_pane),
                                     ('moves',self.moves_pane),
+                                    ('pathways',self.pathways_pane),
                                     ('chat',chat_pane),
                                     ('About',self.about_pane),
                              dynamic=True,
@@ -1656,6 +1661,7 @@ class HerdSelectionDashboard(Dashboard):
         hdata = hc['data']
         s = pd.Series(hc['metrics'])
         self.herdinfo_pane.object = pd.DataFrame(s,columns=['value'])
+        sub = hdata['herd_isolates']
 
         #get neighbours and others
         #self.parcels = pcl = lpis[lpis.SPH_HERD_N==herd].copy()
@@ -1710,7 +1716,11 @@ class HerdSelectionDashboard(Dashboard):
 
         priority = tools.get_sequencing_priority(hc)
         self.seq_priority_pane.object = priority
-        #use indicator for priority value?
+
+        pathway_scores = source_attribution.run_pathways(sub, self.meta,
+                                                self.moves, self.sr, self.feedlots,
+                                                self.lpis, self.lpis_cent, self.iregrid)
+        self.pathways_pane.object = pathway_scores
         return
 
     def send_to_query_dashboard(self, event=None):

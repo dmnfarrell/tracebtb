@@ -50,12 +50,12 @@ MOVEMENT_WINDOW_YEARS = 2
 
 from typing import Dict, Any, List, Set
 
-def score_within_herd(animal_row, context) -> int:
+def score_within_herd(animal_row, context):
     """
     Scores the likelihood of within-herd transmission (0-10) using SNP5 cluster size
     within the current herd breakdown.
     Args:
-        animal_row: The specific animal being scored, dict or Series
+        animal_row: The specific animal being scored, pandas Series
         context: The pre-computed dictionary for the animal's herd.
     Returns:
         An integer score (0-10).
@@ -63,31 +63,72 @@ def score_within_herd(animal_row, context) -> int:
 
     my_cluster = animal_row['snp5']
     is_homebred = animal_row['Homebred']
-
-    # Use pre-computed flag for singleton status
-    if context['is_singleton']:
+    metrics = context['metrics']
+    data = context['data']
+    if metrics['herd_isolates'] == 1:
         # Only one isolate in the herd. Cannot confirm or rule out within-herd spread.
-        return 0, "Singleton"
+        return 1, "Singleton"
 
-    # 1. Calculate Cluster Size within the Herd
-    # Filter the subset of metadata (isolates_metadata) to find all animals
-    # that share the same SNP5 cluster ID as the current animal.
-    herd_sub_df = context['herd_isolates']
-    cluster_size = len(herd_sub_df[herd_sub_df['snp5'] == my_cluster])
-    # 2. Apply Scoring Logic (0-10)
-    if cluster_size > 1:
+    # Find all animals that share the same SNP5 and SNP12 cluster IDs as the current animal.
+    herd_sub_df = data['herd_isolates']
+    cluster_size5 = len(herd_sub_df[herd_sub_df['snp5'] == my_cluster])
+    cluster_size12 = len(herd_sub_df[herd_sub_df['snp12'] == my_cluster])
+    # Apply Scoring Logic for clusters
+    if cluster_size5 > 1:
         # Strong evidence: The animal shares a recent genetic ancestor
         # (SNP5 cluster) with another animal currently in the herd.
-        return 9, "Cluster match"
+        return 10, f"SNP5 Cluster match, size={cluster_size5}"
+    elif cluster_size12 > 1:
+        # Medium evidence, shares less recent ancestor
+        return 5, f"SNP12 Cluster match, size={cluster_size12}"
+    return 0, "Multi isolate herd with no strain match"
+
+def score_residual(animal_row, context):
+    """
+    Scores the likelihood of residual within-herd transmission (0-10) by
+    checking if the current SNP5 cluster has been previously isolated in this herd
+    in past breakdowns.
+    Args:
+        animal_row: The specific animal being scored, pandas Series
+        context: The pre-computed dictionary for the animal's herd.
+    Returns:
+        An integer score (0-10).
+    """
+
+    tag = animal_row['sample']
+    my_herd = animal_row['HERD_NO']
+    curr_year = animal_row['Year']
+    snp_cluster5 = animal_row['snp5']
+    snp_cluster12 = animal_row['snp12']
+    data = context['data']
+    sub = data['herd_isolates']
+    sr = data['reactor_history']
+
+    # Look up Historical Strains - prior to current year
+    cols = ['snp5','snp12','Year']
+    historic = sub[(sub.Year<curr_year)][cols]
+
+    years = sub.Year.dropna().unique()
+    print (tag,curr_year,snp_cluster5,snp_cluster12)
+
+    # --- Step 2: Apply Scoring Logic ---
+    if sr is None or sr.sum()==0:
+        # No known previous breakdowns.
+        return 0, 'No known previous breakdowns'
+
+    previous_snp5 = historic.snp5
+    previous_snp12 = historic.snp12
+    if len(historic) == 0:
+        return 1, 'No previous breakdown prior to this sample'
+    elif snp_cluster5 in previous_snp5:
+        # Strong evidence: The current breakdown strain is a close genetic match
+        # to a strain that caused a previous breakdown
+        return 9, 'Current breakdown strain same as previous at snp5 level'
+    elif snp_cluster12 in previous_snp12:
+        # Medium evidence: The current breakdown strain is a match on snp12 level
+        return 5, 'Current breakdown strain same as previous at snp12 level'
     else:
-        # Negative evidence: The animal is a singleton cluster in a multi-isolate herd.
-        # Implies introduction, not internal spread.
-        return 0, "Multi isolate herd with no strain match"
-    # 3. Apply Homebred Bonus (optional)
-    #if is_homebred is True and score < 10:
-        # Homebred status slightly increases the plausibility of a local/within source.
-    #    score += 1
-    return
+        return 0, 'No evidence of residual infection in past breakdowns'
 
 def score_local(animal_row, context):
     """
@@ -101,20 +142,21 @@ def score_local(animal_row, context):
     """
 
     my_cluster = animal_row['snp5']
-    nb = context['neighbour_herds']
+    data = context['data']
+    nb = data['neighbour_parcels']
     # Check if any neighboring herds were identified in the context setup
-    if len(nb)==0:
+    if len(nb) == 0:
         # Cannot attribute to local spread if no neighbors are defined or found
-        return 0, "Singleton sample"
+        return 0, "No neighbouring herds"
 
     # Retrieve the pre-computed set of unique SNP5 clusters found in all neighbors
-    neighbor_clusters = context['neighbour_strains']
+    neighbour_clusters = data['neighbour_strains']
 
     # 1. Check for Strong Evidence: Exact SNP5 Cluster Match
-    if my_cluster in neighbor_clusters:
+    if my_cluster in neighbour_clusters:
         # High likelihood: The animal's specific, highly related cluster
         # is circulating in a neighbouring herd.
-        return 9, f"Cluster Match ({neighbor_clusters})"
+        return 9, f"Cluster match ({neighbour_clusters})"
 
     # 2. Low Evidence: No Match Found
     # Neighbours exist, but they do not share this specific genetic cluster.
@@ -136,12 +178,14 @@ def score_movement(animal_row, context, global_strain_map):
         An integer score (0-10).
     """
 
-    sub = context['herd_isolates']
+    data = context['data']
+    sub = data['herd_isolates']
     my_animal_id = animal_row['Animal_ID']
     my_cluster = animal_row['snp5']
     current_herd = animal_row['HERD_NO']
     #print (context['moves'])
-    herd_moves = context['moves']
+    data = context['data']
+    herd_moves = data['isolate_moves']
     if herd_moves is None:
         return 0, "No herd moves"
     # 1. Homebred Check (Must be the highest priority)
@@ -187,13 +231,13 @@ def score_movement(animal_row, context, global_strain_map):
     # For now, let's keep the primary focus on the strongest, direct link (Scenario A).
     # Since you will implement the logic for the complex links later,
     # we return the best score found.
-    return max_score, "Default score"
+    return max_score, ''
 
-def run_attribution(herd_df, gdf, parcels, moves, meta_cols=False):
-    """Run attribution on a set of herds"""
+def run_pathways(herd_df, gdf, moves, testing, feedlots,
+                     lpis, lpis_cent, grid, meta_cols=False):
+    """Run pathway attribution on a set of herds"""
 
     global_strain_map = gdf.groupby('HERD_NO')['snp5'].apply(lambda x: set(x.dropna())).to_dict()
-
     results_list = []
     #default cols from metadata
     cols=['snp3','snp5','CFU','in_homerange','Homebred','Year']
@@ -201,29 +245,29 @@ def run_attribution(herd_df, gdf, parcels, moves, meta_cols=False):
     for i, r in herd_df.iterrows():
         herd_no = r['HERD_NO']
         # Build context for the single herd
-        hc = get_herd_context(herd_no, gdf, parcels, moves)
-        sub = hc['herd_isolates']
-
+        hc = tools.get_herd_context(herd_no, gdf, moves, testing, feedlots,
+                     lpis, lpis_cent, grid=grid, dist=1000)
+        sub = hc['data']['herd_isolates']
+        #print (hc)
         #run scoring per animal
         for _, row in sub.iterrows():
             s_within, e_within = score_within_herd(row, hc)
             #print (herd_no, row.Animal_ID, s_within)
             s_local, e_local = score_local(row, hc)
             s_movement, e_movement = score_movement(row, hc, global_strain_map)
-            # s_residual = score_residual(animal_row, current_context)
+            s_residual, e_residual = score_residual(row, hc)
 
             # Package the final score results
             scores= {'within': s_within,
                     'local': s_local,
-                    'movement': s_movement}
-                    #'residual': s_residual}
+                    'movement': s_movement,
+                    'residual': s_residual}
             evidence = {
                     'within': e_within,
                     'local': e_local,
                     'movement': e_movement,
-                    'indeterminate': 'NA'
-                    #'Residual': e_resid
-                }
+                    'residual': e_residual,
+                    'indeterminate': 'NA' }
             pathway = max(scores, key=scores.get)
             if max(scores.values()) == 0:
                 pathway = 'indeterminate'
@@ -235,11 +279,51 @@ def run_attribution(herd_df, gdf, parcels, moves, meta_cols=False):
                 scols=[c for c in cols if c in sub.columns]
                 result = result.update(row[scols].to_dict())
             result.update(scores)
-            result['estimated_pathway'] = pathway
+            result['best_pathway'] = pathway
+            for key in evidence.keys():
+                if key != 'indeterminate':
+                    result['e_'+key] = evidence[key]
             result['evidence'] = evidence[pathway]
             #print (scores.values(),max(scores), pathway)
             results_list.append(result)
     return pd.DataFrame(results_list)
+
+def summarize_pathways(df):
+    """
+    Prints a formatted summary of animal movement and infection pathways.
+    """
+    total_animals = len(df)
+    unique_herds = df['HERD_NO'].nunique()
+
+    print(f"SUMMARY REPORT")
+    print("-" * 40)
+    print(f"Herd:     {df['HERD_NO'].iloc[0]}")
+    print(f"Total Animals Processed: {total_animals}")
+    print("-" * 40)
+
+    # 1. Best Pathway Breakdown
+    print("\n[Best Pathway Distribution]")
+    pathway_counts = df['best_pathway'].value_counts()
+    for pathway, count in pathway_counts.items():
+        percentage = (count / total_animals) * 100
+        print(f"- {pathway:15}: {count} ({percentage:.1f}%)")
+
+    # 2. Evidence Summary (Top explanations)
+    print("\n[Primary Evidence/Explanations]")
+    # We aggregate the 'evidence' column to see the most common reasons
+    evidence_counts = df['evidence'].value_counts().head(5)
+    for reason, count in evidence_counts.items():
+        print(f"- {count} animal(s): {reason}")
+
+    # 3. Binary Indicator Totals
+    print("\n[Binary Flags (Presence)]")
+    indicators = ['within', 'local', 'movement', 'residual']
+    for col in indicators:
+        if col in df.columns:
+            sum_val = df[col].sum()
+            print(f"- {col.title():10}: {sum_val} positive hits")
+
+    print("-" * 40)
 
 def calculate_benchmark_metrics(results_df):
     """
