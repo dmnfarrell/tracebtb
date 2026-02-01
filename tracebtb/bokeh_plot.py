@@ -251,7 +251,8 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
                                             ("Homebred","@Homebred"),
                                             ("Lineage", "@lineage"),
                                             ("Strain", "@short_name"),
-                                            ('snp7',"@snp7")
+                                            ('snp5',"@snp5"),
+                                            ('snp12',"@snp12")
                                            ]))
     p.add_tools(h2)
 

@@ -98,6 +98,13 @@ def create_bootstrap_layout_cls(dashboard_cls, title, bkgr, logo=None, **kwargs)
     if logo == None:
         logo = logoimg
 
+    logo_css = """
+    .bk-header-logo {
+        height: 60px !important; 
+        width: auto !important;
+    }
+    """
+
     def _layout():
         # create a fresh dashboard instance for this session
         app = dashboard_cls(**kwargs)
@@ -107,12 +114,13 @@ def create_bootstrap_layout_cls(dashboard_cls, title, bkgr, logo=None, **kwargs)
             favicon=logo,
             logo=logo,
             header_color='white',
-            header_background=bkgr
+            header_background=bkgr           
         )
         menu_html = pn.pane.HTML("""
         <div style="display:flex; align-items:center; gap:1.2rem; font-size:.9rem;">
         <a href="/" style="color:white; text-decoration:none;">Main Dashboard</a>
         <a href="/herd" style="color:white; text-decoration:none;">Herd Query</a>
+        <a href="/moves" style="color:white; text-decoration:none;">Movements</a>
         </div>
         """ , width=150)
         bootstrap.header.append(menu_html)
@@ -203,6 +211,7 @@ def main():
             layers=layers,
             treefile=treefile,
             lpis=lpis,
+            settings=settings,
             **data
         )
         layout3 = create_bootstrap_layout_cls(
@@ -212,9 +221,10 @@ def main():
             layers=layers,
             treefile=treefile,
             lpis=lpis,
+            settings=settings,
             **data
         )
-        layouts = {'/':layout1, '/herd':layout2, 'moves':layout3}
+        layouts = {'/':layout1, '/herd':layout2, '/moves':layout3}
         port = int(args.port)
         if 'reverse_proxy' in settings:
             #using nginx proxy with basic auth

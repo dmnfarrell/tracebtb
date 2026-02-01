@@ -783,6 +783,19 @@ def get_moves_bytag(df, move_df, lpis_cent):
     m = gpd.GeoDataFrame(m)
     return m
 
+def get_moves_locations(move_df, lpis_cent):
+    """Get location for each move row in movement df"""
+
+    m = move_df.merge(lpis_cent,left_on='herd',right_on='SPH_HERD_N', how='left')
+    if len(m)==0:
+        return
+    m = (m.drop_duplicates()
+        #.drop(columns=['Animal_ID','id','event_type','rnk_final'], errors='ignore')
+        .sort_values(['tag','event_date'])
+        .set_index('tag',drop=True)
+        )
+    return gpd.GeoDataFrame(m)
+
 def get_last_move(df, moves):
     """Add last move to animal level data"""
 
@@ -1341,6 +1354,8 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     # --- Parcels ---
     herd_parcels = lpis[lpis.SPH_HERD_N==herd_no].copy()
     herd_parcels['HERD_NO'] = herd_parcels.SPH_HERD_N
+    if len(herd_parcels) == 0 or herd_parcels is None:
+        return
     pcl = herd_parcels.iloc[0]
     point = lpis_cent[lpis_cent.SPH_HERD_N==herd_no]
     cell = grid_cell_from_sample(point, grid)
@@ -1357,6 +1372,11 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     neighbour_strains = set(neighbour_isolates['short_name'].dropna())
     nearest = find_nearest_point(pcl.geometry, herd_isolates)
 
+    # any related isolates
+    snp5_clusters = set(herd_isolates.snp5)
+    snp12_clusters = set(herd_isolates.snp12)
+    snp5_related = metadata[metadata.snp5 .isin(snp5_clusters)]
+    snp12_related = metadata[metadata.snp5.isin(snp12_clusters)]
     # --- Movement Data ---
     # Get moves into this herd for sampled animals
     herd_movements = get_moves_bytag(herd_isolates, moves, lpis_cent)
@@ -1418,6 +1438,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         sample_moves_in = len(herd_movements)
     else:
         sample_moves_in = None
+
     # Assemble context dict
     metrics = {'name':herd_no,
                 'area':area,
@@ -1427,10 +1448,8 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
                 'neighbour_isolates':len(neighbour_isolates),
                 #is_singleton': is_singleton,
                 'nearest_sampled_herd':nearest_herd,
-                'badger_isolates':bdg,
                 'herd_strains': current_strains,
                 'neighbour_strains': nb_strains,
-                #'herd snp5': current_snp5,
                 'CFU':cfu,
                 'std_reactors': srtotal,
                 'lesion_positives': lptotal,
@@ -1448,8 +1467,12 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         'herd_parcels': herd_parcels,
         'neighbour_parcels': nb,
         'contiguous_parcels': cont_parcels,
+        'badger_isolates':bdg,
         'near_badger': near_badger,
         'grid_cell': cell,
+        # Genetic context
+        'snp5_related': snp5_related,
+        'snp12_related': snp12_related,
         # Spatial Context
         'neighbour_herd_isolates': neighbour_isolates,
         'neighbour_strains': neighbour_strains,
@@ -1476,7 +1499,7 @@ def get_sequencing_priority(herd_context):
     # --- TIER 1: HIGH PRIORITY (Automatic Sequence) ---
 
     # 1. Badger Isolates (Expensive/Rare/High Epidemiological Value)
-    if m['badger_isolates'] > 0:
+    if d['badger_isolates'] > 0:
         return "Tier 1: High (Badger Isolate)"
 
     # 2. CFU Outbreaks (High risk finishing units)

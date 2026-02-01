@@ -7,6 +7,7 @@
 """
 
 import sys,os,time,re
+from datetime import date
 import platform
 from datetime import datetime
 import pickle
@@ -16,18 +17,20 @@ import math
 import pylab as plt
 import pandas as pd
 import geopandas as gpd
+import seaborn as sns
 
 from bokeh.io import show, curdoc
 from bokeh.plotting import figure
 from bokeh.models import Range1d, CustomJS, TapTool, Div
 from bokeh.events import Tap
+from bokeh.layouts import column
 import panel as pn
 import panel.widgets as pnw
 
 pn.extension('tabulator')
 pn.config.throttled = True
 
-from tracebtb import tools, plotting, trees, bokeh_plot, source_attribution
+from tracebtb import tools, plotting, trees, bokeh_plot, source_attribution, movement
 
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
@@ -139,7 +142,6 @@ def report(sub, parcels, moves, col, lpis_cent, snpdist, cmap='Set1'):
     Save a report with custom panes.
     """
 
-    from datetime import date
     styles={ "margin-top": "10px", "margin-bottom": "20px"}
     CARD_STYLE = {
       "box-shadow": "rgba(50, 50, 93, 0.25) 0px 6px 12px -2px, rgba(0, 0, 0, 0.3) 0px 3px 7px -3px",
@@ -465,6 +467,28 @@ class Dashboard:
         """Override this if needed"""
 
         return
+
+    def plot_neighbours(self, df, parcels, column='SPH_HERD_N', pad=.3, legend=False):
+        """Show herd parcels and its neighbours - used in multiple dashboards"""
+
+        if len(parcels)>0:
+            point = parcels.to_crs('EPSG:3857').iloc[0].geometry.centroid
+            x1,y1,x2,y2 = df.union_all().bounds
+            pad = (x2-x1)*pad
+            if parcels[column].dtype == object:
+                cmap=None
+            else:
+                cmap='viridis'
+                legend = True #always need colorbar
+            parcels['color'], cm = tools.get_color_mapping(parcels, column, cmap)
+            p = bokeh_plot.plot_lpis(parcels, fill_alpha=0.5, line_width=0.2)
+            if legend == True:
+                bokeh_plot.add_legend(p, parcels, column, fontsize=12)
+        else:
+            p = bokeh_plot.init_figure()
+        df['color'] = 'blue'
+        bokeh_plot.plot_lpis(df, p, fill_alpha=0.7, line_width=3)
+        return p
 
     def show(self):
         return self.layout
@@ -1360,7 +1384,6 @@ class FullDashboard(Dashboard):
         cmap = self.catcmap_input.value
         row = None
 
-        import seaborn as sns
         if kind== 'count':
             cg = sns.catplot(data=sub, x=x, y=y, hue=hue, kind=kind, aspect=2,
                             palette=cmap)
@@ -1533,9 +1556,10 @@ class HerdSelectionDashboard(Dashboard):
         self.feedlots = kwargs['feedlots']
         self.iregrid = kwargs['ireland_grid']
         self.herd = None
-        #in future we could pre-calculate all snp5 etc clusters
+        #in future we will pre-calculate all snp clusters
         self.meta = tools.add_clusters(self.meta, self.snpdist,
                                        linkage='average', method='complex')
+        movement.BASEDIR = self.settings['moves_lake']
         return
 
     def setup_widgets(self):
@@ -1555,6 +1579,7 @@ class HerdSelectionDashboard(Dashboard):
                                     frozen_columns=['tag'],stylesheets=[stylesheet],
                                     sizing_mode='stretch_both')
         self.testingplot_pane = pn.pane.Bokeh(height=200)
+        self.movesplot_pane = pn.pane.Bokeh(height=200)
         self.herdinfo_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet], sizing_mode='stretch_both')
         self.indicator = pn.indicators.Number(
                     name='Priority',
@@ -1609,10 +1634,12 @@ class HerdSelectionDashboard(Dashboard):
                                     ('About',self.about_pane),
                              dynamic=True,
                              sizing_mode='stretch_both')),
-                  pn.Column(pn.Tabs(('herd info',self.herdinfo_pane),('tree',self.tree_pane),
+                  pn.Column(pn.Tabs(('herd info',self.herdinfo_pane),
+                                    ('metrics',pn.Column(self.testingplot_pane, self.movesplot_pane)),
+                                    ('tree',self.tree_pane),
                                     ('fragments',self.fragments_pane),
                                     ('grid',self.grid_pane)),
-                            self.testingplot_pane,self.seq_priority_pane,width=500),
+                            self.seq_priority_pane,width=500),
                     sizing_mode='stretch_both')
         app.sizing_mode='stretch_both'
         return app
@@ -1692,6 +1719,7 @@ class HerdSelectionDashboard(Dashboard):
         p.title.text_font_size = '20pt'
         self.plot_pane.object = p
         self.plot_herd_testing(herd)
+        self.plot_movements_summary(herd)
 
         #nearest sampled herd
         self.nearest = tools.find_nearest_point(pcl.iloc[0].geometry, found)
@@ -1732,28 +1760,6 @@ class HerdSelectionDashboard(Dashboard):
         herds = ','.join(list(self.found.HERD_NO))
         dash.quick_search(query=herds)
         return
-
-    def plot_neighbours(self, df, parcels, column='SPH_HERD_N', pad=.3, legend=False):
-        """Show herd parcels and its neighbours"""
-
-        if len(parcels)>0:
-            point = parcels.to_crs('EPSG:3857').iloc[0].geometry.centroid
-            x1,y1,x2,y2 = df.union_all().bounds
-            pad = (x2-x1)*pad
-            if parcels[column].dtype == object:
-                cmap=None
-            else:
-                cmap='viridis'
-                legend = True #always need colorbar
-            parcels['color'], cm = tools.get_color_mapping(parcels, column, cmap)
-            p = bokeh_plot.plot_lpis(parcels, fill_alpha=0.5, line_width=0.2)
-            if legend == True:
-                bokeh_plot.add_legend(p, parcels, column, fontsize=12)
-        else:
-            p = bokeh_plot.init_figure()
-        df['color'] = 'blue'
-        bokeh_plot.plot_lpis(df, p, fill_alpha=0.7, line_width=3)
-        return p
 
     def quick_search(self, event=None, query=None):
         """Search lpis for a single herd"""
@@ -1797,6 +1803,21 @@ class HerdSelectionDashboard(Dashboard):
                 toolbar_location=None, tools="")
         p.vbar(x=x, top=vals, width=0.9)
         self.testingplot_pane.object = p
+        return p
+
+    def plot_movements_summary(self, herd):
+        """Get moves summary"""
+
+        m = movement.query_herd_moves_in(herd, date(2012, 1, 1), date(2022, 1, 1))
+        if m is None:
+            return figure()
+        df = m.groupby('year')['tag'].count()
+        x=list(df.index)
+        vals = df.values
+        p = figure(height=250, title="Moves",
+                toolbar_location=None, tools="")
+        p.vbar(x=x, top=vals, width=0.9)
+        self.movesplot_pane.object = p
         return p
 
     def random_breakdown_herd(self):
@@ -1843,8 +1864,13 @@ class MovesDashboard(Dashboard):
 
     def __init__(self, **kwargs):
         super(MovesDashboard, self).__init__(**kwargs)
-        #self.load_lpis()
-        #self.get_test_stats()
+        #self.settings = kwargs['settings']
+        self.feedlots = kwargs['feedlots']
+        self.iregrid = kwargs['ireland_grid']
+        #in future we will pre-calculate all snp clusters
+        self.meta = tools.add_clusters(self.meta, self.snpdist,
+                                       linkage='average', method='complex')
+        movement.BASEDIR = self.settings['moves_lake']
         return
 
     def setup_widgets(self):
@@ -1852,38 +1878,43 @@ class MovesDashboard(Dashboard):
 
         w=140
         self.recents = []
-        self.plot_pane = pn.pane.Bokeh()
+        self.map_pane = pn.pane.Bokeh()
         self.herd_pane = pn.pane.Bokeh()
+        self.networkplot_pane = pn.pane.Matplotlib(height=400)
+        self.summaryplot_pane = pn.pane.Matplotlib(height=300)
         search_widgets = self.search_widgets()
-        related_moves_btn = pnw.Button(name='Related Moves', width=w, button_type='primary')
-        pn.bind(self.get_related_moves, related_moves_btn, watch=True)
+        #related_moves_btn = pnw.Button(name='Related Moves', width=w, button_type='primary')
+        #pn.bind(self.get_related_moves, related_moves_btn, watch=True)
+        rnd_btn = pnw.Button(name='Random Herd',button_type='primary',width=w)
+        pn.bind(self.random_herd, rnd_btn, watch=True)
+
         #animate_moves_btn = pnw.Button(name='Animate Moves', width=w, button_type='primary')
         #pn.bind(self.plot_moves_animation, animate_moves_btn, watch=True)
         self.date_range_slider = pn.widgets.DateRangeSlider(
             name='Date Range',
-            start=datetime(2016, 1, 1), end=datetime(2024, 1, 1),
-            value=(datetime(2020, 1, 1), datetime(2020, 3, 1)),
-            step=1
+            start=datetime(2016, 1, 1), end=datetime(2022, 12, 31),
+            value=(datetime(2020, 1, 1), datetime(2022, 12, 31)),
+            step=30,format='%Y',width=w
         )
-
-        widgets = pn.WidgetBox(related_moves_btn, width=w+20)
-        self.related_moves_table = pnw.Tabulator(show_index=False,disabled=True,page_size=200,
+        widgets = pn.WidgetBox(rnd_btn, self.date_range_slider, width=w+20)
+        self.main_moves_table = pnw.Tabulator(show_index=False,disabled=True,page_size=200,
                                     frozen_columns=['tag'],stylesheets=[stylesheet],
                                     sizing_mode='stretch_both')
         app = pn.Row(pn.Column(search_widgets,widgets),
-                    pn.Column(
-                        pn.Tabs(('Map',pn.Row(self.plot_pane,self.herd_pane,sizing_mode='stretch_both')),
-                                ('Related Moves',self.related_moves_table),
+                    pn.Row(
+                        pn.Tabs(('Map',pn.Row(self.map_pane,self.herd_pane,sizing_mode='stretch_both')),
+                                ('Moves',self.main_moves_table),
                                 dynamic=True,
                                 sizing_mode='stretch_both'),
-                            ),
-                    pn.Column(),
+                        pn.Tabs(('Data',pn.Column(self.summaryplot_pane,self.networkplot_pane)),
+                                sizing_mode='stretch_both'),
+                         ),
                 max_width=2600,min_height=600)
         app.sizing_mode='stretch_both'
         return app
 
-    def update(self, event=None, sub=None):
-        #draw individual farm and then moves over time.
+    def update(self, event=None, moves=None):
+        """draw individual farm and then moves over time."""
 
         col='snp7'
         provider = "CartoDB Positron"
@@ -1893,7 +1924,39 @@ class MovesDashboard(Dashboard):
         self.ms = ms = 6
         lw = .5
         legend = True
-        if sub is None:
+        dist = 100
+
+        #get parcels etc for all herds in moves
+        herds = moves.herd.unique()
+        pcl=[]
+        nb=[]
+        for herd in herds:
+            hc = tools.get_herd_context(herd, self.meta, self.moves, self.testing,
+                                self.feedlots, self.lpis, self.lpis_cent, self.iregrid, dist=dist)
+            if hc is None:
+                continue
+            hdata = hc['data']
+            pcl.append(hdata['herd_parcels'])
+            nb.append(hdata['neighbour_parcels'])
+
+        if len(pcl)>0:
+            pcl = pd.concat(pcl)
+            nb = pd.concat(nb)
+            #p = self.plot_neighbours(pcl,nb)#,column=parcelcol)
+            print ('plotting parcels')
+            p = bokeh_plot.plot_lpis(pcl)
+        else:
+            p = bokeh_plot.init_figure()
+        #moves = tools.get_moves_locations(moves, self.lpis_cent)
+        #moves['move_to'] = moves.herd #will need to harmonise col names
+        #bokeh_plot.plot_moves(p, moves, self.lpis_cent, limit=1500)
+        self.map_pane.object = p
+
+        G,pos = movement.create_herd_network(moves, self.lpis_cent)
+        self.plot_herd_network(G, pos)
+
+        #sub = self.meta[self.meta.HERD_NO.isin(herds)]
+        '''if sub is None:
             sub = self.selected
         if len(sub[col].unique()) > 20:
             cmap = None
@@ -1916,44 +1979,82 @@ class MovesDashboard(Dashboard):
         p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms, lw=lw,
                                         col=col, labels=False,
                                         scalebar=True)
+        '''
 
-        bokeh_plot.plot_moves(p, mov, self.lpis_cent, limit=500)
-        self.plot_pane.object = p
-        #herd_parcels = self.lpis[self.lpis.SPH_HERD_N=='']
-        nb = tools.shared_borders(pcls, self.lpis)
-        p = self.plot_neighbours(pcls, nb)
-        self.herd_pane.object = p
+        self.main_moves_table.object = moves
+        self.plot_summaries(moves)
         return
 
-    def get_related_moves(self, event=None):
+    def quick_search(self, event=None, query=None):
+        """Search lpis for a single herd"""
 
-        herds = self.selected.HERD_NO.unique()
-        herdmovesfile = self.settings['herdmovesfile']
-        if self.hmoves is None:
-            hmoves = pd.read_parquet(herdmovesfile)
-            hmoves = hmoves.rename(columns={'event_date':'move_date'})
-            hmoves['move_to'] = hmoves.herd
-            self.hmoves = hmoves
-        hmoves = self.hmoves
-        temp = hmoves[(hmoves.herd.isin(herds))]
-        m = hmoves[hmoves.tag.isin(temp.tag)]
-
-        m = m.merge(self.lpis_cent,left_on='herd',right_on='SPH_HERD_N', how='left')
-        if len(m)==0:
+        if query == None:
+            query = self.search_input.value
+        if len(query)<=1:
             return
-        m = (m.drop_duplicates()
-            .drop(columns=['Animal_ID','id','event_type','rnk_final'], errors='ignore')
-            .sort_values(['tag','herd'])
-            .set_index('tag',drop=True)
-            )
-        m = gpd.GeoDataFrame(m)
-        print (len(m))
-        self.related_moves_table.value = m
-        self.related_moves = m
-        p = self.plot_pane.object
 
-        #p = bokeh_plot.plot_moves(p, related, self.lpis_cent, limit=1500)
-        #draw as network instead of map plot
+        start, end = self.date_range_slider.value
+        moves = movement.query_herd_moves_all(query, start, end)
+        if len(moves)==0 or moves is None:
+            return
+        self.update(moves=moves)
+        self.add_to_recent(query)
+        return
+
+    def random_herd(self, event=None, herd=None):
+        """Select herd at random"""
+
+        herd = self.lpis.sample(1).iloc[0].SPH_HERD_N
+        start, end = self.date_range_slider.value
+        print (start, end)
+        st=time.time()
+        moves = movement.query_herd_moves_all(herd, start, end)
+        print (f'got herd moves in {time.time()-st}')
+        self.update(moves=moves)
+        self.add_to_recent(herd)
+        return
+
+    def plot_summaries(self, moves):
+        """Get moves summary"""
+
+        m = moves
+        if m is None:
+            return figure()
+        '''df = m.groupby('year')['tag'].count()
+        p1 = figure(width=500,height=250, title="Moves by year",
+                toolbar_location=None, tools="")
+        p1.vbar(x=list(df.index), top=df.values, width=0.9)
+        df = m.groupby('data_type')['tag'].count()
+        p2 = figure(x_range=list(df.index), height=250, title="Moves by type",
+                toolbar_location=None, tools="")
+        p2.vbar(x=list(df.index), top=df.values, width=0.9)
+        #df = m.groupby('event_date')['tag'].count().reset_index()
+        #p3 = figure(height=250, title="Moves by date",  x_axis_type="datetime",
+        #        toolbar_location=None, tools="")
+        #p3.line(df.event_date, df.tag, width=0.9, color='navy')
+        p = column(p1, p2)
+        self.summaryplot_pane.object = p'''
+        cg = sns.catplot(m,x='year',hue='data_type',kind='count',aspect=2)
+        cg.ax.set_title('Moves by year')
+        self.summaryplot_pane.object = cg.fig
+        plt.tight_layout()
+        plt.close(cg.fig)
+        return
+
+    def plot_herd_network(self, G, pos, counties=None):
+        """Plot herd network"""
+
+        print ('plotting network')
+        import networkx as nx
+        fig,ax = plt.subplots(1,1,figsize=(12, 10))
+        nx.draw_networkx_nodes(G, pos, node_size=50, node_color='blue', alpha=0.7, ax=ax)
+        nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=10,
+                            edge_color='gray', alpha=0.5, width=0.5, ax=ax)
+        plt.title("Livestock Movement Network")
+        plt.axis('off')
+        if counties is not None:
+            counties.plot(ax=ax)
+        self.networkplot_pane.object = fig
         return
 
     def plot_moves_animation(self, event=None):
