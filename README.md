@@ -1,10 +1,10 @@
 # TracebTB
 
-<img align="right" src=tracebtb/logo.svg width=180px>
+<img align="right" src=tracebtb/logo_alt.svg width=180px>
 
-This is a set of applications designed to allow analysis of M.bovis strain types and associated meta data. It integrates genetic, location and cattle movement data for visualisation in a single tool.
+This is a web application designed to allow analysis of M.bovis strain types and associated meta data. It integrates genetic, location and cattle movement data for visualisation in a single tool.
 
-This software is written in Python. It was developed on Ubuntu linux and should run on any linux desktop. The GUI was made using the Qt toolkit using PySide2/PyQt. The web interface was developed with the [Panel](https://panel.holoviz.org/) framework and [Bokeh](https://bokeh.org/) plotting library.
+This software is written in Python. It was developed on Ubuntu and should run on any linux desktop. The web interface was developed with the [Panel](https://panel.holoviz.org/) framework and [Bokeh](https://bokeh.org/) plotting library.
 
 ## Usage
 
@@ -24,7 +24,7 @@ Notes: You may need to use pip3 on Ubuntu to ensure you use Python 3. Running th
 
 ### Windows
 
-Install python as normal. Also install the [git](https://gitforwindows.org/) program if you are to use the githb version. Then use pip from the command shell as above to install. You shouldn't need conda.
+It is recommended to use WSL and follow Linux instructions.
 
 ## Requirements
 
@@ -34,8 +34,15 @@ Install python as normal. Also install the [git](https://gitforwindows.org/) pro
 * biopython
 * panel
 * bokeh
-* pyside2 or pyqt5/PyQtWebEngine (only for gui)
+* networkx
+* polars
+* deltalake
 
 ## Funding
 
 This tool was developed as part of projects funded by the Irish Department of Agriculture and the Marine (DAFM).
+
+## References
+
+* O’Shaughnessy, J., Harvey, N., Byrne, B. et al. The genomic diversity and spatial patterns of Mycobacterium bovis in Ireland revealed by whole genome sequencing. Ir Vet J 79, 6 (2026). https://doi.org/10.1186/s13620-025-00324-0
+* Harvey, N., McGrath, G., O’Shaughnessy, J. et al. Integrating whole-genome sequencing and epidemiology to characterise Mycobacterium bovis transmission in Ireland: a proof of concept. Ir Vet J 79, 3 (2026). https://doi.org/10.1186/s13620-025-00321-3
