@@ -61,6 +61,7 @@ def run(folder, filename):
     print (f'{len(final)} samples')
     gdf = gpd.GeoDataFrame(final,geometry=gpd.points_from_xy(final.X_COORD,final.Y_COORD)).set_crs('EPSG:29902')
     gdf = tracebtb.tools.jitter_by_farm(gdf, radius=100)
+    gdf = tools.add_clusters(gdf, snpdist, linkage='average', method='complex')
     #print (gdf.sample(3))
     lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_combined.shp').set_crs('EPSG:29902')
     lpis_cent = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_cent.shp').set_crs('EPSG:29902')
