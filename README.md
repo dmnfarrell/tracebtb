@@ -1,16 +1,14 @@
 # TracebTB
 
-<img align="right" src=tracebtb/logo_alt.svg width=180px>
+<img align="right" src=tracebtb/logos/logo_alt.svg width=180px>
 
-This is a web application designed to allow analysis of M.bovis strain types and associated meta data. It integrates genetic, location and cattle movement data for visualisation in a single tool.
+This is an experimental web application designed to allow analysis of *M.bovis* strain types and associated meta data. It integrates genetic, location and cattle movement data.
 
-This software is written in Python. It was developed on Ubuntu and should run on any linux desktop. The web interface was developed with the [Panel](https://panel.holoviz.org/) framework and [Bokeh](https://bokeh.org/) plotting library.
+This software is written in Python. It was developed on Ubuntu. The web interface was developed with the [Panel](https://panel.holoviz.org/) framework and [Bokeh](https://bokeh.org/) plotting library.
 
 ## Usage
 
-### Web application
-
-Run the command `tracebtb-web` from the command line to launch the web application. You should provide a saved project file by using the -p option: `tracebtb-web -p file.tracebtb`. This will launch a web browser window at the address localhost:5010.
+Run the command `tracebtb` from the command line to launch the web application. You should provide a saved project file by using the -p option: `tracebtb -p file.tracebtb`. This will launch a web browser window at the address localhost:5010.
 
 See the [wiki](https://github.com/dmnfarrell/tracebtb/wiki) page for further documentation.
 

@@ -135,7 +135,7 @@ def save_figure(p):
     save(p)
 
 def init_figure(title=None, provider=None, width=600, height=600, sizing_mode='stretch_both'):
-    """Create base figure"""
+    """Create base figure with map"""
 
     box_zoom = BoxZoomTool(match_aspect=True)
     p = figure(tools=['pan,wheel_zoom,reset,save',box_zoom], active_scroll="wheel_zoom",

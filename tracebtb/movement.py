@@ -175,17 +175,35 @@ def get_movement_vectors(m, coords_df):
     ).rename(columns={'X_COORD': 'end_x', 'Y_COORD': 'end_y'})
     return df_vectors
 
-def create_herd_network(m, lpis_cent):
+def categorize_moves(df_vectors):
+
+    dist_m = np.sqrt(
+        (df_vectors['end_x'] - df_vectors['start_x'])**2 +
+        (df_vectors['end_y'] - df_vectors['start_y'])**2
+    )
+    df_vectors['dist_km'] = dist_m / 1000
+    bins = [0, 10, 50, np.inf]
+    labels = ['Local', 'Regional', 'Long']
+    df_vectors['move_category'] = pd.cut(df_vectors['dist_km'], bins=bins, labels=labels)
+    return df_vectors
+
+def create_herd_network(m, herds, lpis_cent):
     """
     Creates a Directed Graph and a position dictionary.
     Only includes herds that have valid X-Y coordinates.
     """
 
+    if type(herds) is not list:
+        herds = [herds]
     import networkx as nx
     cols=['SPH_HERD_N','X_COORD','Y_COORD']
     coords_df = lpis_cent[cols]
     df_vectors = get_movement_vectors(m, coords_df)
-
+    df_vectors['link'] = np.where(
+        df_vectors['herd'].isin(herds),
+        'direct',
+        'indirect'
+    )
     # 1. Identify all active herds from the movement data
     active_herds = set(df_vectors['herd'].unique()) | \
                 set(df_vectors['destination_herd'].dropna().unique())
@@ -208,4 +226,17 @@ def create_herd_network(m, lpis_cent):
     # We use 'days_on_herd' as the edge weight
     edges = valid_moves[['herd', 'destination_herd', 'days_on_herd']].values
     G.add_weighted_edges_from(edges)
+
+    node_attr_df = valid_moves[['herd', 'link']].drop_duplicates('herd').set_index('herd')
+    # Also include the destination herds that might not be in the 'herd' column
+    # but still need a 'relation' attribute
+    dest_nodes = [n for n in G.nodes() if n not in node_attr_df.index]
+    if dest_nodes:
+        # If they aren't in our target list, they are 'related'
+        extra_attrs = pd.DataFrame({'link': 'indirect'}, index=dest_nodes)
+        node_attr_df = pd.concat([node_attr_df, extra_attrs])
+
+    # Convert dataframe to dict of dicts: {herd_id: {'relation': 'direct'}, ...}
+    node_data = node_attr_df.to_dict('index')
+    nx.set_node_attributes(G, node_data)
     return G, pos

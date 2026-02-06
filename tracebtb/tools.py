@@ -1375,8 +1375,8 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     # any related isolates
     snp5_clusters = set(herd_isolates.snp5)
     snp12_clusters = set(herd_isolates.snp12)
-    snp5_related = metadata[metadata.snp5 .isin(snp5_clusters)]
-    snp12_related = metadata[metadata.snp5.isin(snp12_clusters)]
+    snp5_related = metadata[(metadata.snp5.isin(snp5_clusters)) & (metadata.HERD_NO!=herd_no)]
+    snp12_related = metadata[(metadata.snp5.isin(snp12_clusters)) & (metadata.HERD_NO!=herd_no)]
     # --- Movement Data ---
     # Get moves into this herd for sampled animals
     herd_movements = get_moves_bytag(herd_isolates, moves, lpis_cent)

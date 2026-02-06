@@ -27,8 +27,9 @@ from tracebtb import dashboards, bokeh_plot
 
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
-logoimg = os.path.join(module_path, 'logo.png')
-iconpath = os.path.join(module_path, 'icons')
+logo_path = os.path.join(module_path,'logos')
+logoimg = os.path.join(logo_path, 'logo.png')
+
 home = os.path.expanduser("~")
 if platform.system() == 'Windows':
     configpath = os.path.join(os.environ['APPDATA'], 'tracebtb')
@@ -100,7 +101,7 @@ def create_bootstrap_layout_cls(dashboard_cls, title, bkgr, logo=None, **kwargs)
 
     logo_css = """
     .bk-header-logo {
-        height: 60px !important; 
+        height: 60px !important;
         width: auto !important;
     }
     """
@@ -114,7 +115,7 @@ def create_bootstrap_layout_cls(dashboard_cls, title, bkgr, logo=None, **kwargs)
             favicon=logo,
             logo=logo,
             header_color='white',
-            header_background=bkgr           
+            header_background=bkgr
         )
         menu_html = pn.pane.HTML("""
         <div style="display:flex; align-items:center; gap:1.2rem; font-size:.9rem;">
@@ -207,7 +208,7 @@ def main():
             dashboards.HerdSelectionDashboard,
             'TracebTB Herd Query',
             "#438328",
-            logo=os.path.join(module_path, 'cow.png'),
+            logo=os.path.join(logo_path, 'cow.png'),
             layers=layers,
             treefile=treefile,
             lpis=lpis,
@@ -218,6 +219,7 @@ def main():
             dashboards.MovesDashboard,
             'TracebTB Movement',
             "#903E3E",
+            logo=os.path.join(logo_path, 'moves.png'),
             layers=layers,
             treefile=treefile,
             lpis=lpis,

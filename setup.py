@@ -14,7 +14,7 @@ setup(
     author = 'Damien Farrell',
     author_email = 'damien.farrell@ucd.ie',
     packages = ['tracebtb'],
-    package_data={'tracebtb': ['data/*.*','logo.png',
+    package_data={'tracebtb': ['data/*.*','logos/*.*',
                   'description.txt']
                  },
     install_requires=['numpy',
@@ -31,8 +31,7 @@ setup(
                       ],
     entry_points = {
         'gui_scripts': [
-            'tracebtb=tracebtb.gui:main',
-            'tracebtb-web=tracebtb.weblauncher:main',
+            'tracebtb=tracebtb.weblauncher:main',
             'tracebtb-prep=tracebtb.prepare:main']
             },
     classifiers = ['Operating System :: OS Independent',
