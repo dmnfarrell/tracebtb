@@ -29,13 +29,12 @@ import pandas as pd
 import numpy as np
 import polars as pl
 from deltalake import DeltaTable
-from . import core
 
 home = os.path.expanduser("~")
 module_path = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(module_path,'data')
-BASEDIR = None #deltalake folder
-
+from .core import config
+BASEDIR = config.settings['moves_lake'] #deltalake folder
 
 def write_delta_lake(csv_file, outdir):
     """Write delta lake folder from movement csv file.

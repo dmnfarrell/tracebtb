@@ -23,25 +23,19 @@ from bokeh.models import Range1d, CustomJS, TapTool
 import panel as pn
 import panel.widgets as pnw
 
-from tracebtb import dashboards, bokeh_plot
-
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
 logo_path = os.path.join(module_path,'logos')
 logoimg = os.path.join(logo_path, 'logo.png')
 
 home = os.path.expanduser("~")
-if platform.system() == 'Windows':
-    configpath = os.path.join(os.environ['APPDATA'], 'tracebtb')
-else:
-    configpath = os.path.join(home, '.config','tracebtb')
-if not os.path.exists(configpath):
-    os.makedirs(configpath, exist_ok=True)
-configfile = os.path.join(configpath, 'settings.json')
+configpath = os.path.join(home, '.config','tracebtb')
 report_file = 'report.html'
 selections_file = os.path.join(configpath,'selections.json')
 layers_file = os.path.join(configpath,'layers.gpkg')
-defaults = {'dashboard':{'lpis_master_file':'','tree_file':None}}
+
+from .core import config
+from tracebtb import dashboards, bokeh_plot
 
 def layers_from_file(layers_file):
     """load layers from file"""
@@ -74,18 +68,6 @@ def test_app():
     bootstrap.servable()
     return bootstrap
 
-def check_settings_file(filename):
-    """Check settings file"""
-
-    print (filename)
-    with open(filename) as f:
-        settings = json.load(f)['dashboard']
-    for key in defaults['dashboard']:
-        if not key in settings:
-            settings[key] = defaults['dashboard'][key]
-    print (settings)
-    return settings
-
 def create_bootstrap_layout_cls(dashboard_cls, title, bkgr, logo=None, **kwargs):
     """
     Returns a callable that creates a fresh BootstrapTemplate
@@ -111,6 +93,7 @@ def create_bootstrap_layout_cls(dashboard_cls, title, bkgr, logo=None, **kwargs)
         app = dashboard_cls(**kwargs)
         layout = app.show()
         bootstrap = pn.template.BootstrapTemplate(
+            site='TracebTB',
             title=title,
             favicon=logo,
             logo=logo,
@@ -135,7 +118,7 @@ def main():
     parser = ArgumentParser(description='TracebTB')
     parser.add_argument("-f", "--proj", dest="project",default=None,
                             help="load project file", metavar="FILE")
-    parser.add_argument("-s", "--settings", dest="settings",default=configfile,
+    parser.add_argument("-s", "--settings", dest="settings",default='',
                             help="load a json settings file", metavar="FILE")
     parser.add_argument("-p", "--port", dest="port",default=5010,
                             help="port to run server on")
@@ -161,15 +144,14 @@ def main():
         testing = data['testing']
         #load config file
         lpis = None
-        if not os.path.exists(args.settings):
-            with open(configfile, "w") as outfile:
-                json.dump(defaults, outfile)
-            treefile = None
-        else:
-            print('found settings file')
-            settings = check_settings_file(args.settings)
-            lpis_master_file = settings['lpis_master_file']
-            treefile = settings['tree_file']
+        if os.path.exists(args.settings):
+           #we can overwrite settings here
+           pass
+
+        settings = config.settings
+        lpis_master_file = settings['lpis_master_file']
+        treefile = settings['tree_file']
+
         if args.nolpis == True:
             #for testing only so server launches faster
             lpis_master_file = None
@@ -196,17 +178,18 @@ def main():
         )
         layout1 = create_bootstrap_layout_cls(
             dashboards.FullDashboard,
-            'TracebTB',
+            'Main',
             '#4B7CC1',
             layers=layers,
             treefile=treefile,
             lpis=lpis,
             selections=selections,
+            settings=settings,
             **data
         )
         layout2 = create_bootstrap_layout_cls(
             dashboards.HerdSelectionDashboard,
-            'TracebTB Herd Query',
+            'Herds',
             "#438328",
             logo=os.path.join(logo_path, 'cow.png'),
             layers=layers,
@@ -217,7 +200,7 @@ def main():
         )
         layout3 = create_bootstrap_layout_cls(
             dashboards.MovesDashboard,
-            'TracebTB Movement',
+            'Moves',
             "#903E3E",
             logo=os.path.join(logo_path, 'moves.png'),
             layers=layers,

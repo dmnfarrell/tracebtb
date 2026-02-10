@@ -35,7 +35,9 @@ from Bio import SeqIO
 from Bio import Phylo, AlignIO, Align
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
-from . import core, tools
+from dateutil.relativedelta import relativedelta
+
+from . import tools, movement
 
 module_path = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(module_path,'data')
@@ -141,38 +143,51 @@ def score_local(animal_row, context):
         An integer score (0-10).
     """
 
-    my_cluster = animal_row['snp5']
+    snp5_cluster = animal_row['snp5']
+    snp12_cluster = animal_row['snp5']
     data = context['data']
     nb = data['neighbour_parcels']
+    badgers = data['near_badger']
+
+    print (len(nb),snp5_cluster,snp12_cluster,len(badgers))
     # Check if any neighboring herds were identified in the context setup
     if len(nb) == 0:
         # Cannot attribute to local spread if no neighbors are defined or found
         return 0, "No neighbouring herds"
 
-    # Retrieve the pre-computed set of unique SNP5 clusters found in all neighbors
-    neighbour_clusters = data['neighbour_strains']
+    # unique SNP5 clusters found in all neighbors
+    nb_isolates = data['neighbour_herd_isolates']
+    species = set(nb_isolates.Species)
+    neighbour_snp5 = list(nb_isolates.snp5)
+    neighbour_snp12 = nb_isolates.snp12
+    print (f'neighbour snp5={neighbour_snp5}')
 
     # 1. Check for Strong Evidence: Exact SNP5 Cluster Match
-    if my_cluster in neighbour_clusters:
+    if len(nb_isolates) == 0:
+        # 2. Low Evidence: No Match Found
+        # Neighbours exist, but they do not share this specific genetic cluster.
+        # We assign a baseline score of 1 to ensure this pathway is considered,
+        return 1, f"No sampled herds in {len(nb)} neighbours"
+    elif snp5_cluster in neighbour_snp5:
         # High likelihood: The animal's specific, highly related cluster
         # is circulating in a neighbouring herd.
-        return 9, f"Cluster match ({neighbour_clusters})"
+        if 'badger' in species:
+            print ('badger link')
+        return 10, f"Cluster match at snp5 level ({neighbour_snp5})"
+    elif snp12_cluster in neighbour_snp12:
+        # High likelihood: The animal's specific, highly related cluster
+        # is circulating in a neighbouring herd.
+        return 5, f"Cluster match at snp12 level ({neighbour_snp12})"
+    return 0, f"{len(nb_isolates)} neighbouring isolates found with no related cluster"
 
-    # 2. Low Evidence: No Match Found
-    # Neighbours exist, but they do not share this specific genetic cluster.
-    # We assign a baseline score of 1 to ensure this pathway is considered,
-    # but highly unlikely to be the primary source.
-    return 1, "Neighbours exist but no cluster shared"
-
-def score_movement(animal_row, context, global_strain_map):
+def score_movement(animal_row, context):
     """
-    Scores the likelihood of movement-based transmission (0-10) by checking
-    the herds movement history against the WGS data of its source herds.
+    Scores the likelihood of long distance movement-based transmission (0-10)
+    by checking the herds movement history against any related strain isolates.
 
     Args:
         animal_row: The specific animal being scored.
         context: The pre-computed dictionary for the animal's current herd.
-        global_strain_map: Global lookup for all herd strains/clusters.
 
     Returns:
         An integer score (0-10).
@@ -181,63 +196,61 @@ def score_movement(animal_row, context, global_strain_map):
     data = context['data']
     sub = data['herd_isolates']
     my_animal_id = animal_row['Animal_ID']
-    my_cluster = animal_row['snp5']
-    current_herd = animal_row['HERD_NO']
-    #print (context['moves'])
+    herd = animal_row.HERD_NO
+    tag = animal_row.Animal_ID
+    last_move = animal_row.last_move
+    snp5_cluster = animal_row['snp5']
+    snp12_cluster = animal_row['snp12']
+
     data = context['data']
     herd_moves = data['isolate_moves']
-    if herd_moves is None:
-        return 0, "No herd moves"
-    # 1. Homebred Check (Must be the highest priority)
-    #if animal_row['Homebred'] is True:
-    #    return 0
-    max_score = 1 # Baseline score if movement happened but no match is found
 
-    # Get the animal's movement history
+    #first check if any strains outside local area
+    #all herds with snp5 cluster
+
+    x = data['snp5_related']
+    r5 = x[x.snp5==snp5_cluster]
+    x = data['snp12_related']
+    r12 = x[x.snp12==snp12_cluster]
+    #remove local herds - haven't done this yet
+    print (herd, snp5_cluster, len(r5),len(r12))
+
+    target_herds = list(r5.HERD_NO)
+    #print (target_herds)
+    # Get the animals own movement history - do we need it now?
     animal_moves = herd_moves[herd_moves.tag == my_animal_id]
+    #print (r5[['HERD_NO','snp5','snp12']])
 
-    # --- Check for Scenario A (Direct Link) ---
-    prior_herds = set(animal_moves.move_to.dropna())
-    prior_herds.discard(current_herd)
-    source_strains = []
-    for source_herd in prior_herds:
-        #print (source_herd)
-        # Look up strains in the historical source herd
-        s=global_strain_map.get(source_herd)
-        if s is not None:
-            source_strains.extend(s)
-    #print (prior_herds, source_strains)
-    if my_cluster in source_strains:
-        # Strongest possible evidence: Direct move from a known herd with same strain
-        return 10, "Direct move from X"
+    if len(r5) == 0 and len(r12) == 0:
+        return 1, 'no related strains outside herd at snp5 or snp12'
+    elif len(r5) > 1:
+        #get all moves from sources to herd in 1 year prior to breakdown
+        #these really only need to be found once her perd ...?
+        date1 = pd.to_datetime(last_move) - relativedelta(years=1)
+        moves = movement.query_herd_moves_all(herd, date1, last_move)
+        animal_moves = moves[moves.tag==my_animal_id]
+        direct_moves = moves[(moves.herd==herd) & (moves.tag!=my_animal_id)]
+        rel_moves = moves[moves.herd!=herd]
 
-    # --- Check for Scenario C (Passive Introduction by other animals) ---
+        print (f'{len(animal_moves)} sampled moves;{len(direct_moves)} direct;{len(rel_moves)} related')
 
-    # Use all animals that moved into the current herd n years prior
+        sampled_from_strain_herds = animal_moves[animal_moves.herd.isin(target_herds)]
+        all_from_strain_herds = direct_moves[direct_moves.herd.isin(target_herds)]
+        if len(sampled_from_strain_herds)>0:
+            #did animal move directly from a strain herd?
+            return 10, 'direct move of sampled animal from herd with same strain'
+        elif len(all_from_strain_herds)>0:
+            #any direct moves of any animals from herds with related isolates
+            return 7, 'move of other animals in herd from another herd with same strain'
+        #elif
+        #strains same as those in herd in intermediate herds of moves
 
-
-    # Look up the strains associated with these incoming animals
-    # (requires linking 'tag' back to WGS metadata, or using a move-specific strain map)
-
-    # We simplify this check by looking for ANY incoming animal that matches the cluster.
-    # (Requires a slightly augmented context or a helper function)
-
-    # Simplified Logic for C (Requires further helper implementation):
-    # If the animal's cluster matches the strain of ANY other animal moved
-    # into the current herd (and sequenced):
-    # if my_cluster in tools.get_strains_from_incoming_moves(all_incoming_moves, metadata_df):
-    #     max_score = max(max_score, 6)
-
-    # For now, let's keep the primary focus on the strongest, direct link (Scenario A).
-    # Since you will implement the logic for the complex links later,
-    # we return the best score found.
-    return max_score, ''
+        return 3, 'related strain in herd >10km but no move'
 
 def run_pathways(herd_df, gdf, moves, testing, feedlots,
                      lpis, lpis_cent, grid, meta_cols=False):
-    """Run pathway attribution on a set of herds"""
+    """Run attribution on a set of herds"""
 
-    global_strain_map = gdf.groupby('HERD_NO')['snp5'].apply(lambda x: set(x.dropna())).to_dict()
     results_list = []
     #default cols from metadata
     cols=['snp3','snp5','CFU','in_homerange','Homebred','Year']
@@ -247,14 +260,17 @@ def run_pathways(herd_df, gdf, moves, testing, feedlots,
         # Build context for the single herd
         hc = tools.get_herd_context(herd_no, gdf, moves, testing, feedlots,
                      lpis, lpis_cent, grid=grid, dist=1000)
-        sub = hc['data']['herd_isolates']
+        if hc is None:
+            continue
+        data = hc['data']
+        sub = data['herd_isolates']
         #print (hc)
         #run scoring per animal
         for _, row in sub.iterrows():
             s_within, e_within = score_within_herd(row, hc)
             #print (herd_no, row.Animal_ID, s_within)
             s_local, e_local = score_local(row, hc)
-            s_movement, e_movement = score_movement(row, hc, global_strain_map)
+            s_movement, e_movement = score_movement(row, hc)
             s_residual, e_residual = score_residual(row, hc)
 
             # Package the final score results
@@ -269,9 +285,8 @@ def run_pathways(herd_df, gdf, moves, testing, feedlots,
                     'residual': e_residual,
                     'indeterminate': 'NA' }
             pathway = max(scores, key=scores.get)
-            if max(scores.values()) == 0:
+            if len(set(scores.values()))==1 or max(scores.values()) == 0:
                 pathway = 'indeterminate'
-
             result = {'HERD_NO': row.HERD_NO,
                       'Animal_ID': row.Animal_ID}
             if meta_cols == True:

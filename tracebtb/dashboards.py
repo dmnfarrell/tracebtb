@@ -31,7 +31,7 @@ import panel.widgets as pnw
 pn.extension('tabulator')
 pn.config.throttled = True
 
-from tracebtb import tools, plotting, trees, bokeh_plot, source_attribution, movement
+from tracebtb import core, tools, plotting, trees, bokeh_plot, source_attribution, movement
 
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
@@ -384,7 +384,7 @@ class Dashboard:
     def set_provider(self, event=None):
         """Change map provider"""
 
-        p = self.plot_pane.object
+        p = self.map_pane.object
         #remove old tile
         p.renderers = [x for x in p.renderers if not str(x).startswith('TileRenderer')]
         provider = self.provider_input.value
@@ -544,7 +544,7 @@ class FullDashboard(Dashboard):
 
         w=140
         #main panes
-        self.plot_pane = pn.pane.Bokeh()
+        self.map_pane = pn.pane.Bokeh()
         self.overview_pane = pn.pane.Matplotlib(height=300)
         self.split_pane = pn.Column(sizing_mode='stretch_both')
 
@@ -793,7 +793,7 @@ class FullDashboard(Dashboard):
                     pn.Row(pn.Column(widgets1,widgets2),
                         toolbar,
                     pn.Column(
-                        pn.Tabs(('Map',pn.Column(self.plot_pane,filters)),
+                        pn.Tabs(('Map',pn.Column(self.map_pane,filters)),
                                 ('Split View',self.split_pane),
                                 ('Summary I',self.analysis_pane1),
                                 ('Main Table', self.table_pane),
@@ -937,7 +937,7 @@ class FullDashboard(Dashboard):
         else:
             self.moves_pane.value = pd.DataFrame()
 
-        self.plot_pane.object = p
+        self.map_pane.object = p
 
         scols = ['sample','Animal_ID','Year','HERD_NO','snp3','snp5','snp7','lineage','short_name',
                  'County','Region','SB','last_move','last_move_type']
@@ -981,11 +981,11 @@ class FullDashboard(Dashboard):
 
     def update_view(self, event):
 
-        p = self.plot_pane.object
+        p = self.map_pane.object
         cur_x = p.x_range.start, p.x_range.end
         cur_y = p.y_range.start, p.y_range.end
         self.update(event)
-        p = self.plot_pane.object
+        p = self.map_pane.object
         p.x_range.start, p.x_range.end = cur_x
         p.y_range.start, p.y_range.end = cur_y
 
@@ -1014,7 +1014,7 @@ class FullDashboard(Dashboard):
     def get_map_datasource(self):
         """Get point data source"""
 
-        p = self.plot_pane.object
+        p = self.map_pane.object
         r = p.select({"name": "points"})[0]
         return r.data_source
 
@@ -1108,7 +1108,7 @@ class FullDashboard(Dashboard):
     def select_region(self, event=None):
         """Select samples in region"""
 
-        p = self.plot_pane.object
+        p = self.map_pane.object
         xmin, xmax = p.x_range.start, p.x_range.end
         ymin, ymax = p.y_range.start, p.y_range.end
         from pyproj import Transformer
@@ -1444,7 +1444,7 @@ class QueryDashboard(FullDashboard):
                              ncols=3,width=w)
         self.colorby_input = pnw.Select(name='color by',options=cols,value='snp5',width=w)
         self.colorby_input.param.watch(self.update, 'value')
-        self.plot_pane = pn.pane.Bokeh()
+        self.map_pane = pn.pane.Bokeh()
         self.selected_table = pnw.Tabulator(disabled=True,page_size=100,
                                           pagination=None, sizing_mode='stretch_both',
                                           stylesheets=[stylesheet])
@@ -1457,7 +1457,7 @@ class QueryDashboard(FullDashboard):
         self.info_pane = pn.pane.Markdown('', styles={'color': "red"})
 
         app = pn.Row(pn.Column(search_widgets,toolbar,self.colorby_input,self.info_pane),
-                        pn.Tabs(('Map',pn.Column(self.plot_pane,sizing_mode='stretch_both')),
+                        pn.Tabs(('Map',pn.Column(self.map_pane,sizing_mode='stretch_both')),
                                 ('Selected',pn.Column(self.selected_pane,sizing_mode='stretch_both')),
                                 dynamic=True,
                                 sizing_mode='stretch_both'),
@@ -1516,7 +1516,7 @@ class QueryDashboard(FullDashboard):
                                         legend_fontsize=legsize, label_fontsize=labelsize,
                                         scalebar=True)
         p.on_event(Tap, self.point_selected)
-        self.plot_pane.object = p
+        self.map_pane.object = p
 
         #tree
         ns = (120/len(sub))+6
@@ -1559,7 +1559,8 @@ class HerdSelectionDashboard(Dashboard):
         self.feedlots = kwargs['feedlots']
         self.iregrid = kwargs['ireland_grid']
         self.herd = None
-        movement.BASEDIR = self.settings['moves_lake']
+        self.meta['Year'] = self.meta.Year.astype('Int64')
+        #self.meta['last_move'] = pd.to_datetime(self.meta.last_move)
         return
 
     def setup_widgets(self):
@@ -1567,7 +1568,7 @@ class HerdSelectionDashboard(Dashboard):
 
         w=140
         styles={"margin": "10px", "font-size": "15px"}
-        self.plot_pane = pn.pane.Bokeh()
+        self.map_pane = pn.pane.Bokeh()
         self.seqselection_pane = pnw.Tabulator(show_index=False,disabled=True)
         self.seqselection_pane.value = pd.DataFrame()
         self.tree_pane = pn.Column(sizing_mode='stretch_both')
@@ -1611,8 +1612,16 @@ class HerdSelectionDashboard(Dashboard):
         colorby = ['SPH_HERD_N','Size','sr_total','COUNT','AREA','base_year']
         self.colorby_input = pnw.Select(name='Color Parcels by',value='SPH_HERD_N',options=colorby,width=w)
 
+        self.date_range_slider = pn.widgets.DateRangeSlider(
+            name='Date Range',
+            start=datetime(2008, 1, 1), end=datetime(2022, 1, 1),
+            value=(datetime(2020, 1, 1), datetime(2022, 1, 1)),
+            step=30,format='%Y-%m',width=200
+        )
+        self.related_btn = pnw.Toggle(icon=get_icon('clusters'), icon_size=icsize)
         widgets = pn.Column(search_widgets,self.sampled_herds_select,sim_btn,refresh_btn,
                             self.dist_method,self.dist_input,self.provider_input,self.colorby_input)
+        widgets2 = pn.Row(self.date_range_slider,self.related_btn)
         self.about_pane = pn.pane.Markdown('',styles=styles)
         self.about()
         #self.rules_pane = pn.pane.Markdown('',styles=styles, sizing_mode='stretch_both')
@@ -1623,8 +1632,8 @@ class HerdSelectionDashboard(Dashboard):
         #chat_pane = agent.ai_chat_widget(self.meta)
 
         app = pn.Row(widgets,
-                  #pn.Column(self.plot_pane,sizing_mode='stretch_both'),
-                  pn.Column(pn.Tabs(('Map',pn.Column(self.plot_pane,sizing_mode='stretch_both')),
+                  #pn.Column(self.map_pane,sizing_mode='stretch_both'),
+                  pn.Column(pn.Tabs(('Map',pn.Column(self.map_pane,widgets2,sizing_mode='stretch_both')),
                                     #('Sequence Selection',self.seqselection_pane),
                                     #('Rules',self.rules_pane),
                                     ('Samples',self.samples_pane),
@@ -1688,12 +1697,10 @@ class HerdSelectionDashboard(Dashboard):
         s = pd.Series(hc['metrics'])
         self.herdinfo_pane.object = pd.DataFrame(s,columns=['value'])
         sub = hdata['herd_isolates']
+        related5 = hdata['snp5_related']
 
         #get neighbours and others
-        #self.parcels = pcl = lpis[lpis.SPH_HERD_N==herd].copy()
-        #pcl['HERD_NO'] = pcl.SPH_HERD_N
         self.parcels = pcl = hdata['herd_parcels']
-        #self.cont_parcels = tools.shared_borders(pcl, lpis)
         self.neighbours = hdata['neighbour_parcels']
         self.cont_parcels = hdata['contiguous_parcels']
 
@@ -1707,16 +1714,25 @@ class HerdSelectionDashboard(Dashboard):
         #nearby badgers
         bdg = hdata['near_badger']
 
-        #then get any known strains present in area, including in herd itself
+        #then get any known strains present in neighbours, including in herd itself
         qry = list(nb.SPH_HERD_N) + list(bdg.HERD_NO) + [herd]
         found = meta[meta.HERD_NO.isin(qry)]
-        found['color'],cm = tools.get_color_mapping(found, 'short_name', cmap='Set1')
+        #add related isolates if needed
+        if self.related_btn.value == True:
+            found = pd.concat([found,related5]).drop_duplicates()
+
+        #filter by dates
+        start, end = self.date_range_slider.value
+        start = pd.to_datetime(start)
+        end = pd.to_datetime(end)
+
+        found['color'],cm = tools.get_color_mapping(found, 'snp5', cmap='Set1')
         self.found = found
         p = self.plot_neighbours(pcl,nb,column=parcelcol)
-        bokeh_plot.plot_selection(found, legend=True, ms=20, lw=2, p=p)
+        bokeh_plot.plot_selection(found, col='snp5', legend=True, ms=20, lw=2, p=p)
         p.title = herd
         p.title.text_font_size = '20pt'
-        self.plot_pane.object = p
+        self.map_pane.object = p
         self.plot_herd_testing(herd)
         self.plot_movements_summary(herd)
 
@@ -1865,7 +1881,6 @@ class MovesDashboard(Dashboard):
         super(MovesDashboard, self).__init__(**kwargs)
         self.feedlots = kwargs['feedlots']
         self.iregrid = kwargs['ireland_grid']
-        movement.BASEDIR = self.settings['moves_lake']
         p = bokeh_plot.init_figure()
         self.networkplot_pane.object = p
         return
@@ -2100,7 +2115,7 @@ class MovesDashboard(Dashboard):
     def plot_moves_animation(self, event=None):
         """Show moves over a period"""
 
-        p = self.plot_pane.object
+        p = self.map_pane.object
         lines = p.select({'name': 'moves'})
         #p.renderers.remove(lines)
         df = self.related_moves

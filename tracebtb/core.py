@@ -20,16 +20,48 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 """
 
-import sys,os,subprocess,glob,re
+import sys,os,subprocess,glob,re,json
 import time, datetime
 import platform
 import geopandas as gpd
-from . import tools
 
 home = os.path.expanduser("~")
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
-config_path = os.path.join(home, '.config','tracebtb')
+
+if platform.system() == 'Windows':
+    configpath = os.path.join(os.environ['APPDATA'], 'tracebtb')
+else:
+    configpath = os.path.join(home, '.config','tracebtb')
+if not os.path.exists(configpath):
+    os.makedirs(configpath, exist_ok=True)
+
+configfile = os.path.join(configpath, 'settings.json')
+defaults = {'dashboard':{'lpis_master_file':'','tree_file':None}}
+if not os.path.exists(configfile):
+    with open(configfile, "w") as outfile:
+        json.dump(defaults, outfile)
+    treefile = None
+
+#keep settings here globally
+class Config:
+    def __init__(self):
+        self.settings = {}
+
+    def load(self, filename):
+        """Check settings file"""
+
+        defaults = {'dashboard':{'lpis_master_file':'','tree_file':None}}
+        with open(filename) as f:
+            self.settings = json.load(f)['dashboard']
+        for key in defaults['dashboard']:
+            if not key in self.settings:
+                self.settings[key] = defaults['dashboard'][key]
+        return
+
+# Instantiate once here
+config = Config()
+config.load(configfile)
 
 defaultfont = 'Lato'
 defaults = {
