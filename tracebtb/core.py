@@ -30,20 +30,20 @@ module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
 
 if platform.system() == 'Windows':
-    configpath = os.path.join(os.environ['APPDATA'], 'tracebtb')
+    config_path = os.path.join(os.environ['APPDATA'], 'tracebtb')
 else:
-    configpath = os.path.join(home, '.config','tracebtb')
-if not os.path.exists(configpath):
-    os.makedirs(configpath, exist_ok=True)
+    config_path = os.path.join(home, '.config','tracebtb')
+if not os.path.exists(config_path):
+    os.makedirs(config_path, exist_ok=True)
 
-configfile = os.path.join(configpath, 'settings.json')
+configfile = os.path.join(config_path, 'settings.json')
 defaults = {'dashboard':{'lpis_master_file':'','tree_file':None}}
 if not os.path.exists(configfile):
     with open(configfile, "w") as outfile:
         json.dump(defaults, outfile)
     treefile = None
 
-#keep settings here globally
+"""Config class to keep settings globally"""
 class Config:
     def __init__(self):
         self.settings = {}

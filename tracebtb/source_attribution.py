@@ -173,11 +173,11 @@ def score_local(animal_row, context):
         # is circulating in a neighbouring herd.
         if 'badger' in species:
             print ('badger link')
-        return 10, f"Cluster match at snp5 level ({neighbour_snp5})"
+        return 10, f"Cluster match at snp5 level ({snp5_cluster})"
     elif snp12_cluster in neighbour_snp12:
         # High likelihood: The animal's specific, highly related cluster
         # is circulating in a neighbouring herd.
-        return 5, f"Cluster match at snp12 level ({neighbour_snp12})"
+        return 5, f"Cluster match at snp12 level ({snp12_cluster})"
     return 0, f"{len(nb_isolates)} neighbouring isolates found with no related cluster"
 
 def score_movement(animal_row, context):
@@ -226,7 +226,7 @@ def score_movement(animal_row, context):
     elif len(r5) > 1:
         #get all moves from sources to herd in 1 year prior to breakdown
         #these really only need to be found once her perd ...?
-        date1 = pd.to_datetime(last_move) - relativedelta(years=1)
+        date1 = last_move - relativedelta(years=1)
         moves = movement.query_herd_moves_all(herd, date1, last_move)
         animal_moves = moves[moves.tag==my_animal_id]
         direct_moves = moves[(moves.herd==herd) & (moves.tag!=my_animal_id)]
@@ -247,19 +247,18 @@ def score_movement(animal_row, context):
 
         return 3, 'related strain in herd >10km but no move'
 
-def run_pathways(herd_df, gdf, moves, testing, feedlots,
-                     lpis, lpis_cent, grid, meta_cols=False):
+def run_pathways(herds, gdf, moves, testing, feedlots,
+                     lpis, lpis_cent, grid, meta_cols=False, dist=4000):
     """Run attribution on a set of herds"""
 
     results_list = []
     #default cols from metadata
     cols=['snp3','snp5','CFU','in_homerange','Homebred','Year']
 
-    for i, r in herd_df.iterrows():
-        herd_no = r['HERD_NO']
+    for herd_no in herds:
         # Build context for the single herd
         hc = tools.get_herd_context(herd_no, gdf, moves, testing, feedlots,
-                     lpis, lpis_cent, grid=grid, dist=1000)
+                     lpis, lpis_cent, grid=grid, dist=dist)
         if hc is None:
             continue
         data = hc['data']

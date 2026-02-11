@@ -38,16 +38,11 @@ data_path = os.path.join(module_path,'data')
 logoimg = os.path.join(module_path, 'logo.png')
 iconpath = os.path.join(module_path, 'icons')
 home = os.path.expanduser("~")
-if platform.system() == 'Windows':
-    configpath = os.path.join(os.environ['APPDATA'], 'tracebtb')
-else:
-    configpath = os.path.join(home, '.config','tracebtb')
-if not os.path.exists(configpath):
-    os.makedirs(configpath, exist_ok=True)
 
-report_file = 'report.html'
+configpath = os.path.join(home, '.config','tracebtb')
 selections_file = os.path.join(configpath,'selections.json')
 layers_file = os.path.join(configpath,'layers.gpkg')
+report_file = 'report.html'
 
 speciescolors = {'Bovine':'blue','Badger':'red','Ovine':'green'}
 colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
@@ -281,6 +276,10 @@ class Dashboard:
         """
 
         self.meta = meta
+        #should be done in prepare script..
+        #self.meta['Year'] = self.meta.Year.astype('Int64')
+        self.meta['last_move'] = pd.to_datetime(self.meta.last_move)
+
         self.badger = self.meta[self.meta.Species=='Badger']
         self.moves = moves
         self.lpis_cent = lpis_cent
@@ -725,15 +724,18 @@ class FullDashboard(Dashboard):
         self.showcounties_btn = pnw.Toggle(icon=get_icon('counties'), icon_size=icsize)
         self.kde_btn = pnw.Toggle(icon=get_icon('contour'), icon_size=icsize)
         self.hex_btn = pnw.Toggle(icon=get_icon('hexbin'), icon_size=icsize)
-        #pie_btn = pnw.Toggle(icon=get_icon('scatter-pie'), icon_size='1.8em')
+
         #lockbtn = pnw.Toggle(icon=get_icon('lock'), icon_size='1.8em')
         toolbar = pn.Column(pn.WidgetBox(self.selectregion_btn,self.selectradius_btn,self.tree_btn,
                                         self.parcels_btn,self.parcellabel_btn,self.showcounties_btn,self.moves_btn,self.legend_btn,
                                         self.neighbours_btn,self.kde_btn,self.hex_btn,self.split_btn),width=70)
 
-        #option below plot
-        self.timeslider = pnw.IntRangeSlider(name='Time',width=150,
-                        start=2000, end=2024, value=(2000, 2024), step=1)
+        self.date_range_slider = pn.widgets.DateRangeSlider(
+            name='Date Range',
+            start=datetime(2008, 1, 1), end=datetime(2022, 1, 1),
+            value=(datetime(2017, 1, 1), datetime(2022, 1, 1)),
+            step=30,format='%Y-%m',width=200
+        )
         self.clustersizeslider = pnw.IntSlider(name='Min. Cluster Size',width=150,
                         start=1, end=20, value=1, step=1)
         self.homebredbox = pnw.Checkbox(name='Homebred',value=False)
@@ -741,7 +743,7 @@ class FullDashboard(Dashboard):
         pn.bind(self.find_related, self.findrelated_btn, watch=True)
         #self.related_col_input = pnw.Select(options=cols,value='snp7',width=90)
 
-        filters = pn.Row(self.findrelated_btn,self.threshold_input,self.timeslider,self.clustersizeslider,self.info_pane)
+        filters = pn.Row(self.findrelated_btn,self.threshold_input,self.date_range_slider,self.clustersizeslider,self.info_pane)
 
         self.groupby_input.param.watch(self.update_groups, 'value')
         self.groups_table.param.watch(self.select_group, 'selection')
@@ -759,7 +761,7 @@ class FullDashboard(Dashboard):
         self.neighbours_btn.param.watch(self.update, 'value')
         self.kde_btn.param.watch(self.update, 'value')
         self.hex_btn.param.watch(self.update, 'value')
-        self.timeslider.param.watch(self.update, 'value')
+        self.date_range_slider.param.watch(self.update, 'value')
         #pn.bind(update, timeslider.param.value_throttled)
         self.clustersizeslider.param.watch(self.update, 'value')
         self.homebredbox.param.watch(self.update, 'value')
@@ -833,6 +835,8 @@ class FullDashboard(Dashboard):
         #curdoc().add_root(pn.column(trigger, *widgets.values()))'''
 
         app.sizing_mode='stretch_both'
+        int64_cols = self.meta.select_dtypes(include=['Int64']).columns
+        self.meta[int64_cols] = self.meta[int64_cols].astype(object).fillna('')
         self.meta_pane.value = self.meta.fillna('')
         self.update_groups()
         #select random cluster
@@ -860,8 +864,8 @@ class FullDashboard(Dashboard):
         if sub is None:
             sub = self.selected
         #print (sub.columns)
-        if 'snp3' not in sub.columns:
-            sub = self.update_clusters(sub)
+        #if 'snp3' not in sub.columns:
+        #    sub = self.update_clusters(sub)
 
         if len(sub[col].unique()) > 20:
             cmap = None
@@ -939,9 +943,9 @@ class FullDashboard(Dashboard):
 
         self.map_pane.object = p
 
-        scols = ['sample','Animal_ID','Year','HERD_NO','snp3','snp5','snp7','lineage','short_name',
+        scols = ['sample','Animal_ID','HERD_NO','snp3','snp5','snp7','lineage','short_name',
                  'County','Region','SB','last_move','last_move_type']
-        self.selected_table.value = sub[scols].fillna('')
+        self.selected_table.value = sub[scols].astype(object).fillna('')
 
         def highlight(x):
             color = self.speciescolors[x]
@@ -1077,8 +1081,10 @@ class FullDashboard(Dashboard):
         groups = groups[groups>=minsize]
         df = df[df[key].isin(groups.index)].copy()
 
-        start, end = self.timeslider.value
-        df = df[(df.Year>=start) & (df.Year<=end) | (df.Year.isnull())].copy()
+        start, end = self.date_range_slider.value
+        start = pd.to_datetime(start)
+        end = pd.to_datetime(end)
+        df = df[(df.last_move>=start) & (df.last_move<=end) | df.last_move.isnull()].copy()
         if self.homebredbox.value == True:
             df = df[df.Homebred=='yes'].copy()
         return df
@@ -1559,8 +1565,6 @@ class HerdSelectionDashboard(Dashboard):
         self.feedlots = kwargs['feedlots']
         self.iregrid = kwargs['ireland_grid']
         self.herd = None
-        self.meta['Year'] = self.meta.Year.astype('Int64')
-        #self.meta['last_move'] = pd.to_datetime(self.meta.last_move)
         return
 
     def setup_widgets(self):
@@ -1588,7 +1592,8 @@ class HerdSelectionDashboard(Dashboard):
                     colors=[(0, "red"), (1, "green")])
         mstyles={"margin": "10px", "font-size": "17px", "color": 'red'}
         self.seq_priority_pane = pn.pane.Markdown('',width=480,height=20,styles=mstyles)
-        self.pathways_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet], sizing_mode='stretch_both')
+        self.pathways_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet],
+                                           sizing_mode='stretch_both')
         search_widgets = self.search_widgets(4)
         herds_with_samples = self.get_sampled_herds()
         self.sampled_herds_select = pnw.Select(name='Sampled Herds',value='',
@@ -1604,7 +1609,7 @@ class HerdSelectionDashboard(Dashboard):
         self.dist_input = pnw.IntSlider(name='Dist Threshold',width=w,value=1000,
                                         start=100,end=10000,step=100)
         opts = ['within any parcel','contiguous parcels']
-        self.dist_method = pnw.Select(name='Dist Method',value='within any parcel',
+        self.dist_method = pnw.Select(name='Neighbour Dist Method',value='within any parcel',
                                       options=opts,width=w)
         self.provider_input = pnw.Select(name='Provider',options=['']+bokeh_plot.providers,
                                          value='CartoDB Positron',width=w)
@@ -1615,13 +1620,16 @@ class HerdSelectionDashboard(Dashboard):
         self.date_range_slider = pn.widgets.DateRangeSlider(
             name='Date Range',
             start=datetime(2008, 1, 1), end=datetime(2022, 1, 1),
-            value=(datetime(2020, 1, 1), datetime(2022, 1, 1)),
+            value=(datetime(2017, 1, 1), datetime(2022, 1, 1)),
             step=30,format='%Y-%m',width=200
         )
-        self.related_btn = pnw.Toggle(icon=get_icon('clusters'), icon_size=icsize)
+        self.related_btn = pnw.Toggle(icon=get_icon('clusters'), icon_size=icsize,
+                                     width=38,height=38,align='center')
+        self.radius_btn = pnw.Toggle(icon=get_icon('radius'), icon_size=icsize,
+                                     width=38,height=38,align='center')
         widgets = pn.Column(search_widgets,self.sampled_herds_select,sim_btn,refresh_btn,
                             self.dist_method,self.dist_input,self.provider_input,self.colorby_input)
-        widgets2 = pn.Row(self.date_range_slider,self.related_btn)
+        widgets2 = pn.Row(self.date_range_slider,self.related_btn,self.radius_btn)
         self.about_pane = pn.pane.Markdown('',styles=styles)
         self.about()
         #self.rules_pane = pn.pane.Markdown('',styles=styles, sizing_mode='stretch_both')
@@ -1710,7 +1718,6 @@ class HerdSelectionDashboard(Dashboard):
             nb = self.cont_parcels
         #total pos tests over time
         nb['sr_total'] = nb.apply(lambda x: tools.get_testing_total(x,self.sr),1)
-        #print (nb.columns)
         #nearby badgers
         bdg = hdata['near_badger']
 
@@ -1720,16 +1727,27 @@ class HerdSelectionDashboard(Dashboard):
         #add related isolates if needed
         if self.related_btn.value == True:
             found = pd.concat([found,related5]).drop_duplicates()
+            #also add parcels of these herds
+            related_pcl = lpis[lpis.SPH_HERD_N.isin(related5.HERD_NO)]
+            nb = pd.concat([nb,related_pcl])
 
         #filter by dates
         start, end = self.date_range_slider.value
         start = pd.to_datetime(start)
         end = pd.to_datetime(end)
+        found = found[(found.last_move>=start) & (found.last_move<end) | found.last_move.isnull()]
 
         found['color'],cm = tools.get_color_mapping(found, 'snp5', cmap='Set1')
         self.found = found
         p = self.plot_neighbours(pcl,nb,column=parcelcol)
         bokeh_plot.plot_selection(found, col='snp5', legend=True, ms=20, lw=2, p=p)
+
+        #plot local radius around herd
+        if self.radius_btn.value == True:
+            pt = hdata['centroid'].iloc[0]
+            bokeh_plot.plot_radius(pt.geometry, p)
+            bokeh_plot.plot_radius(pt.geometry, p, radius_km=10, line_width=1)
+
         p.title = herd
         p.title.text_font_size = '20pt'
         self.map_pane.object = p
@@ -1760,10 +1778,10 @@ class HerdSelectionDashboard(Dashboard):
         priority = tools.get_sequencing_priority(hc)
         self.seq_priority_pane.object = priority
 
-        pathway_scores = source_attribution.run_pathways(sub, self.meta,
+        pathway_scores = source_attribution.run_pathways([self.herd], self.meta,
                                                 self.moves, self.sr, self.feedlots,
                                                 self.lpis, self.lpis_cent, self.iregrid)
-        self.pathways_pane.object = pathway_scores
+        self.pathways_pane.object = pathway_scores.set_index('Animal_ID')
         return
 
     def send_to_query_dashboard(self, event=None):

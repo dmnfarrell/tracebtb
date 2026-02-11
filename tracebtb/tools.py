@@ -1330,7 +1330,7 @@ def get_testing_total(x, sr):
         return 0
 
 def get_herd_context(herd_no, metadata, moves, testing, feedlots,
-                     lpis, lpis_cent, grid=None, dist=1000):
+                     lpis, lpis_cent, grid=None, dist=2000):
     """
     Computes and returns all WGS and epidemiological context for a single target herd.
     Args:
@@ -1356,7 +1356,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     herd_parcels['HERD_NO'] = herd_parcels.SPH_HERD_N
     if len(herd_parcels) == 0 or herd_parcels is None:
         return
-    pcl = herd_parcels.iloc[0]
+    pcl = herd_parcels.iloc[0] # get as series
     point = lpis_cent[lpis_cent.SPH_HERD_N==herd_no]
     cell = grid_cell_from_sample(point, grid)
 
@@ -1469,6 +1469,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         'contiguous_parcels': cont_parcels,
         'badger_isolates':bdg,
         'near_badger': near_badger,
+        'centroid': point,
         'grid_cell': cell,
         # Genetic context
         'snp5_related': snp5_related,

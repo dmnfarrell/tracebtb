@@ -215,6 +215,8 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
     if p == None:
         p = init_figure(title, provider)
     gdf = gdf[~gdf.geometry.is_empty]
+    #drop datetime cols
+    gdf = gdf.drop(columns=['last_move'])
     if col in gdf.columns:
         gdf = gdf.sort_values(col)
     if len(gdf) == 0:
@@ -364,7 +366,7 @@ def plot_lpis(gdf, p=None, provider='CartoDB Positron', **kwargs):
     return p
 
 def plot_moves(p, moves, lpis_cent, limit=300, name='moves'):
-    """Plot moves with bokeh)"""
+    """Plot moves with bokeh - replace with network plot"""
 
     nh = VeeHead(size=12, fill_color='blue', fill_alpha=0.5, line_color='black')
     moves = moves[moves.geometry.notnull()].to_crs('EPSG:3857')
@@ -399,6 +401,37 @@ def plot_group_symbols(gdf, p, lw=4, ms=50):
     r = p.scatter('x', 'y', source=geo_source, color='white', line_width=lw,
                    line_color='black', marker="marker", fill_alpha=0.2, size=ms)
     return p
+
+def plot_radius(geom, p, radius_km=4, source_crs="EPSG:29902", line_width=1.5):
+    """
+    Takes a single row from a GeoDataFrame and plots a 4km radius.
+    The ColumnDataSource will contain all columns from that row.
+    """
+
+    if geom is None or geom.is_empty:
+        return p
+
+    import pyproj
+    from shapely.ops import transform
+    # 1. Project the single point to meters (3857)
+    transformer = pyproj.Transformer.from_crs(source_crs, "EPSG:3857", always_xy=True).transform
+    point_m = transform(transformer, geom)
+    data = {}
+    # Update the coordinates to the projected ones for Bokeh
+    data['x'] = [point_m.x]
+    data['y'] = [point_m.y]
+    source = ColumnDataSource(data=data)
+    p.circle(
+        x='x',
+        y='y',
+        radius=radius_km * 1000,
+        source=source,
+        fill_color=None,
+        line_color="black",
+        line_dash="dashed",
+        line_width=line_width
+    )
+    return
 
 def error_message(msg=''):
     """Return plot with message"""
