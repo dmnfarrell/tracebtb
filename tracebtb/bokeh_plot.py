@@ -345,7 +345,8 @@ def plot_counties(p):
                   line_width=2, line_color='red', fill_alpha=0)
     return p
 
-def plot_lpis(gdf, p=None, provider='CartoDB Positron', **kwargs):
+def plot_lpis(gdf, p=None, provider='CartoDB Positron',
+               labels=False, label_fontsize=14, **kwargs):
     """Plot LPIS land parcels"""
 
     if p is None:
@@ -363,6 +364,15 @@ def plot_lpis(gdf, p=None, provider='CartoDB Positron', **kwargs):
                                             ('base year', "@base_year"),
                                             ('total std reactors', "@sr_total")]))
     p.add_tools(h)
+    if labels == True:
+        cent = tools.calculate_parcel_centroids(gdf).to_crs('EPSG:3857')
+        cent['color'] = gdf.color
+        labels_source = GeoJSONDataSource(geojson=cent.to_json())
+        labels = LabelSet(x='x', y='y', text='SPH_HERD_N', source=labels_source,
+                          #x_offset=5, y_offset=5,
+                          text_align='right', background_fill_color='white', background_fill_alpha=0.8,
+                          text_font_size = f"{label_fontsize}px")
+        p.add_layout(labels)
     return p
 
 def plot_moves(p, moves, lpis_cent, limit=300, name='moves'):
@@ -916,7 +926,7 @@ def plot_phylogeny(tree, df, tip_size=10, lw=1, font_size='10pt',
     p.add_tools(TapTool())
     return p
 
-def plot_network(G, df, pos=None, node_size=12, show_node_labels=False,
+'''def plot_network(G, df, pos=None, node_size=12, show_node_labels=False,
                  show_edge_labels=True):
     """
     Plot a networkx graph with edge weights displayed.
@@ -983,6 +993,47 @@ def plot_network(G, df, pos=None, node_size=12, show_node_labels=False,
     p.xaxis.visible = False
     p.yaxis.visible = False
     p.grid.grid_line_color = None
+    p.toolbar.logo = None
+    return p'''
+
+def transform_coords_to_mercator(pos, from_epsg=29902):
+    """Transform graph positions to mercartor before plotting"""
+
+    from pyproj import Transformer
+    transformer = Transformer.from_crs(from_epsg, 3857, always_xy=True)
+    mercator_pos = {}
+    for herd_id, (x, y) in pos.items():
+        m_x, m_y = transformer.transform(x, y)
+        mercator_pos[herd_id] = (m_x, m_y)
+    return mercator_pos
+
+def plot_herd_network(G, pos, p=None, line_width=1, line_color="#746969"):
+    """Plot herd network with bokeh and map overlay"""
+
+    from bokeh.models import (BoxZoomTool, HoverTool, MultiLine, Plot, Range1d,
+                            ResetTool, Circle, NodesAndLinkedEdges, TapTool)
+    from bokeh.plotting import from_networkx
+    from bokeh.transform import factor_cmap
+
+    pos = transform_coords_to_mercator(pos)
+    if p is None:
+        p = init_figure(provider='CartoDB Positron')
+    # Create the Bokeh graph renderer from NetworkX
+    graph_renderer = from_networkx(G, pos, scale=1, center=(0, 0))
+    mapper = factor_cmap('link', palette=['red', 'gray'], factors=['direct', 'indirect'])
+    graph_renderer.node_renderer.glyph = Circle(radius=5, radius_units='screen',
+                                                fill_color=mapper, fill_alpha=0.6, line_color='black')
+    graph_renderer.node_renderer.hover_glyph = Circle(radius=8, fill_alpha=0.6, radius_units='screen')
+    graph_renderer.edge_renderer.glyph = MultiLine(line_color=line_color, line_alpha=0.6, line_width=line_width)
+    graph_renderer.edge_renderer.hover_glyph = MultiLine(line_color='green', line_width=3)
+    # Add Interactive Hover Policy
+    graph_renderer.inspection_policy = NodesAndLinkedEdges()
+
+    #hover_tool = HoverTool(tooltips=[("Herd", "@herd")])
+    #p.add_tools(hover_tool)
+    p.renderers.append(graph_renderer)
+    p.xaxis.visible = False
+    p.yaxis.visible = False
     p.toolbar.logo = None
     return p
 

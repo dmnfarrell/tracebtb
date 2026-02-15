@@ -468,7 +468,8 @@ class Dashboard:
 
         return
 
-    def plot_neighbours(self, df, parcels, column='SPH_HERD_N', pad=.3, legend=False):
+    def plot_neighbours(self, df, parcels, column='SPH_HERD_N', pad=.3,
+                        legend=False, labels=False):
         """Show herd parcels and its neighbours - used in multiple dashboards"""
 
         if len(parcels)>0:
@@ -481,11 +482,11 @@ class Dashboard:
                 cmap='viridis'
                 legend = True #always need colorbar
             parcels['color'], cm = tools.get_color_mapping(parcels, column, cmap)
-            p = bokeh_plot.plot_lpis(parcels, fill_alpha=0.5, line_width=0.2)
+            p = bokeh_plot.plot_lpis(parcels, fill_alpha=0.5, line_width=0.2, labels=labels)
             if legend == True:
                 bokeh_plot.add_legend(p, parcels, column, fontsize=12)
         else:
-            p = bokeh_plot.init_figure()
+            p = bokeh_plot.init_figure(provider='CartoDB Positron')
         df['color'] = 'blue'
         bokeh_plot.plot_lpis(df, p, fill_alpha=0.7, line_width=3)
         return p
@@ -717,7 +718,7 @@ class FullDashboard(Dashboard):
         self.selectradius_btn = pnw.Button(icon=get_icon('plot-centroid'), description='select within radius', icon_size=icsize)
         self.tree_btn = pnw.Toggle(icon=get_icon('tree'), icon_size=icsize)
         self.parcels_btn = pnw.Toggle(icon=get_icon('parcels'), icon_size=icsize)
-        self.moves_btn = pnw.Toggle(icon=get_icon('plot-moves'), icon_size=icsize)
+        self.moves_btn = pnw.Toggle(icon=get_icon('moves'), icon_size=icsize)
         self.legend_btn = pnw.Toggle(icon=get_icon('legend'), icon_size=icsize)
         self.neighbours_btn = pnw.Toggle(icon=get_icon('neighbours'), icon_size=icsize)
         self.parcellabel_btn = pnw.Toggle(icon=get_icon('parcel-label'), icon_size=icsize)
@@ -1426,141 +1427,10 @@ class FullDashboard(Dashboard):
             if isinstance(widget, pnw.Widget) and hasattr(widget, "value"):
                 widget.value = value  # Restore the value
 
-class QueryDashboard(FullDashboard):
-    def __init__(self, **kwargs):
-        super(QueryDashboard, self).__init__(**kwargs)
-        return
-
-    def setup_widgets(self):
-
-        w=140
-        icsize = '1.5em'
-        cols = self.cols
-        self.recents = []
-        #search widgets
-        search_widgets = self.search_widgets()
-        #tools
-        self.selectregion_btn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size=icsize)
-        pn.bind(self.select_region, self.selectregion_btn, watch=True)
-        self.parcels_btn = pnw.Toggle(icon=get_icon('parcels'), value=True, icon_size=icsize)
-        #self.moves_btn = pnw.Toggle(icon=get_icon('plot-moves'), icon_size=icsize)
-        #self.neighbours_btn = pnw.Toggle(icon=get_icon('neighbours'), icon_size=icsize)
-        self.parcellabel_btn = pnw.Toggle(icon=get_icon('parcel-label'), icon_size=icsize)
-        toolbar = pn.GridBox(self.selectregion_btn,self.parcels_btn,self.parcellabel_btn,
-                             ncols=3,width=w)
-        self.colorby_input = pnw.Select(name='color by',options=cols,value='snp5',width=w)
-        self.colorby_input.param.watch(self.update, 'value')
-        self.map_pane = pn.pane.Bokeh()
-        self.selected_table = pnw.Tabulator(disabled=True,page_size=100,
-                                          pagination=None, sizing_mode='stretch_both',
-                                          stylesheets=[stylesheet])
-        downloadselection_btn = pnw.FileDownload(callback=pn.bind(self.selection_file),
-                                            filename='selection.csv', button_type='success')
-        self.selected_pane = pn.Column(self.selected_table,pn.Row(downloadselection_btn))
-        self.tree_pane = pn.Column(sizing_mode='stretch_both')
-        self.mst_pane = pn.Column(sizing_mode='stretch_both')
-        self.details_pane = pn.pane.DataFrame(sizing_mode='stretch_both')
-        self.info_pane = pn.pane.Markdown('', styles={'color': "red"})
-
-        app = pn.Row(pn.Column(search_widgets,toolbar,self.colorby_input,self.info_pane),
-                        pn.Tabs(('Map',pn.Column(self.map_pane,sizing_mode='stretch_both')),
-                                ('Selected',pn.Column(self.selected_pane,sizing_mode='stretch_both')),
-                                dynamic=True,
-                                sizing_mode='stretch_both'),
-                     pn.Column(self.tree_pane, self.mst_pane, width=600))
-
-        return app
-
-    def update(self, event=None, sub=None):
-        """
-        Update selection - does all the display.
-        """
-
-        provider = "CartoDB Positron"
-        cmap = 'Dark2'
-        self.col = col = self.colorby_input.value
-        self.ms = ms = 15
-        lw = 2
-        legend = True
-
-        if sub is None:
-            sub = self.selected
-
-        if len(sub[col].unique()) > 20:
-            cmap = None
-        elif len(sub[col].unique()) > 10:
-            cmap = 'tab20'
-        seed = 50
-        sub['color'], cm1 = tools.get_color_mapping(sub, col, cmap, seed=seed)
-        self.selected = sub
-
-        # Get the herds and moves
-        herds = list(sub.HERD_NO)
-        mov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
-
-        #if mov is not None and self.moves_btn.value is True:
-        #    herds.extend(mov.move_to)
-
-        sp = self.parcels[self.parcels.SPH_HERD_N.isin(herds)].copy()
-        pcmap = 'tab20'
-        if len(sp.SPH_HERD_N.unique()) > 20:
-            pcmap = None
-
-        sp['color'], cm2 = tools.get_color_mapping(sp, 'SPH_HERD_N', pcmap)
-        if self.parcels_btn.value is True:
-            pcls = sp
-            if mov is not None:
-                herds.extend(mov.move_to)
-        else:
-            pcls = None
-
-        labels = self.parcellabel_btn.value
-        labelsize = 12
-        legsize = 15
-        p = bokeh_plot.plot_selection(sub, pcls, provider=provider, ms=ms, lw=lw,
-                                        col=col, legend=legend, labels=labels,
-                                        legend_fontsize=legsize, label_fontsize=labelsize,
-                                        scalebar=True)
-        p.on_event(Tap, self.point_selected)
-        self.map_pane.object = p
-
-        #tree
-        ns = (120/len(sub))+6
-        labelcol = self.tiplabel_input.value
-        self.update_tree(sub=sub, col=col, tip_size=ns, labelcol=labelcol, font_size='9pt')
-        #mst
-        self.update_mst(sub=sub, node_size=ns, labels=False)
-        self.info_pane.object = f'**{len(sub)} samples**'
-        scols = ['sample','Animal_ID','Year','HERD_NO','snp3','snp5','snp7','short_name','County','SB']
-        self.selected_table.value = sub[scols]
-        return
-
-    def quick_search(self, event=None, query=None):
-        """Search query string, allows comma separated list"""
-
-        if query == None:
-            query = self.search_input.value
-        if len(query)<=1:
-            return
-        query_list = [q.strip().lower() for q in query.split(",")]
-        found = self.meta[self.meta.map(lambda x: any(q in str(x).lower() for q in query_list)).any(axis=1)]
-        if len(found)>1000 or len(found)==0:
-            return
-
-        col='snp5'
-        #related animals
-        cl = list(found[col].unique())
-        found = self.meta[(self.meta[col].isin(cl))].copy()
-        #same herd?
-        self.update(sub=found)
-        self.add_to_history()
-        self.add_to_recent(query)
-        return
-
-class HerdSelectionDashboard(Dashboard):
+class HerdQueryDashboard(Dashboard):
 
     def __init__(self, **kwargs):
-        super(HerdSelectionDashboard, self).__init__(**kwargs)
+        super(HerdQueryDashboard, self).__init__(**kwargs)
         self.get_test_stats()
         self.feedlots = kwargs['feedlots']
         self.iregrid = kwargs['ireland_grid']
@@ -1578,6 +1448,7 @@ class HerdSelectionDashboard(Dashboard):
         self.tree_pane = pn.Column(sizing_mode='stretch_both')
         self.fragments_pane = pn.pane.Matplotlib(sizing_mode='stretch_both')
         self.grid_pane = pn.pane.Matplotlib(sizing_mode='stretch_both')
+        self.summary_pane = pn.pane.Str('', styles={'font-size': '12pt'})
         self.samples_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
                                           stylesheets=[stylesheet], sizing_mode='stretch_both')
         self.moves_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
@@ -1586,6 +1457,8 @@ class HerdSelectionDashboard(Dashboard):
         self.testingplot_pane = pn.pane.Bokeh(height=200)
         self.movesplot_pane = pn.pane.Bokeh(height=200)
         self.herdinfo_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet], sizing_mode='stretch_both')
+
+        self.timeline_pane = pn.pane.Bokeh(sizing_mode='stretch_height')
         self.indicator = pn.indicators.Number(
                     name='Priority',
                     value=0, format="{value}",
@@ -1616,7 +1489,8 @@ class HerdSelectionDashboard(Dashboard):
         self.provider_input.param.watch(self.set_provider, 'value')
         colorby = ['SPH_HERD_N','Size','sr_total','COUNT','AREA','base_year']
         self.colorby_input = pnw.Select(name='Color Parcels by',value='SPH_HERD_N',options=colorby,width=w)
-
+        #test
+        self.savesettings_btn = pnw.Button(name='Save Settings',button_type='primary',width=w)
         self.date_range_slider = pn.widgets.DateRangeSlider(
             name='Date Range',
             start=datetime(2008, 1, 1), end=datetime(2022, 1, 1),
@@ -1624,12 +1498,21 @@ class HerdSelectionDashboard(Dashboard):
             step=30,format='%Y-%m',width=200
         )
         self.related_btn = pnw.Toggle(icon=get_icon('clusters'), icon_size=icsize,
-                                     width=38,height=38,align='center')
+                                     width=36,height=38,align='center')
         self.radius_btn = pnw.Toggle(icon=get_icon('radius'), icon_size=icsize,
-                                     width=38,height=38,align='center')
+                                     width=36,height=38,align='center')
+        self.neighbours_btn = pnw.Toggle(value=True,icon=get_icon('neighbours'), icon_size=icsize,
+                                     width=36,height=38,align='center')
+        self.parcellabel_btn = pnw.Toggle(icon=get_icon('parcel-label'), icon_size=icsize,
+                                     width=36,height=38,align='center')
+        self.moves_btn = pnw.Toggle(icon=get_icon('moves-link'), icon_size=icsize,
+                                     width=36,height=38,align='center')
+
         widgets = pn.Column(search_widgets,self.sampled_herds_select,sim_btn,refresh_btn,
-                            self.dist_method,self.dist_input,self.provider_input,self.colorby_input)
-        widgets2 = pn.Row(self.date_range_slider,self.related_btn,self.radius_btn)
+                            self.dist_method,self.dist_input,self.provider_input,self.colorby_input,
+                            self.savesettings_btn)
+        widgets2 = pn.Row(self.date_range_slider,self.related_btn,self.radius_btn,
+                          self.neighbours_btn,self.parcellabel_btn,self.moves_btn)
         self.about_pane = pn.pane.Markdown('',styles=styles)
         self.about()
         #self.rules_pane = pn.pane.Markdown('',styles=styles, sizing_mode='stretch_both')
@@ -1652,10 +1535,11 @@ class HerdSelectionDashboard(Dashboard):
                              dynamic=True,
                              sizing_mode='stretch_both')),
                   pn.Column(pn.Tabs(('Herd info',self.herdinfo_pane),
-                                    ('Metrics',pn.Column(self.testingplot_pane, self.movesplot_pane)),
+                                    ('Metrics',pn.Column(self.testingplot_pane, self.movesplot_pane,self.timeline_pane)),
                                     ('Tree',self.tree_pane),
-                                    ('Fragments',self.fragments_pane),
-                                    ('Grid',self.grid_pane)),
+                                    #('Fragments',self.fragments_pane),
+                                    ('Grid',self.grid_pane),
+                                    ('Summary',self.summary_pane)),
                             self.seq_priority_pane,width=500),
                     sizing_mode='stretch_both')
         app.sizing_mode='stretch_both'
@@ -1737,14 +1621,18 @@ class HerdSelectionDashboard(Dashboard):
         end = pd.to_datetime(end)
         found = found[(found.last_move>=start) & (found.last_move<end) | found.last_move.isnull()]
 
-        found['color'],cm = tools.get_color_mapping(found, 'snp5', cmap='Set1')
+        found['color'],cm = tools.get_color_mapping(found, 'snp5', cmap='tab20')
         self.found = found
-        p = self.plot_neighbours(pcl,nb,column=parcelcol)
+        labels = self.parcellabel_btn.value
+        if self.neighbours_btn.value == True:
+            p = self.plot_neighbours(pcl, nb, column=parcelcol, labels=labels)
+        else:
+            p = self.plot_neighbours(pcl, [])
         bokeh_plot.plot_selection(found, col='snp5', legend=True, ms=20, lw=2, p=p)
 
         #plot local radius around herd
         if self.radius_btn.value == True:
-            pt = hdata['centroid'].iloc[0]
+            pt = hdata['centroid']
             bokeh_plot.plot_radius(pt.geometry, p)
             bokeh_plot.plot_radius(pt.geometry, p, radius_km=10, line_width=1)
 
@@ -1768,20 +1656,44 @@ class HerdSelectionDashboard(Dashboard):
         fig = tools.plot_grid_cells(cell, gdf=self.meta, parcels=pcl, neighbours=nb)
         self.grid_pane.object = fig
         #samples
-        cols = ['sample','HERD_NO','Animal_ID','Species','short_name','last_move']
+        cols = ['sample','HERD_NO','Animal_ID','Species','X_COORD','Y_COORD','short_name','snp5','last_move']
         self.samples_pane.value = found[cols]
         #moves
-        mov = hdata['isolate_moves']
-        if mov is not None:
-            self.moves_pane.value = mov.reset_index().drop(columns=['geometry'])
+        #mov = hdata['isolate_moves']
+        pmov = tools.get_moves_bytag(found, self.moves, self.lpis_cent)
+        if pmov is not None:
+            self.moves_pane.value = pmov.reset_index().drop(columns=['geometry'])
+        #get moves relevant to movement pathway
+        #moves from related strain herds or those very nearby?
+        #also include moves between herds with this strain? - good for movement dash?
+        if self.moves_btn.value is True:
+            target_herds = found.HERD_NO
+            moves = movement.query_herd_moves_all(herd, start, end)
+            strain_herd_moves = moves[moves.herd.isin(target_herds)]
+            #plot moves here
+            #cols=['SPH_HERD_N','X_COORD','Y_COORD']
+            #v = movement.get_movement_vectors(moves, self.lpis_cent[cols])
+            #print (v[v.herd==herd])
+            print (strain_herd_moves)
+            G,pos = movement.create_herd_network(strain_herd_moves, herd, self.lpis_cent)
+            bokeh_plot.plot_herd_network(G, pos, p, line_width=3, line_color='black')
+
+        tldf = bokeh_plot.get_timeline_data(pmov, self.meta)
+        if tldf is not None:
+            tldf['color'],c = tools.get_color_mapping(tldf, 'move_to')
+            #print (tldf)
+            p = bokeh_plot.plot_moves_timeline(tldf)
+            self.timeline_pane.object = p
 
         priority = tools.get_sequencing_priority(hc)
         self.seq_priority_pane.object = priority
 
-        pathway_scores = source_attribution.run_pathways([self.herd], self.meta,
+        print ('scoring pathways..')
+        p_scores = source_attribution.run_pathways([self.herd], self.meta,
                                                 self.moves, self.sr, self.feedlots,
                                                 self.lpis, self.lpis_cent, self.iregrid)
-        self.pathways_pane.object = pathway_scores.set_index('Animal_ID')
+        self.pathways_pane.object = p_scores
+        self.summary_pane.object = source_attribution.summarize_pathways(p_scores)
         return
 
     def send_to_query_dashboard(self, event=None):
@@ -1872,7 +1784,7 @@ class TestingDashboard(FullDashboard):
     def __init__(self, **kwargs):
 
         self.query_dashboard = QueryDashboard(parent=self, **kwargs)
-        self.herdselect_dashboard = HerdSelectionDashboard(parent=self, **kwargs)
+        self.herdselect_dashboard = HerdQueryDashboard(parent=self, **kwargs)
         self.advanced_dashboard = FullDashboard(parent=self, **kwargs)
         self.advanced_dashboard.lpis = self.herdselect_dashboard.lpis
         super(TestingDashboard, self).__init__(**kwargs)
@@ -1993,7 +1905,7 @@ class MovesDashboard(Dashboard):
 
         G,pos = movement.create_herd_network(moves, herd, self.lpis_cent)
         #self.plot_herd_network(G, pos)
-        self.plot_herd_network_bokeh(G, pos, p)
+        bokeh_plot.plot_herd_network(G, pos, p)
         p.title = herd
         self.networkplot_pane.object = p
 
@@ -2087,48 +1999,6 @@ class MovesDashboard(Dashboard):
             counties.plot(ax=ax)
         self.networkplot_pane.object = fig
         return
-
-    def transform_coords_to_mercator(self, pos, from_epsg=29902):
-        """Transform graph positions to mercartor before plotting"""
-
-        from pyproj import Transformer
-        transformer = Transformer.from_crs(from_epsg, 3857, always_xy=True)
-        mercator_pos = {}
-        for herd_id, (x, y) in pos.items():
-            m_x, m_y = transformer.transform(x, y)
-            mercator_pos[herd_id] = (m_x, m_y)
-        return mercator_pos
-
-    def plot_herd_network_bokeh(self, G, pos, p=None):
-        """Plot herd network with bokeh and map overlay"""
-
-        from bokeh.models import (BoxZoomTool, HoverTool, MultiLine, Plot, Range1d,
-                                ResetTool, Circle, NodesAndLinkedEdges, TapTool)
-        from bokeh.plotting import from_networkx
-        from bokeh.transform import factor_cmap
-
-        pos = self.transform_coords_to_mercator(pos)
-        if p is None:
-            p = bokeh_plot.init_figure(provider='CartoDB Positron')
-        # Create the Bokeh graph renderer from NetworkX
-        graph_renderer = from_networkx(G, pos, scale=1, center=(0, 0))
-        mapper = factor_cmap('link', palette=['red', 'gray'], factors=['direct', 'indirect'])
-        graph_renderer.node_renderer.glyph = Circle(radius=5, radius_units='screen',
-                                                    fill_color=mapper, fill_alpha=0.6, line_color='black')
-        graph_renderer.node_renderer.hover_glyph = Circle(radius=8, fill_alpha=0.6, radius_units='screen')
-        graph_renderer.edge_renderer.glyph = MultiLine(line_color="#746969", line_alpha=0.6, line_width=1)
-        graph_renderer.edge_renderer.hover_glyph = MultiLine(line_color='green', line_width=3)
-        # Add Interactive Hover Policy
-        graph_renderer.inspection_policy = NodesAndLinkedEdges()
-
-        hover_tool = HoverTool(tooltips=[("Herd", "@herd")])
-        p.add_tools(hover_tool)
-        p.renderers.append(graph_renderer)
-        p.xaxis.visible = False
-        p.yaxis.visible = False
-        p.toolbar.logo = None
-        bokeh_plot.add_scalebar(p)
-        return p
 
     def plot_moves_animation(self, event=None):
         """Show moves over a period"""

@@ -188,7 +188,7 @@ def main():
             **data
         )
         layout2 = create_bootstrap_layout_cls(
-            dashboards.HerdSelectionDashboard,
+            dashboards.HerdQueryDashboard,
             'Herds',
             "#438328",
             logo=os.path.join(logo_path, 'cow.png'),
@@ -216,16 +216,14 @@ def main():
             s = settings['reverse_proxy']
             pn.serve(layouts, port=port, prefix=s['prefix'],
                 websocket_origin=s['origin'], #basic_auth='credentials.json',
-                cookie_secret='cookie_secret')
+                cookie_secret='cookie_secret', show=False)
         else:
             #default - no security
             if port in settings:
                 port = settings['port']
             origin = f"localhost:{port}"
             pn.serve(layouts, port=port, websocket_origin=[origin],
-                     cookie_secret='cookie_secret')
+                     cookie_secret='cookie_secret', show=False)
 
 if __name__ == '__main__':
     main()
-
-

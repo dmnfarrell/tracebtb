@@ -1358,6 +1358,9 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         return
     pcl = herd_parcels.iloc[0] # get as series
     point = lpis_cent[lpis_cent.SPH_HERD_N==herd_no]
+    cent = calculate_parcel_centroids(herd_parcels).iloc[0]
+    xycoords = (round(cent.geometry.x,2),round(cent.geometry.y,2))
+
     cell = grid_cell_from_sample(point, grid)
 
     # --- Neighbouring Herd Samples ---
@@ -1430,6 +1433,8 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     is_singleton: bool = len(herd_isolates) == 1
     current_strains = herd_isolates['short_name'].unique()
     nb_strains = neighbour_isolates['short_name'].unique()
+    nb_snp5 = neighbour_isolates.snp5.unique()
+
     if 'snp5' in herd_isolates.columns:
         current_snp5 = set(herd_isolates['snp5'].dropna())
     else:
@@ -1442,6 +1447,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     # Assemble context dict
     metrics = {'name':herd_no,
                 'area':area,
+                'coords':xycoords,
                 'herd_fragments':frag,
                 'contiguous herds':len(cont_parcels),
                 'herd_isolates':len(herd_isolates),
@@ -1450,12 +1456,15 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
                 'nearest_sampled_herd':nearest_herd,
                 'herd_strains': current_strains,
                 'neighbour_strains': nb_strains,
+                'herd_snp5': snp5_clusters,
+                'herd_snp12': snp12_clusters,
+                'neighbour_snp5': nb_snp5,
                 'CFU':cfu,
                 'std_reactors': srtotal,
                 'lesion_positives': lptotal,
                 'sample_moves_in': sample_moves_in,
                 'local_moves': '?',
-                'risky_moves':'?',
+                'risky_moves': '?',
                 'grid_id':grid_id, #grid this sample belongs to
                 'goods_coverage': round(coverage,2),
                 'shannon_diversity': round(diversity,2)
@@ -1469,7 +1478,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         'contiguous_parcels': cont_parcels,
         'badger_isolates':bdg,
         'near_badger': near_badger,
-        'centroid': point,
+        'centroid': cent,
         'grid_cell': cell,
         # Genetic context
         'snp5_related': snp5_related,
