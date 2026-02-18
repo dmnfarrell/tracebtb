@@ -156,11 +156,11 @@ def score_local(animal_row, context):
         return 0, "No neighbouring herds"
 
     # unique SNP5 clusters found in all neighbors
-    nb_isolates = data['neighbour_herd_isolates']
+    nb_isolates = data['neighbour_isolates']
     species = set(nb_isolates.Species)
     neighbour_snp5 = list(nb_isolates.snp5)
     neighbour_snp12 = nb_isolates.snp12
-    print (f'neighbour snp5={neighbour_snp5}')
+    #print (f'neighbour snp5={neighbour_snp5}')
 
     # 1. Check for Strong Evidence: Exact SNP5 Cluster Match
     if len(nb_isolates) == 0:
@@ -180,7 +180,7 @@ def score_local(animal_row, context):
         return 5, f"Cluster match at snp12 level ({snp12_cluster})"
     return 0, f"{len(nb_isolates)} neighbouring isolates found with no related cluster"
 
-def score_movement(animal_row, context):
+def score_movement(animal_row, context, moves_in=None):
     """
     Scores the likelihood of long distance movement-based transmission (0-10)
     by checking the herds movement history against any related strain isolates.
@@ -188,7 +188,7 @@ def score_movement(animal_row, context):
     Args:
         animal_row: The specific animal being scored.
         context: The pre-computed dictionary for the animal's current herd.
-        global_strain_map: Global lookup for all herd strains/clusters.
+        moves_in: All moves into herd can be provided, else we calculate
 
     Returns:
         An integer score (0-10).
@@ -231,10 +231,11 @@ def score_movement(animal_row, context):
             date1 = last_move - relativedelta(years=1)
         except:
             return 1, 'Cannot parse last_move date'
-        moves = movement.query_herd_moves_all(herd, date1, last_move)
-        animal_moves = moves[moves.tag==my_animal_id]
-        direct_moves = moves[(moves.herd==herd) & (moves.tag!=my_animal_id)]
-        rel_moves = moves[moves.herd!=herd]
+        if moves_in is None:
+            moves_in = movement.query_herd_moves_all(herd, date1, last_move)
+        animal_moves = moves_in[moves_in.tag==my_animal_id]
+        direct_moves = moves_in[(moves_in.herd==herd) & (moves_in.tag!=my_animal_id)]
+        rel_moves = moves_in[moves_in.herd!=herd]
 
         print (f'{len(animal_moves)} sampled moves;{len(direct_moves)} direct;{len(rel_moves)} related')
 
@@ -251,63 +252,73 @@ def score_movement(animal_row, context):
 
         return 3, 'Related strain in herd >10km but no move'
 
-def run_pathways(herds, gdf, moves, testing, feedlots,
-                     lpis, lpis_cent, grid, meta_cols=False, dist=4000):
+def run_pathways(herds, *args):
     """Run attribution on a set of herds"""
 
-    results_list = []
+    results = []
+    for herd_no in herds:
+        result = run_pathway(herd_no, *args)
+        results.append(result)
+    return pd.concat(results)
+
+def run_pathway(herd_no, gdf, moves, testing, feedlots,
+                 lpis, lpis_cent, grid, hc=None, moves_in=None,
+                 dist=4000, meta_cols=False):
+    """Run attribution on a single herd"""
+
     #default cols from metadata
     cols=['snp3','snp5','CFU','in_homerange','Homebred','Year']
-    for herd_no in herds:
-        # Build context for the single herd
+
+    # Build context for the single herd
+    if hc is None:
         hc = tools.get_herd_context(herd_no, gdf, moves, testing, feedlots,
-                     lpis, lpis_cent, grid=grid, dist=dist)
-        if hc is None:
-            continue
-        data = hc['data']
-        sub = data['herd_isolates']
-        #print (hc)
-        #run scoring per animal
-        for _, row in sub.iterrows():
-            s_within, e_within = score_within_herd(row, hc)
-            #print (herd_no, row.Animal_ID, s_within)
-            s_local, e_local = score_local(row, hc)
-            s_movement, e_movement = score_movement(row, hc)
-            s_residual, e_residual = score_residual(row, hc)
+                 lpis, lpis_cent, grid=grid, dist=dist)
+    if hc is None:
+        return
+    data = hc['data']
+    sub = data['herd_isolates']
+    if len(sub)==0:
+        print ('no isolates found')
+        return
+    results_list = []
+    for _, row in sub.iterrows():
+        s_within, e_within = score_within_herd(row, hc)
+        #print (herd_no, row.Animal_ID, s_within)
+        s_local, e_local = score_local(row, hc)
+        s_movement, e_movement = score_movement(row, hc)
+        s_residual, e_residual = score_residual(row, hc)
 
-            # Package the final score results
-            scores= {'within': s_within,
-                    'local': s_local,
-                    'movement': s_movement,
-                    'residual': s_residual}
-            evidence = {
-                    'within': e_within,
-                    'local': e_local,
-                    'movement': e_movement,
-                    'residual': e_residual,
-                    'indeterminate': 'NA' }
-            pathway = max(scores, key=scores.get)
-            if max(scores.values()) == 1:
-                pathway = 'unknown'
-            elif len(set(scores.values()))==1:
-                pathway = 'indeterminate'
-
-            result = {'HERD_NO': row.HERD_NO,
-                      'Animal_ID': row.Animal_ID}
-            if meta_cols == True:
-                #add other cols
-                scols=[c for c in cols if c in sub.columns]
-                result = result.update(row[scols].to_dict())
-            result.update(scores)
-            result['best_pathway'] = pathway
-            for key in evidence.keys():
-                if key != 'indeterminate':
-                    result['e_'+key] = evidence[key]
-            #result['evidence'] = evidence[pathway]
-            #print (scores.values(),max(scores), pathway)
-            results_list.append(result)
-        final = pd.DataFrame(results_list).set_index('Animal_ID')
-    return final
+        # Package the final score results
+        scores= {'within': s_within,
+                'local': s_local,
+                'movement': s_movement,
+                'residual': s_residual}
+        evidence = {
+                'within': e_within,
+                'local': e_local,
+                'movement': e_movement,
+                'residual': e_residual,
+                'indeterminate': 'NA' }
+        pathway = max(scores, key=scores.get)
+        if max(scores.values()) == 1:
+            pathway = 'unknown'
+        elif len(set(scores.values()))==1:
+            pathway = 'indeterminate'
+        result = {'HERD_NO': row.HERD_NO,
+                  'Animal_ID': row.Animal_ID}
+        if meta_cols == True:
+            #add other cols
+            scols=[c for c in cols if c in sub.columns]
+            result = result.update(row[scols].to_dict())
+        result.update(scores)
+        result['best_pathway'] = pathway
+        for key in evidence.keys():
+            if key != 'indeterminate':
+                result['e_'+key] = evidence[key]
+        #result['evidence'] = evidence[pathway]
+        #print (scores.values(),max(scores), pathway)
+        results_list.append(result)
+    return pd.DataFrame(results_list).set_index('Animal_ID')
 
 def summarize_pathways(df):
     """

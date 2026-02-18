@@ -60,6 +60,7 @@ def run(folder, filename):
     final.index.name = 'index'
     print (f'{len(final)} samples')
     gdf = gpd.GeoDataFrame(final,geometry=gpd.points_from_xy(final.X_COORD,final.Y_COORD)).set_crs('EPSG:29902')
+    gdf = add_herd_numbers(gdf)
     gdf = tracebtb.tools.jitter_by_farm(gdf, radius=100)
     gdf = tools.add_clusters(gdf, snpdist, linkage='average', method='complex')
     #print (gdf.sample(3))
@@ -100,6 +101,24 @@ def run(folder, filename):
     tracebtb.tools.save_project(filename, data)
     print (f'wrote project file to {filename}')
     return
+
+def add_herd_numbers(df):
+    """Add herd nos for NI samples."""
+
+    # 1. Identify rows where HERD_NO is missing
+    mask = df['HERD_NO'].isnull()
+    # 2. Get unique geometries from the rows that need IDs
+    # Converting to WKT ensures we can accurately compare/group coordinates
+    unique_geoms = df.loc[mask, 'geometry'].to_wkt().unique()
+    # 3. Create a mapping: { 'POINT(x y)': 'NI0001', ... }
+    # This ensures every instance of the same coordinate gets the same ID
+    geom_to_id = {
+        geom: f"NI{i+1:04d}"
+        for i, geom in enumerate(unique_geoms)
+    }
+    # 4. Apply the mapping to the missing rows
+    df.loc[mask, 'HERD_NO'] = df.loc[mask, 'geometry'].to_wkt().map(geom_to_id)
+    return df
 
 #update existing project
 #tracebtb.tools.update_project('/home/farrell/gitprojects/tracebtb/latest.tracebtb',gdf, 'meta', save=True)

@@ -1201,7 +1201,7 @@ def plot_grid_cells(cell, gdf, parcels=None, neighbours=None, ax=None):
     """Plot cell(s) of grid with points inside"""
 
     if ax == None:
-        fig,ax=plt.subplots(figsize=(6, 6))
+        fig,ax=plt.subplots(figsize=(6, 10))
     else:
         fig=None
 
@@ -1374,7 +1374,6 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     neighbour_isolates = metadata[metadata.HERD_NO.isin(qry)]
     neighbour_strains = set(neighbour_isolates['short_name'].dropna())
     nearest = find_nearest_point(pcl.geometry, herd_isolates)
-
     # any related isolates
     snp5_clusters = set(herd_isolates.snp5)
     snp12_clusters = set(herd_isolates.snp12)
@@ -1452,6 +1451,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
                 'contiguous herds':len(cont_parcels),
                 'herd_isolates':len(herd_isolates),
                 'neighbour_isolates':len(neighbour_isolates),
+                'dist_threshold':dist,
                 #is_singleton': is_singleton,
                 'nearest_sampled_herd':nearest_herd,
                 'herd_strains': current_strains,
@@ -1463,8 +1463,8 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
                 'std_reactors': srtotal,
                 'lesion_positives': lptotal,
                 'sample_moves_in': sample_moves_in,
-                'local_moves': '?',
-                'risky_moves': '?',
+                #'local_moves': '?',
+                #'risky_moves': '?',
                 'grid_id':grid_id, #grid this sample belongs to
                 'goods_coverage': round(coverage,2),
                 'shannon_diversity': round(diversity,2)
@@ -1484,14 +1484,11 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         'snp5_related': snp5_related,
         'snp12_related': snp12_related,
         # Spatial Context
-        'neighbour_herd_isolates': neighbour_isolates,
+        'neighbour_isolates': neighbour_isolates,
         'neighbour_strains': neighbour_strains,
         # Movement Context
         'isolate_moves': herd_movements,
         'reactor_history': sr
-        # NOTE: Residual (Past Infections) requires historical data lookup here
-        # E.g., 'historical_strains': tools.get_historic_strains(target_herd_no)
-        #herd density in area?
     }
     herd_context = {'data':data, 'metrics':metrics}
     return herd_context

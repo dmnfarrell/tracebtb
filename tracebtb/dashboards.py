@@ -1457,7 +1457,7 @@ class HerdQueryDashboard(Dashboard):
         self.testingplot_pane = pn.pane.Bokeh(height=200)
         self.movesplot_pane = pn.pane.Bokeh(height=200)
         self.herdinfo_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet], sizing_mode='stretch_both')
-
+        self.sampling_pane = pn.pane.Matplotlib(height=100,sizing_mode='stretch_width')
         self.timeline_pane = pn.pane.Bokeh(sizing_mode='stretch_height')
         self.indicator = pn.indicators.Number(
                     name='Priority',
@@ -1479,7 +1479,7 @@ class HerdQueryDashboard(Dashboard):
         pn.bind(self.update, refresh_btn, watch=True)
         #sendquery_btn = pnw.Button(name='Samples Query',width=w)
         #pn.bind(self.send_to_query_dashboard, sendquery_btn, watch=True)
-        self.dist_input = pnw.IntSlider(name='Dist Threshold',width=w,value=1000,
+        self.dist_input = pnw.IntSlider(name='Dist Threshold',width=w,value=4000,
                                         start=100,end=10000,step=100)
         opts = ['within any parcel','contiguous parcels']
         self.dist_method = pnw.Select(name='Neighbour Dist Method',value='within any parcel',
@@ -1499,9 +1499,9 @@ class HerdQueryDashboard(Dashboard):
         )
         self.related_btn = pnw.Toggle(icon=get_icon('clusters'), icon_size=icsize,
                                      width=36,height=38,align='center')
-        self.radius_btn = pnw.Toggle(icon=get_icon('radius'), icon_size=icsize,
+        self.radius_btn = pnw.Toggle(icon=get_icon('radius'), icon_size=icsize, value=True,
                                      width=36,height=38,align='center')
-        self.neighbours_btn = pnw.Toggle(value=True,icon=get_icon('neighbours'), icon_size=icsize,
+        self.neighbours_btn = pnw.Toggle(icon=get_icon('neighbours'), icon_size=icsize,
                                      width=36,height=38,align='center')
         self.parcellabel_btn = pnw.Toggle(icon=get_icon('parcel-label'), icon_size=icsize,
                                      width=36,height=38,align='center')
@@ -1511,7 +1511,7 @@ class HerdQueryDashboard(Dashboard):
         widgets = pn.Column(search_widgets,self.sampled_herds_select,sim_btn,refresh_btn,
                             self.dist_method,self.dist_input,self.provider_input,self.colorby_input,
                             self.savesettings_btn)
-        widgets2 = pn.Row(self.date_range_slider,self.related_btn,self.radius_btn,
+        widgets2 = pn.Row(self.date_range_slider,self.radius_btn,self.related_btn,
                           self.neighbours_btn,self.parcellabel_btn,self.moves_btn)
         self.about_pane = pn.pane.Markdown('',styles=styles)
         self.about()
@@ -1534,7 +1534,7 @@ class HerdQueryDashboard(Dashboard):
                                     ('About',self.about_pane),
                              dynamic=True,
                              sizing_mode='stretch_both')),
-                  pn.Column(pn.Tabs(('Herd info',self.herdinfo_pane),
+                  pn.Column(pn.Tabs(('Herd info',pn.Column(self.herdinfo_pane,self.sampling_pane)),
                                     ('Metrics',pn.Column(self.testingplot_pane, self.movesplot_pane,self.timeline_pane)),
                                     ('Tree',self.tree_pane),
                                     #('Fragments',self.fragments_pane),
@@ -1620,15 +1620,16 @@ class HerdQueryDashboard(Dashboard):
         start = pd.to_datetime(start)
         end = pd.to_datetime(end)
         found = found[(found.last_move>=start) & (found.last_move<end) | found.last_move.isnull()]
-
         found['color'],cm = tools.get_color_mapping(found, 'snp5', cmap='tab20')
         self.found = found
+        self.sampling_pane.object = self.plot_sampling_years(found)
+
         labels = self.parcellabel_btn.value
         if self.neighbours_btn.value == True:
             p = self.plot_neighbours(pcl, nb, column=parcelcol, labels=labels)
         else:
             p = self.plot_neighbours(pcl, [])
-        bokeh_plot.plot_selection(found, col='snp5', legend=True, ms=20, lw=2, p=p)
+        bokeh_plot.plot_selection(found, col='snp5', legend=True, ms=15, lw=2, p=p)
 
         #plot local radius around herd
         if self.radius_btn.value == True:
@@ -1639,8 +1640,6 @@ class HerdQueryDashboard(Dashboard):
         p.title = herd
         p.title.text_font_size = '20pt'
         self.map_pane.object = p
-        self.plot_herd_testing(herd)
-        self.plot_movements_summary(herd)
 
         #nearest sampled herd
         self.nearest = tools.find_nearest_point(pcl.iloc[0].geometry, found)
@@ -1664,19 +1663,18 @@ class HerdQueryDashboard(Dashboard):
         if pmov is not None:
             self.moves_pane.value = pmov.reset_index().drop(columns=['geometry'])
         #get moves relevant to movement pathway
-        #moves from related strain herds or those very nearby?
+        moves_in = movement.query_herd_moves_all(herd, start, end)
         #also include moves between herds with this strain? - good for movement dash?
         if self.moves_btn.value is True:
             target_herds = found.HERD_NO
-            moves = movement.query_herd_moves_all(herd, start, end)
-            strain_herd_moves = moves[moves.herd.isin(target_herds)]
-            #plot moves here
-            #cols=['SPH_HERD_N','X_COORD','Y_COORD']
-            #v = movement.get_movement_vectors(moves, self.lpis_cent[cols])
-            #print (v[v.herd==herd])
-            print (strain_herd_moves)
+            strain_herd_moves = moves_in[moves_in.herd.isin(target_herds)]
+            #print (strain_herd_moves)
             G,pos = movement.create_herd_network(strain_herd_moves, herd, self.lpis_cent)
-            bokeh_plot.plot_herd_network(G, pos, p, line_width=3, line_color='black')
+            bokeh_plot.plot_herd_network(G, pos, p, line_width=2, line_color='black')
+
+        self.plot_herd_testing(herd)
+        direct_moves = moves_in[moves_in.herd==self.herd]
+        self.plot_movements_summary(herd, direct_moves)
 
         tldf = bokeh_plot.get_timeline_data(pmov, self.meta)
         if tldf is not None:
@@ -1689,9 +1687,9 @@ class HerdQueryDashboard(Dashboard):
         self.seq_priority_pane.object = priority
 
         print ('scoring pathways..')
-        p_scores = source_attribution.run_pathways([self.herd], self.meta,
+        p_scores = source_attribution.run_pathway(self.herd, self.meta,
                                                 self.moves, self.sr, self.feedlots,
-                                                self.lpis, self.lpis_cent, self.iregrid)
+                                                self.lpis, self.lpis_cent, self.iregrid, hc, moves_in)
         self.pathways_pane.object = p_scores
         self.summary_pane.object = source_attribution.summarize_pathways(p_scores)
         return
@@ -1750,13 +1748,12 @@ class HerdQueryDashboard(Dashboard):
         self.testingplot_pane.object = p
         return p
 
-    def plot_movements_summary(self, herd):
-        """Get moves summary"""
+    def plot_movements_summary(self, herd, moves):
+        """Get moves summary plot"""
 
-        m = movement.query_herd_moves_in(herd, date(2012, 1, 1), date(2022, 1, 1))
-        if m is None:
+        if moves is None:
             return figure()
-        df = m.groupby('year')['tag'].count()
+        df = moves.groupby('year')['tag'].count()
         x=list(df.index)
         vals = df.values
         p = figure(height=250, title="Moves",
@@ -1764,6 +1761,19 @@ class HerdQueryDashboard(Dashboard):
         p.vbar(x=x, top=vals, width=0.9)
         self.movesplot_pane.object = p
         return p
+
+    def plot_sampling_years(self, df):
+
+        fig,ax=plt.subplots(figsize=(10,2))
+        color_map = dict(zip(df.snp5, df.color))
+        sns.swarmplot(df, x='Year', s=16, hue='snp5', alpha=0.9,
+                      palette=color_map, legend=False, ax=ax)
+        #plt.legend(ncol=len(df.snp5.unique()), title='snp5', loc='upper center')
+        plt.xticks(df.Year.unique())
+        sns.despine()
+        plt.tick_params(axis='x', which='major', labelsize=16)
+        plt.tight_layout()
+        return fig
 
     def random_breakdown_herd(self):
 
