@@ -1435,6 +1435,14 @@ class HerdQueryDashboard(Dashboard):
         self.feedlots = kwargs['feedlots']
         self.iregrid = kwargs['ireland_grid']
         self.herd = None
+        #temp fix for last_move < Year - because death move not yet present yet)
+        def fixlastmove(x):
+            if pd.isna(x.last_move) or pd.isna(x.Year):
+                return
+            if x.last_move.year<x.Year:
+                return
+            return x.last_move
+        self.meta['last_move'] = self.meta.apply(fixlastmove,1)
         return
 
     def setup_widgets(self):
@@ -1493,8 +1501,8 @@ class HerdQueryDashboard(Dashboard):
         self.savesettings_btn = pnw.Button(name='Save Settings',button_type='primary',width=w)
         self.date_range_slider = pn.widgets.DateRangeSlider(
             name='Date Range',
-            start=datetime(2008, 1, 1), end=datetime(2022, 1, 1),
-            value=(datetime(2017, 1, 1), datetime(2022, 1, 1)),
+            start=datetime(2008, 1, 1), end=datetime(2022, 12, 31),
+            value=(datetime(2017, 1, 1), datetime(2022, 12, 31)),
             step=30,format='%Y-%m',width=200
         )
         self.related_btn = pnw.Toggle(icon=get_icon('clusters'), icon_size=icsize,
@@ -1608,6 +1616,7 @@ class HerdQueryDashboard(Dashboard):
         #then get any known strains present in neighbours, including in herd itself
         qry = list(nb.SPH_HERD_N) + list(bdg.HERD_NO) + [herd]
         found = meta[meta.HERD_NO.isin(qry)]
+        #print (found[['HERD_NO','Animal_ID','Year','snp5','last_move']])
         #add related isolates if needed
         if self.related_btn.value == True:
             found = pd.concat([found,related5]).drop_duplicates()
@@ -1765,6 +1774,7 @@ class HerdQueryDashboard(Dashboard):
     def plot_sampling_years(self, df):
 
         fig,ax=plt.subplots(figsize=(10,2))
+        df = df[df.Year.notnull()]
         color_map = dict(zip(df.snp5, df.color))
         sns.swarmplot(df, x='Year', s=16, hue='snp5', alpha=0.9,
                       palette=color_map, legend=False, ax=ax)

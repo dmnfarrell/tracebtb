@@ -215,8 +215,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
     if p == None:
         p = init_figure(title, provider)
     gdf = gdf[~gdf.geometry.is_empty]
-    #drop datetime cols
-    gdf = gdf.drop(columns=['last_move'])
+    gdf['last_move'] = gdf['last_move'].astype(str)
     if col in gdf.columns:
         gdf = gdf.sort_values(col)
     if len(gdf) == 0:
@@ -250,6 +249,7 @@ def plot_selection(gdf, parcels=None, provider='CartoDB Positron', col=None,
                                             ("Animal_id", "@Animal_ID"),
                                             ("Herd/Sett", "@HERD_NO"),
                                             ("Year", "@Year"),
+                                            ("Last move", "@last_move"),
                                             ("Homebred","@Homebred"),
                                             ("Lineage", "@lineage"),
                                             ("Strain", "@short_name"),

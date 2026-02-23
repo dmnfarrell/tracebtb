@@ -22,7 +22,7 @@
 
 import sys,os,subprocess,glob,shutil,re
 import pickle
-import random,time
+import math,random,time
 import json
 import platform
 import numpy as np
@@ -52,7 +52,18 @@ MOVEMENT_WINDOW_YEARS = 2
 
 from typing import Dict, Any, List, Set
 
-def score_within_herd(animal_row, context):
+def scale_value(x, old_max=15, new_min=1, new_max=10):
+    """Scale a value to a score range"""
+    if x > old_max:
+        return 0
+    # Calculate the scale factor (9 / 15 = 0.6)
+    scale_factor = (new_max - new_min) / old_max
+    # Invert the logic: start at max and subtract based on x
+    score = new_max - (x * scale_factor)
+    # Optional: Clamp the results between 1 and 10
+    return max(new_min, min(new_max, score))
+
+def score_within_herd(animal_row, context, snp_dist=None):
     """
     Scores the likelihood of within-herd transmission (0-10) using SNP5 cluster size
     within the current herd breakdown.
@@ -63,7 +74,8 @@ def score_within_herd(animal_row, context):
         An integer score (0-10).
     """
 
-    my_cluster = animal_row['snp5']
+    snp5_cluster = animal_row['snp5']
+    snp12_cluster = animal_row['snp12']
     is_homebred = animal_row['Homebred']
     metrics = context['metrics']
     data = context['data']
@@ -71,19 +83,42 @@ def score_within_herd(animal_row, context):
         # Only one isolate in the herd. Cannot confirm or rule out within-herd spread.
         return 1, "Singleton"
 
-    # Find all animals that share the same SNP5 and SNP12 cluster IDs as the current animal.
-    herd_sub_df = data['herd_isolates']
-    cluster_size5 = len(herd_sub_df[herd_sub_df['snp5'] == my_cluster])
-    cluster_size12 = len(herd_sub_df[herd_sub_df['snp12'] == my_cluster])
-    # Apply Scoring Logic for clusters
-    if cluster_size5 > 1:
+    # Find all animals that share the same clusters IDs as current animal.
+    sub = data['herd_isolates']
+    cluster5 = sub[sub['snp5'] == snp5_cluster]
+    cluster12 = sub[sub['snp12'] == snp12_cluster]
+
+    #are animals slaughtered within 60 days of each other?
+    print (cluster5.groupby('last_move')['snp5'].count())
+    #filter for rows within 60 days of any other
+
+    if len(cluster5) <= 1 and len(cluster12)<=1:
+        return 0, "Multi isolate herd with no strain match"
+    try:
+        df = cluster5.sort_values('last_move')
+        df['days_diff'] = df['last_move'].diff().dt.days
+        close_rows = df[df['days_diff'] <= 90]
+        if len(close_rows)==0:
+            #animals are >60 days apart in death - need total overlap time too?
+            return 3, 'matching isolates but >90 days apart'
+    except:
+        pass
+
+    #switch scoring to use scale based on snp dist?
+    if snp_dist is not None:
+        names = list(cluster12['sample'])
+        dm = snp_dist.loc[names, names]
+        md = dm.stack().min()
+        #print (dm)
+        print (f'snp dist={md},score={math.ceil(scale_value(md))}')
+
+    if len(cluster5) > 1:
         # Strong evidence: The animal shares a recent genetic ancestor
         # (SNP5 cluster) with another animal currently in the herd.
-        return 10, f"SNP5 Cluster match, size={cluster_size5}"
-    elif cluster_size12 > 1:
+        return 10, f"SNP5 Cluster match, size={len(cluster5)}"
+    elif len(cluster12) > 1:
         # Medium evidence, shares less recent ancestor
-        return 5, f"SNP12 Cluster match, size={cluster_size12}"
-    return 0, "Multi isolate herd with no strain match"
+        return 5, f"SNP12 Cluster match, size={len(cluster12)}"
 
 def score_residual(animal_row, context):
     """
@@ -100,33 +135,35 @@ def score_residual(animal_row, context):
     tag = animal_row['sample']
     my_herd = animal_row['HERD_NO']
     curr_year = animal_row['Year']
-    snp_cluster5 = animal_row['snp5']
-    snp_cluster12 = animal_row['snp12']
+    snp5_cluster = animal_row['snp5']
+    snp12_cluster = animal_row['snp12']
+    last_move = animal_row.last_move
     data = context['data']
     sub = data['herd_isolates']
     sr = data['reactor_history']
+    #print (sr)
+    #print (sr.loc[years])
 
-    # Look up Historical Strains - prior to current year
-    cols = ['snp5','snp12','Year']
-    historic = sub[(sub.Year<curr_year)][cols]
-
-    years = sub.Year.dropna().unique()
-    print (tag,curr_year,snp_cluster5,snp_cluster12)
-
-    # --- Step 2: Apply Scoring Logic ---
+    # --- Check testing first ---
     if sr is None or sr.sum()==0:
         # No known previous breakdowns.
         return 0, 'No known previous breakdowns'
 
-    previous_snp5 = historic.snp5
-    previous_snp12 = historic.snp12
+    # find Historical Strains - prior to this animals breakdown
+    cols = ['snp5','snp12','last_move']
+    historic = sub[(sub.last_move<last_move)][cols]
+    print (tag,curr_year,snp5_cluster,snp12_cluster,last_move)
+    #print (historic)
+    previous_snp5 = set(historic.snp5)
+    previous_snp12 = set(historic.snp12)
+    #print (snp5_cluster,previous_snp5)
     if len(historic) == 0:
         return 1, 'No previous breakdown prior to this sample'
-    elif snp_cluster5 in previous_snp5:
+    elif snp5_cluster in previous_snp5:
         # Strong evidence: The current breakdown strain is a close genetic match
         # to a strain that caused a previous breakdown
-        return 9, 'Current breakdown strain same as previous at snp5 level'
-    elif snp_cluster12 in previous_snp12:
+        return 10, 'Current breakdown strain same as previous at snp5 level'
+    elif snp12_cluster in previous_snp12:
         # Medium evidence: The current breakdown strain is a match on snp12 level
         return 5, 'Current breakdown strain same as previous at snp12 level'
     else:
@@ -204,7 +241,7 @@ def score_movement(animal_row, context, moves_in=None):
     snp12_cluster = animal_row['snp12']
 
     data = context['data']
-    herd_moves = data['isolate_moves']
+    #herd_moves = data['isolate_moves']
 
     #first check if any strains outside local area
     #all herds with snp5 cluster
@@ -219,10 +256,10 @@ def score_movement(animal_row, context, moves_in=None):
     target_herds = list(r5.HERD_NO)
     #print (target_herds)
     # Get the animals own movement history - do we need it now?
-    animal_moves = herd_moves[herd_moves.tag == my_animal_id]
+    #animal_moves = herd_moves[herd_moves.tag == my_animal_id]
     #print (r5[['HERD_NO','snp5','snp12']])
 
-    if len(r5) == 0 and len(r12) == 0:
+    if len(r5) == 0: # and len(r12) == 0:
         return 1, 'No related strains outside herd at snp5 or snp12'
     elif len(r5) >= 1:
         #get all moves from sources to herd in 1 year prior to breakdown

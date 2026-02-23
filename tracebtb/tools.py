@@ -1336,11 +1336,12 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     Args:
         herd_no: The HERD_NO to process
         metadata: geodataframe of all metadata
-        moves: relevant movement data
+        moves: relevant movement data - we may not need this in future?
         testing: per herd testing data
         feedlots: CFU data
         lpis: all land parcels, a geodataframe
         lpis_cent: centroid points of all herds in lpis, a geodataframe
+        snp_dist: snp disance matrix
         grid: hex grid for ireland
         dist: distance at which to consider near neighbours
     Returns:
@@ -1379,6 +1380,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     snp12_clusters = set(herd_isolates.snp12)
     snp5_related = metadata[(metadata.snp5.isin(snp5_clusters)) & (metadata.HERD_NO!=herd_no)]
     snp12_related = metadata[(metadata.snp5.isin(snp12_clusters)) & (metadata.HERD_NO!=herd_no)]
+
     # --- Movement Data ---
     # Get moves into this herd for sampled animals
     herd_movements = get_moves_bytag(herd_isolates, moves, lpis_cent)
@@ -1419,8 +1421,8 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     else:
         c1=cell.iloc[0]
         grid_id = c1.grid_id
-        diversity = c1.shannon_diversity
-        coverage = c1.goods_coverage
+        diversity = round(c1.shannon_diversity,2)
+        coverage = round(c1.goods_coverage,2)
     if len(herd_isolates)>0:
         current_strains = set(herd_isolates['short_name'].dropna())
         nearest_herd = nearest.HERD_NO
@@ -1466,8 +1468,8 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
                 #'local_moves': '?',
                 #'risky_moves': '?',
                 'grid_id':grid_id, #grid this sample belongs to
-                'goods_coverage': round(coverage,2),
-                'shannon_diversity': round(diversity,2)
+                'goods_coverage': coverage,
+                'shannon_diversity': diversity
                 }
 
     data = {
@@ -1488,7 +1490,8 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         'neighbour_strains': neighbour_strains,
         # Movement Context
         'isolate_moves': herd_movements,
-        'reactor_history': sr
+        'std_reactors': sr,
+        'lesion_positives': lp
     }
     herd_context = {'data':data, 'metrics':metrics}
     return herd_context
