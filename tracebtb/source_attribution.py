@@ -140,7 +140,7 @@ def score_residual(animal_row, context):
     last_move = animal_row.last_move
     data = context['data']
     sub = data['herd_isolates']
-    sr = data['reactor_history']
+    sr = data['std_reactors']
     #print (sr)
     #print (sr.loc[years])
 
@@ -151,6 +151,7 @@ def score_residual(animal_row, context):
 
     # find Historical Strains - prior to this animals breakdown
     cols = ['snp5','snp12','last_move']
+    #print (sub.last_move)
     historic = sub[(sub.last_move<last_move)][cols]
     print (tag,curr_year,snp5_cluster,snp12_cluster,last_move)
     #print (historic)
@@ -160,11 +161,8 @@ def score_residual(animal_row, context):
     if len(historic) == 0:
         return 1, 'No previous breakdown prior to this sample'
     elif snp5_cluster in previous_snp5:
-        # Strong evidence: The current breakdown strain is a close genetic match
-        # to a strain that caused a previous breakdown
         return 10, 'Current breakdown strain same as previous at snp5 level'
     elif snp12_cluster in previous_snp12:
-        # Medium evidence: The current breakdown strain is a match on snp12 level
         return 5, 'Current breakdown strain same as previous at snp12 level'
     else:
         return 0, 'No evidence of residual infection in past breakdowns'
@@ -217,7 +215,7 @@ def score_local(animal_row, context):
         return 5, f"Cluster match at snp12 level ({snp12_cluster})"
     return 0, f"{len(nb_isolates)} neighbouring isolates found with no related cluster"
 
-def score_movement(animal_row, context, moves_in=None):
+def score_movement(animal_row, context, lpis_cent, moves_in=None):
     """
     Scores the likelihood of long distance movement-based transmission (0-10)
     by checking the herds movement history against any related strain isolates.
@@ -233,57 +231,47 @@ def score_movement(animal_row, context, moves_in=None):
 
     data = context['data']
     sub = data['herd_isolates']
-    my_animal_id = animal_row['Animal_ID']
     herd = animal_row.HERD_NO
     tag = animal_row.Animal_ID
     last_move = animal_row.last_move
     snp5_cluster = animal_row['snp5']
     snp12_cluster = animal_row['snp12']
-
     data = context['data']
-    #herd_moves = data['isolate_moves']
-
     #first check if any strains outside local area
-    #all herds with snp5 cluster
 
     x = data['snp5_related']
     r5 = x[x.snp5==snp5_cluster]
     x = data['snp12_related']
     r12 = x[x.snp12==snp12_cluster]
-    #remove local herds - haven't done this yet
     print (herd, snp5_cluster, len(r5),len(r12), last_move)
-
     target_herds = list(r5.HERD_NO)
     #print (target_herds)
-    # Get the animals own movement history - do we need it now?
-    #animal_moves = herd_moves[herd_moves.tag == my_animal_id]
-    #print (r5[['HERD_NO','snp5','snp12']])
 
-    if len(r5) == 0: # and len(r12) == 0:
+    if len(r5) == 0:# and len(r12) == 0:
         return 1, 'No related strains outside herd at snp5 or snp12'
     elif len(r5) >= 1:
         #get all moves from sources to herd in 1 year prior to breakdown
-        #these really only need to be found once her perd ...?
         try:
-            date1 = last_move - relativedelta(years=1)
+            date1 = last_move - relativedelta(months=24)
         except:
             return 1, 'Cannot parse last_move date'
         if moves_in is None:
             moves_in = movement.query_herd_moves_all(herd, date1, last_move)
-        animal_moves = moves_in[moves_in.tag==my_animal_id]
-        direct_moves = moves_in[(moves_in.herd==herd) & (moves_in.tag!=my_animal_id)]
-        rel_moves = moves_in[moves_in.herd!=herd]
+            v = movement.get_movement_vectors(moves_in, lpis_cent)
+            #remove local moves
+            v = v[v.dist_km>=15]
 
-        print (f'{len(animal_moves)} sampled moves;{len(direct_moves)} direct;{len(rel_moves)} related')
-
-        sampled_from_strain_herds = animal_moves[animal_moves.herd.isin(target_herds)]
-        all_from_strain_herds = direct_moves[direct_moves.herd.isin(target_herds)]
-        if len(sampled_from_strain_herds)>0:
+        animal_moves = moves_in[moves_in.tag==tag]
+        #print (animal_moves)
+        any_from_strain_herds = v[v.herd.isin(target_herds)]
+        sample_from_strain_herds =  v[(v.herd.isin(target_herds)) & (v.tag==tag)]
+        #print (any_from_strain_herds)
+        if len(sample_from_strain_herds)>0:
             #did animal move directly from a strain herd?
             return 10, 'Direct move of sampled animal from herd with same strain'
-        elif len(all_from_strain_herds)>0:
+        elif len(any_from_strain_herds)>0:
             #any direct moves of any animals from herds with related isolates
-            return 7, 'Move of other animals in herd from another herd with same strain'
+            return 7, 'Move into this herd from another herd with same strain'
         #elif
         #strains same as those in herd in intermediate herds of moves
 
@@ -303,9 +291,9 @@ def run_pathway(herd_no, gdf, moves, testing, feedlots,
                  dist=4000, meta_cols=False):
     """Run attribution on a single herd"""
 
+    print (herd_no)
     #default cols from metadata
     cols=['snp3','snp5','CFU','in_homerange','Homebred','Year']
-
     # Build context for the single herd
     if hc is None:
         hc = tools.get_herd_context(herd_no, gdf, moves, testing, feedlots,
@@ -314,35 +302,49 @@ def run_pathway(herd_no, gdf, moves, testing, feedlots,
         return
     data = hc['data']
     sub = data['herd_isolates']
-    if len(sub)==0:
-        print ('no isolates found')
-        return
     results_list = []
     for _, row in sub.iterrows():
         s_within, e_within = score_within_herd(row, hc)
         #print (herd_no, row.Animal_ID, s_within)
         s_local, e_local = score_local(row, hc)
-        s_movement, e_movement = score_movement(row, hc)
+        s_movement, e_movement = score_movement(row, hc, lpis_cent)
         s_residual, e_residual = score_residual(row, hc)
 
         # Package the final score results
-        scores= {'within': s_within,
-                'local': s_local,
-                'movement': s_movement,
-                'residual': s_residual}
+        scores= {'W': s_within,
+                'L': s_local,
+                'M': s_movement,
+                'R': s_residual}
         evidence = {
-                'within': e_within,
-                'local': e_local,
-                'movement': e_movement,
-                'residual': e_residual,
-                'indeterminate': 'NA' }
-        pathway = max(scores, key=scores.get)
+                'W': e_within,
+                'L': e_local,
+                'M': e_movement,
+                'R': e_residual,
+                'I': 'NA' }
+        '''pathway = max(scores, key=scores.get)
         if max(scores.values()) == 1:
-            pathway = 'unknown'
+            pathway = 'U'
         elif len(set(scores.values()))==1:
-            pathway = 'indeterminate'
+            #multiple non-zero ties - hand this.
+            pathway = 'I'
+        '''
+        # Find the maximum score
+        max_val = max(scores.values())
+        # Identify if any pathways share the maximum
+        winners = [k for k, v in scores.items() if v == max_val]
+        # Apply conditional logic
+        if max_val <= 1:
+            pathway = 'U'
+        elif len(winners) > 1:
+            # Sort winners alphabetically to ensure consistency
+            pathway = "".join(sorted(winners))
+        else:
+            # Only one clear winner
+            pathway = winners[0]
+
         result = {'HERD_NO': row.HERD_NO,
-                  'Animal_ID': row.Animal_ID}
+                  'Animal_ID': row.Animal_ID,
+                  'snp5':row.snp5}
         if meta_cols == True:
             #add other cols
             scols=[c for c in cols if c in sub.columns]
@@ -350,66 +352,99 @@ def run_pathway(herd_no, gdf, moves, testing, feedlots,
         result.update(scores)
         result['best_pathway'] = pathway
         for key in evidence.keys():
-            if key != 'indeterminate':
+            if key != 'I':
                 result['e_'+key] = evidence[key]
-        #result['evidence'] = evidence[pathway]
+
         #print (scores.values(),max(scores), pathway)
         results_list.append(result)
     return pd.DataFrame(results_list).set_index('Animal_ID')
 
 def summarize_pathways(df):
     """
-    Summarizes herd data, treating pathway columns as scores (0-10)
-    and returning the report as a formatted string.
+    Summarizes herd data focusing on pathway involvement, tie-break
+    concurrence, and genomic data gaps (orphans).
     """
-
-    score_cols = ['within', 'local', 'movement', 'residual']
     total_animals = len(df)
     unique_herds = df['HERD_NO'].unique()
 
-    # Initialize a list to collect lines
-    lines = []
+    # Path columns for score/orphan checking
+    score_cols = ['W', 'L', 'M', 'R']
 
-    lines.append("=" * 50)
-    lines.append(f"{'GENOMIC PATHWAY SUMMARY REPORT':^50}")
-    lines.append("=" * 50)
+    # Mapping for clear report labels
+    mapping = {
+        'W': 'Within-Herd',
+        'L': 'Local',
+        'M': 'Movement',
+        'R': 'Residual',
+        'U': 'Unknown (Low Score)'
+    }
+
+    lines = []
+    lines.append("=" * 60)
+    lines.append(f"{'GENOMIC PATHWAY SUMMARY REPORT':^60}")
+    lines.append("=" * 60)
     lines.append(f"Total Animals: {total_animals}")
     lines.append(f"Total Herds:   {len(unique_herds)}")
-    lines.append(f"Herds:   {';'.join(unique_herds)}")
 
-    # 1. Global Score Analysis
-    lines.append("\n[Pathway Score Averages (Scale 0-10)]")
-    avg_scores = df[score_cols].mean()
-    for col, val in avg_scores.items():
-        lines.append(f"- {col.title():12}: {val:.2f} avg score")
-
-    # 2. Ambiguity Check
-    is_ambiguous = df[score_cols].apply(lambda x: sum(x == x.max()), axis=1) > 1
-    ambiguous_count = is_ambiguous.sum()
-
-    lines.append(f"\n[Ambiguity Analysis]")
-    lines.append(f"- Animals with tied top scores: {ambiguous_count} ({ (ambiguous_count/total_animals)*100:.1f}%)")
-
-    # 3. Best Pathway Distribution (Global)
-    lines.append("\n[Best Pathway Distribution (Assigned)]")
+    # 1. Best Pathway Distribution (Assigned Categories)
+    lines.append("\n[1. Top Pathway Attribution]")
     path_counts = df['best_pathway'].value_counts()
     for path, count in path_counts.items():
-        lines.append(f"- {path:12}: {count} animals")
+        # Build label for combos (e.g., 'WL' -> 'Within-Herd+Local')
+        if path == 'U':
+            label = mapping['U']
+        else:
+            label = "+".join([mapping.get(c, c) for c in path])
 
-    # 4. Per-Herd Breakdown (Only if multiple herds exist)
+        pct = (count / total_animals) * 100
+        lines.append(f"- {label:<35}: {count:>3} animals ({pct:>5.1f}%)")
+
+    # 2. Total Pathway Involvement (Weighted Lead Analysis)
+    # Counts how many times a pathway was a 'winner', including within ties
+    lines.append("\n[2. Total Pathway Involvement]")
+    lines.append(" (How often each route was a top-tier suspect")
+
+    involvement = {k: 0 for k in score_cols}
+    for path in df['best_pathway']:
+        if path == 'U': continue
+        for char in path:
+            if char in involvement:
+                involvement[char] += 1
+
+    for char, count in involvement.items():
+        pct = (count / total_animals) * 100
+        lines.append(f"- {mapping[char]:<15}: {count:>3} cases ({pct:>5.1f}%)")
+
+    # 3. Genomic Gap Analysis (Orphan Check)
+    lines.append("\n[3. Genomic Gap Analysis]")
+    # Identifies animals where all scored pathways resulted in exactly 0
+    orphans = df[(df[score_cols] <= 1).all(axis=1)]
+    orphan_count = len(orphans)
+    orphan_pct = (orphan_count / total_animals) * 100
+
+    lines.append(f"- 'Genomic Orphans': {orphan_count} ({orphan_pct:.1f}%)")
+    lines.append("  (Isolates with zero genetic matches in any known route)")
+
+    # 4. Per-Herd Breakdown
     if len(unique_herds) > 1:
-        lines.append("\n" + "=" * 50)
-        lines.append(f"{'PER-HERD BREAKDOWN':^50}")
-        lines.append("=" * 50)
+        lines.append("\n" + "=" * 60)
+        lines.append(f"{'PER-HERD TRENDS':^60}")
+        lines.append("=" * 60)
 
+        # Aggregate by herd to see primary driver and tie frequency
         herd_summary = df.groupby('HERD_NO').agg({
-            'Animal_ID': 'count',
-            'best_pathway': lambda x: x.mode()[0] if not x.mode().empty else "N/A"
-        }).rename(columns={'Animal_ID': 'Size', 'best_pathway': 'Primary Pathway'})
+            'best_pathway': [
+                ('Primary', lambda x: x.mode()[0] if not x.empty else "N/A"),
+                ('Tied_Cases', lambda x: (x.str.len() > 1).sum())
+            ],
+            'W': 'count' # Just to get a 'Size' column
+        })
 
-        lines.append(herd_summary.to_string())
+        # Flatten multi-index columns for cleaner printing
+        herd_summary.columns = ['Primary Pathway', 'Tied Cases', 'Herd Size']
+        lines.append(herd_summary[['Herd Size', 'Primary Pathway', 'Tied Cases']].to_string())
 
-    lines.append("\n" + "=" * 50)
+    lines.append("\n" + "=" * 60)
     return "\n".join(lines)
 
 def calculate_benchmark_metrics(results_df):

@@ -1677,9 +1677,8 @@ class HerdQueryDashboard(Dashboard):
         if self.moves_btn.value is True:
             target_herds = found.HERD_NO
             strain_herd_moves = moves_in[moves_in.herd.isin(target_herds)]
-            #print (strain_herd_moves)
             G,pos = movement.create_herd_network(strain_herd_moves, herd, self.lpis_cent)
-            bokeh_plot.plot_herd_network(G, pos, p, line_width=2, line_color='black')
+            bokeh_plot.plot_herd_network(G, pos, p, line_width=2, line_color='black', radius=0)
 
         self.plot_herd_testing(herd)
         direct_moves = moves_in[moves_in.herd==self.herd]

@@ -157,13 +157,14 @@ def convert_moves_to_spans(df):
     today = date.today()
     temp_df['departure_date'] = temp_df['departure_date'].fillna(today)
     temp_df['days_on_herd'] = (temp_df['departure_date'] - temp_df['event_date'])
-    # Remove the FACT (death) rows as they mark the end of a residency
+    # Remove the FACT (death) rows
     result = temp_df[temp_df['data_type'] != 'FACT'].copy()
     return result
 
-def get_movement_vectors(m, coords_df):
+def get_movement_vectors(m, lpis_cent):
     """Get movement data locations with end/start positions"""
 
+    coords_df = lpis_cent[['SPH_HERD_N','X_COORD','Y_COORD']]
     msp = convert_moves_to_spans(m)
     df_vectors = msp.merge(
         coords_df, left_on='herd', right_on='SPH_HERD_N', how='left'
@@ -172,15 +173,16 @@ def get_movement_vectors(m, coords_df):
     df_vectors = df_vectors.merge(
         coords_df, left_on='destination_herd', right_on='SPH_HERD_N', how='left'
     ).rename(columns={'X_COORD': 'end_x', 'Y_COORD': 'end_y'})
-    return df_vectors
-
-def categorize_moves(df_vectors):
-
     dist_m = np.sqrt(
         (df_vectors['end_x'] - df_vectors['start_x'])**2 +
         (df_vectors['end_y'] - df_vectors['start_y'])**2
     )
     df_vectors['dist_km'] = dist_m / 1000
+    df_vectors = df_vectors.drop(columns=['SPH_HERD_N_x','SPH_HERD_N_y'])
+    return df_vectors
+
+def categorize_moves(df_vectors):
+
     bins = [0, 10, 50, np.inf]
     labels = ['Local', 'Regional', 'Long']
     df_vectors['move_category'] = pd.cut(df_vectors['dist_km'], bins=bins, labels=labels)
@@ -206,6 +208,7 @@ def create_herd_network(m, herds, lpis_cent):
     # 1. Identify all active herds from the movement data
     active_herds = set(df_vectors['herd'].unique()) | \
                 set(df_vectors['destination_herd'].dropna().unique())
+    #print (active_herds)
     # 2. Efficiently build 'pos' dict using only herds present in this move set
     mask = coords_df['SPH_HERD_N'].isin(active_herds)
     relevant_coords = coords_df[mask]

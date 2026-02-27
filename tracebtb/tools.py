@@ -1108,6 +1108,21 @@ def plot_herd_graph(G, gdf=None, ns=200, title='', ax=None):
     ax.add_artist(ScaleBar(dx=1, location=4))
     return fig
 
+def plot_herd_network(G, pos, counties=None):
+    """Plot herd network"""
+
+    import networkx as nx
+    fig,ax = plt.subplots(1,1,figsize=(10, 10))
+    nx.draw_networkx_nodes(G, pos, node_size=30, node_color='blue', alpha=0.7, ax=ax)
+    nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=10,
+                           edge_color='gray', alpha=0.5, width=0.5, ax=ax)
+    nx.draw_networkx_labels(G, pos, font_size=12, font_color='black',ax=ax)
+    plt.title("Livestock Movement Network")
+    plt.axis('off')
+    if counties is not None:
+        counties.plot(color='none',lw=.2,ax=ax)
+    return
+
 def get_irish_grid(n_cells=30):
     """Get ireland hex grid"""
 
@@ -1529,7 +1544,7 @@ def get_sequencing_priority(herd_context):
 
     # 5. Potential Residual Infection (Breakdown recurrence check)
     # If the herd has isolates from a previous breakdown in 'breakdown_history'
-    if len(d['reactor_history']) > 1:
+    if len(d['std_reactors']) > 1:
          return "Tier 1: High (Recurrence/Residual Check)"
 
     # --- TIER 2 & 3: DIVERSITY-BASED SELECTION (Sufficient Sampling) ---

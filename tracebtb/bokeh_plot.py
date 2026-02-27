@@ -1007,7 +1007,7 @@ def transform_coords_to_mercator(pos, from_epsg=29902):
         mercator_pos[herd_id] = (m_x, m_y)
     return mercator_pos
 
-def plot_herd_network(G, pos, p=None, line_width=1, line_color="#746969"):
+def plot_herd_network(G, pos, p=None, line_width=1, line_color="#746969", radius=5):
     """Plot herd network with bokeh and map overlay"""
 
     from bokeh.models import (BoxZoomTool, HoverTool, MultiLine, Plot, Range1d,
@@ -1021,8 +1021,8 @@ def plot_herd_network(G, pos, p=None, line_width=1, line_color="#746969"):
     # Create the Bokeh graph renderer from NetworkX
     graph_renderer = from_networkx(G, pos, scale=1, center=(0, 0))
     mapper = factor_cmap('link', palette=['red', 'gray'], factors=['direct', 'indirect'])
-    graph_renderer.node_renderer.glyph = Circle(radius=5, radius_units='screen',
-                                                fill_color=mapper, fill_alpha=0.6, line_color='black')
+    graph_renderer.node_renderer.glyph = Circle(radius=radius, radius_units='screen',
+                                                fill_color=mapper, fill_alpha=0.2, line_color='black')
     graph_renderer.node_renderer.hover_glyph = Circle(radius=8, fill_alpha=0.6, radius_units='screen')
     graph_renderer.edge_renderer.glyph = MultiLine(line_color=line_color, line_alpha=0.6, line_width=line_width)
     graph_renderer.edge_renderer.hover_glyph = MultiLine(line_color='green', line_width=3)
