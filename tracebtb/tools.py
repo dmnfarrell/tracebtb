@@ -1345,7 +1345,7 @@ def get_testing_total(x, sr):
         return 0
 
 def get_herd_context(herd_no, metadata, moves, testing, feedlots,
-                     lpis, lpis_cent, grid=None, dist=2000):
+                     lpis, lpis_cent, grid=None, dist=4000):
     """
     Computes and returns all WGS and epidemiological context for a single target herd.
     Args:
@@ -1390,6 +1390,14 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     neighbour_isolates = metadata[metadata.HERD_NO.isin(qry)]
     neighbour_strains = set(neighbour_isolates['short_name'].dropna())
     nearest = find_nearest_point(pcl.geometry, herd_isolates)
+
+    #10km neighbours
+    nb10 = find_neighbours(herd_parcels, 10000, lpis_cent, lpis)
+    buffered_area = herd_parcels.geometry.union_all().buffer(10000)
+    nb_badger10 = badger[badger.geometry.within(buffered_area)]
+    qry = list(nb10.SPH_HERD_N) + list(nb_badger10.HERD_NO)
+    neighbour10_isolates = metadata[metadata.HERD_NO.isin(qry)]
+
     # any related isolates
     snp5_clusters = set(herd_isolates.snp5)
     snp12_clusters = set(herd_isolates.snp12)
@@ -1410,12 +1418,23 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     if herd_no in testing.index:
         sr = te.filter(regex='^Sr').loc[herd_no]
         lp = te.filter(regex='^Lp').loc[herd_no]
-        sr.index = sr.index.str.replace('Sr', '20').astype(int)
+        sr.index = sr.index.str.replace('Sr', '20').astype(int)+2000
+        lp.index = lp.index.str.replace('Lp', '20').astype(int)+2000
         srtotal = sr.sum()
         lptotal = lp.sum()
     else:
         sr = None; lp = None; srtotal=0; lptotal=0
 
+    #neighbour testing data
+    nb_herds = list(nb.SPH_HERD_N)
+    matches = testing.index.intersection(nb_herds)
+    if len(matches)>0:
+        nb_sr = te.filter(regex='^Sr').loc[matches]
+        nb_lp = te.filter(regex='^Lp').loc[matches]
+        nb_sr.columns = nb_sr.columns.str.replace('Sr', '', case=False).astype(int)+2000
+        nb_lp.columns = nb_lp.columns.str.replace('Lp', '', case=False).astype(int)+2000
+    else:
+        nb_sr=None; nb_lp=N
     #herd metrics (single values)
     area = pcl.geometry.area
     frag = count_fragments(pcl.geometry)
@@ -1468,6 +1487,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
                 'contiguous herds':len(cont_parcels),
                 'herd_isolates':len(herd_isolates),
                 'neighbour_isolates':len(neighbour_isolates),
+                'neighbour10_isolates':len(neighbour10_isolates),
                 'dist_threshold':dist,
                 #is_singleton': is_singleton,
                 'nearest_sampled_herd':nearest_herd,
@@ -1502,11 +1522,14 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         'snp12_related': snp12_related,
         # Spatial Context
         'neighbour_isolates': neighbour_isolates,
+        'neighbour10_isolates': neighbour10_isolates,
         'neighbour_strains': neighbour_strains,
         # Movement Context
         'isolate_moves': herd_movements,
         'std_reactors': sr,
-        'lesion_positives': lp
+        'nb_std_reactors': nb_sr,
+        'lesion_positives': lp,
+        'nb_lesion_positives': nb_lp,
     }
     herd_context = {'data':data, 'metrics':metrics}
     return herd_context

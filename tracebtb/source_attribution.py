@@ -173,47 +173,59 @@ def score_local(animal_row, context):
     the animal's SNP5 cluster is present in a neighboring herd.
     Args:
         animal_row: The specific animal being scored.
-        context: The pre-computed dictionary for the animal's herd.
+        context4: Herd context using 4km for neighbours
+        context10: context using 10km for neighbours
     Returns:
         An integer score (0-10).
     """
 
     snp5_cluster = animal_row['snp5']
-    snp12_cluster = animal_row['snp5']
+    #snp12_cluster = animal_row['snp5']
     data = context['data']
     nb = data['neighbour_parcels']
     badgers = data['near_badger']
+    last_move = animal_row.last_move
 
-    print (len(nb),snp5_cluster,snp12_cluster,len(badgers))
+    print (len(nb),snp5_cluster,len(badgers))
     # Check if any neighboring herds were identified in the context setup
-    if len(nb) == 0:
+    if len(nb) == 0 and len(nb10) == 0:
         # Cannot attribute to local spread if no neighbors are defined or found
-        return 0, "No neighbouring herds"
+        return 1, "No neighbouring herds at 4 or 10km radius"
 
-    # unique SNP5 clusters found in all neighbors
     nb_isolates = data['neighbour_isolates']
-    species = set(nb_isolates.Species)
-    neighbour_snp5 = list(nb_isolates.snp5)
-    neighbour_snp12 = nb_isolates.snp12
-    #print (f'neighbour snp5={neighbour_snp5}')
+    nb10_isolates = data['neighbour10_isolates']
+    nb_snp5 = list(nb_isolates.snp5)
+    nb10_snp5 = list(nb10_isolates.snp5)
+    #test data for neighbours one year prior to this breakdown
+    nb_lp = data['nb_lesion_positives']
+    year = last_move.year
+    mask = (nb_lp.columns <= year) & (nb_lp.columns >= year - 1)
+    nb_lp = nb_lp.loc[:, mask]
+    #print (nb_lp.values.sum())
+    print (len(nb_isolates),len(nb10_isolates))
+    #is neighbour contiguous?
+    #how far is neighbour exactly?
+    #badgers?
 
-    # 1. Check for Strong Evidence: Exact SNP5 Cluster Match
-    if len(nb_isolates) == 0:
-        # 2. Low Evidence: No Match Found
+    # Check for Strong Evidence: Exact SNP5 Cluster Match
+    if len(nb_isolates) == 0 and len(nb10_isolates) == 0:
+        # Low Evidence: No Match Found
         # Neighbours exist, but they do not share this specific genetic cluster.
         # We assign a baseline score of 1 to ensure this pathway is considered,
         return 1, f"No sampled herds in {len(nb)} neighbours"
-    elif snp5_cluster in neighbour_snp5:
+    elif snp5_cluster in nb_snp5:
         # High likelihood: The animal's specific, highly related cluster
-        # is circulating in a neighbouring herd.
-        if 'badger' in species:
-            print ('badger link')
-        return 10, f"Cluster match at snp5 level ({snp5_cluster})"
-    elif snp12_cluster in neighbour_snp12:
-        # High likelihood: The animal's specific, highly related cluster
-        # is circulating in a neighbouring herd.
-        return 5, f"Cluster match at snp12 level ({snp12_cluster})"
-    return 0, f"{len(nb_isolates)} neighbouring isolates found with no related cluster"
+        # is in a neighbouring herd with 4km.
+        match = nb_isolates[nb_isolates.snp5==snp5_cluster]
+        return 10, f"Cluster match within 4km. {len(match.HERD_NO)} herds"
+    elif snp5_cluster in nb10_snp5:
+        # The animal's specific, highly related cluster
+        # is in a neighbouring herd with 10km.
+        match = nb10_isolates[nb10_isolates.snp5==snp5_cluster]
+        return 5, f"Cluster match within 10km {len(match.HERD_NO)} herds"
+    elif nb_lp.values.sum()>0:
+        return 3, f"Lesion positive animal within 4km 1 year prior"
+    return 0, f"{len(nb_isolates)} neighbouring isolates with no related cluster"
 
 def score_movement(animal_row, context, lpis_cent, moves_in=None):
     """
@@ -343,8 +355,7 @@ def run_pathway(herd_no, gdf, moves, testing, feedlots,
             pathway = winners[0]
 
         result = {'HERD_NO': row.HERD_NO,
-                  'Animal_ID': row.Animal_ID,
-                  'snp5':row.snp5}
+                  'Animal_ID': row.Animal_ID}
         if meta_cols == True:
             #add other cols
             scols=[c for c in cols if c in sub.columns]
@@ -446,24 +457,3 @@ def summarize_pathways(df):
 
     lines.append("\n" + "=" * 60)
     return "\n".join(lines)
-
-def calculate_benchmark_metrics(results_df):
-    """
-    Calculates agreement (Kappa) between 'True_Pathway' and 'Final_Pathway'.
-    Ignores 'Reference' rows (historical anchors/sources).
-    """
-    # Filter out reference animals (sources/historical anchors) that aren't being scored
-    test_set = results_df[results_df['true_pathway'] != 'Reference'].copy()
-
-    y_true = test_set['true_pathway']
-    y_pred = test_set['estimated_pathway']
-
-    # Calculate Cohen's Kappa
-    kappa = cohen_kappa_score(y_true, y_pred)
-
-    print("--- Benchmarking Results ---")
-    print(f"Cohen's Kappa: {kappa:.4f}")
-    print("\nDetailed Classification Report:")
-    print(classification_report(y_true, y_pred, zero_division=0))
-
-    return kappa
