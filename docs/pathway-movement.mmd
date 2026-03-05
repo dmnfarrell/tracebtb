@@ -1,0 +1,19 @@
+flowchart TD
+    
+    %% Define Styles
+    classDef header font-family:Verdana,font-size:16px,font-weight:bold,fill:#7bf;
+    classDef standard font-family:Arial,font-size:14px;
+    classDef result font-size:16px,fill:#d5e8d4;
+     
+    Start([Start: Score Movement]):::header  --> RelatedCheck{Any related strains at SNP5 level outside herd?}
+    
+    RelatedCheck -- No --> NoStrain[Score 1: <br/>No related strains <br/>outside herd]:::result
+    RelatedCheck -- Yes --> FilterMoves[Filter incoming moves <br/>24 months prior; <br/>Exclude moves <15km]
+    
+    FilterMoves --> DirectMove{Did the sampled <br/>animal move from <br/>a herd with same strain?}
+    
+    DirectMove -- Yes --> Score10[Score 10: <br/>Direct move of <br/>sampled animal]:::result  
+    DirectMove -- No --> PeerMove{Did ANY animal <br/>move from a <br/>strain-herd?}
+    
+    PeerMove -- Yes --> Score7[Score 7: <br/>Move from strain-herd <br/>]:::result   
+    PeerMove -- No --> Score3[Score 3: <br/>Related strain found <br/>> 15km but no move detected]:::result 

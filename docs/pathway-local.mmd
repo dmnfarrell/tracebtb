@@ -1,0 +1,22 @@
+flowchart TD
+    
+    %% Define Styles
+    classDef header font-family:Verdana,font-size:16px,font-weight:bold,fill:#7bf;
+    classDef standard font-family:Arial,font-size:14px;
+    classDef result font-size:16px,fill:#d5e8d4;
+  
+    Start([Start: Score Local]):::header --> NeighborsExist{Any neighbors <br/>identified at <br/>4km or 10km?}    
+    NeighborsExist -- No --> Score1_A[Score 1: <br/>No neighboring herds <br/>found in radius]:::result
+    
+    NeighborsExist -- Yes --> IsolatesCheck{Any sampled <br/>neighboring <br/>isolates?}    
+    IsolatesCheck -- No --> Score1_B[Score 1: <br/>Neighbors exist but <br/>none are sampled]:::result    
+    IsolatesCheck -- Yes --> SNP4k{SNP5 cluster <br/>match within <br/>4km?}
+    
+    SNP4k -- Yes --> Score10[Score 10: <br/>Cluster match <br/>within 4km]:::result    
+    SNP4k -- No --> SNP10k{SNP5 cluster <br/>match within <br/>10km?}
+    
+    SNP10k -- Yes --> Score5[Score 5: <br/>Cluster match <br/>within 10km]:::result 
+    SNP10k -- No --> LesionCheck{Any neighbour lesion <br/>positives within 4km <br/> 1 year prior?}
+    
+    LesionCheck -- Yes --> Score3[Score 3: <br/>Nearby lesion positive <br/>prior to breakdown]:::result   
+    LesionCheck -- No --> Score0[Score 0: <br/>Neighbors sampled <br/>but no cluster match]:::result 

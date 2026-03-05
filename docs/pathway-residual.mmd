@@ -1,0 +1,20 @@
+flowchart TD
+
+    %% Define Styles
+    classDef header font-family:Verdana,font-size:16px,font-weight:bold,fill:#7bf;
+    classDef standard font-family:Arial,font-size:14px;
+    classDef result font-size:16px,fill:#d5e8d4;
+
+    Start([Score Residual]):::header --> HistoryCheck{Does herd have <br/>reactor history?}
+
+    HistoryCheck -- No --> NoHistory[Score 0: <br/>No known previous <br/>breakdowns]:::result
+    HistoryCheck -- Yes --> SequenceCheck{Any historic <br/>isolates found?}
+
+    SequenceCheck -- No --> NoSequences[Score 1: Previous breakdown <br/>but no historic isolates]:::result
+    SequenceCheck -- Yes --> SNP5Match{Any historic <br/>SNP5 match?}
+
+    SNP5Match -- Yes --> HighScore[Score 10: <br/>Residual match <br/>at SNP5 level]:::result
+    SNP5Match -- No --> SNP12Match{Any historic <br/>SNP12 match?}
+
+    SNP12Match -- Yes --> MedScore[Score 5: <br/>Residual match <br/>at SNP12 level]:::result
+    SNP12Match -- No --> Default0[Score 0: <br/>No evidence of <br/>residual infection]:::result

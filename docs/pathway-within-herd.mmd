@@ -1,0 +1,24 @@
+flowchart TD
+    
+    %% Define Styles
+    classDef header font-family:Verdana,font-size:16px,font-weight:bold,fill:#7bf;
+    classDef standard font-family:Arial,font-size:14px;
+    classDef result font-size:16px,fill:#d5e8d4;
+      
+    Start([Score Within Herd]):::header --> IsolateCount{Herd Isolates == 1?}
+    
+    IsolateCount -- Yes --> LesionCheck{Any other lesion <br/>positives in <br/>breakdown?}
+    LesionCheck -- Yes --> SingletonLesion[Score 5: Singleton <br/>with active <br/>lesion cluster]:::result
+    LesionCheck -- No --> Singleton[Score 1: True <br/>Singleton Isolate]:::result
+    
+    IsolateCount -- No --> ClusterMatch{Any SNP5 or <br/>SNP12 matches?}
+    
+    ClusterMatch -- No --> NoMatch[Score 0: Multi-isolate <br/>herd, no match]:::result
+    ClusterMatch -- Yes --> TimeCheck{Any matching animals <br/>slaughtered within <br/>90 days?}
+    
+    TimeCheck -- No --> Distant[Score 3: Matches <br/>but > 90 days apart]:::result
+    TimeCheck -- Yes --> SNPType{Is there a <br/>SNP5 match?}
+    
+    SNPType -- Yes --> SNP5[Score 10: SNP5 <br/>Cluster Match]:::result
+    SNPType -- No --> SNP12[Score 5: SNP12 <br/>Cluster Match]:::result
+
