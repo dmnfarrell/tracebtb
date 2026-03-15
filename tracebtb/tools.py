@@ -1281,7 +1281,7 @@ def add_clusters(sub, snpdist, linkage='single', prefix='', method='simple'):
     idx = list(sub.index)
     dm = snpdist.loc[idx,idx]
     if len(dm)>=2:
-        clusts,members = clustering.get_cluster_levels(dm, levels=[1,2,3,5,7,12], linkage=linkage)
+        clusts,members = clustering.get_cluster_levels(dm, levels=[1,2,3,5,7,10,15], linkage=linkage)
         #print (clusts)
         if method == 'simple':
             clusts = clusts.replace(number_to_letter)
@@ -1289,7 +1289,7 @@ def add_clusters(sub, snpdist, linkage='single', prefix='', method='simple'):
             clusts = clusts.applymap(lambda x: get_cluster_label(x))
         sub = sub.merge(clusts,left_index=True,right_index=True,how='left')
     else:
-        sub['snp12'] = sub['snp7'] = sub['snp5'] = sub['snp3'] =sub['snp2'] = sub['snp1'] = prefix+'A'
+        sub['snp15'] = sub['snp10'] = sub['snp7'] = sub['snp5'] = sub['snp3'] =sub['snp2'] = sub['snp1'] = prefix+'A'
     return sub
 
 def grid_shannon_index(grid, gdf, min_isolates = 5):
@@ -1400,9 +1400,10 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
 
     # any related isolates
     snp5_clusters = set(herd_isolates.snp5)
-    snp12_clusters = set(herd_isolates.snp12)
+    snp10_clusters = set(herd_isolates.snp10)
+
     snp5_related = metadata[(metadata.snp5.isin(snp5_clusters)) & (metadata.HERD_NO!=herd_no)]
-    snp12_related = metadata[(metadata.snp5.isin(snp12_clusters)) & (metadata.HERD_NO!=herd_no)]
+    snp10_related = metadata[(metadata.snp5.isin(snp10_clusters)) & (metadata.HERD_NO!=herd_no)]
 
     # --- Movement Data ---
     # Get moves into this herd for sampled animals
@@ -1494,7 +1495,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
                 'herd_strains': current_strains,
                 'neighbour_strains': nb_strains,
                 'herd_snp5': snp5_clusters,
-                'herd_snp12': snp12_clusters,
+                'herd_snp10': snp10_clusters,
                 'neighbour_snp5': nb_snp5,
                 'CFU':cfu,
                 'std_reactors': srtotal,
@@ -1519,7 +1520,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         'grid_cell': cell,
         # Genetic context
         'snp5_related': snp5_related,
-        'snp12_related': snp12_related,
+        'snp10_related': snp10_related,
         # Spatial Context
         'neighbour_isolates': neighbour_isolates,
         'neighbour10_isolates': neighbour10_isolates,

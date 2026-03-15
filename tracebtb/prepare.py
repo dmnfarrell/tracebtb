@@ -28,7 +28,7 @@ pd.set_option('display.width', 200)
 import geopandas as gpd
 
 from snipgenie import aligners, app, trees, plotting, rdiff
-from tracebtb import clustering, tools
+from tracebtb import clustering, tools, movement
 import tracebtb
 
 def extract_parcels(meta, lpis_master, moves):
@@ -66,7 +66,10 @@ def run(folder, filename):
     #print (gdf.sample(3))
     lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_combined.shp').set_crs('EPSG:29902')
     lpis_cent = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_cent.shp').set_crs('EPSG:29902')
-    moves = pd.read_csv('/storage/btbgenie/monaghan/metadata/movement/primary_moves.csv')
+    #get primary moves
+    tags = list(final.Animal_ID.dropna())
+    moves = movement.query_tags(tags)
+    print (f'{len(moves)} moves for sampled animals')
     feedlots=pd.read_csv('/storage/btbgenie/monaghan/metadata/feedlots.csv')
     herds = list(final.HERD_NO)
     if moves is not None:
