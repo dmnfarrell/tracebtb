@@ -303,7 +303,7 @@ class Dashboard:
         self.sr = te.filter(regex='^Sr')
         self.view_history = []
         self.current_index = 0
-        self.cols = [None]+tools.get_ordinal_columns(self.meta)+['snp1','snp2','snp3','snp5','snp7','snp12']
+        self.cols = [None]+tools.get_ordinal_columns(self.meta)+['snp1','snp2','snp3','snp5','snp7','snp10']
         self.layout = self.setup_widgets()
         return
 
@@ -1661,7 +1661,7 @@ class HerdQueryDashboard(Dashboard):
         self.fragments_pane.object = fig
         #grid cells plot
         cell = hdata['grid_cell']
-        fig = tools.plot_grid_cells(cell, gdf=self.meta, parcels=pcl, neighbours=nb)
+        fig = tools.plot_grid_cells(cell, gdf=self.meta, parcels=pcl, neighbours=None)
         self.grid_pane.object = fig
         #samples
         cols = ['sample','HERD_NO','Animal_ID','Species','X_COORD','Y_COORD','short_name','snp5','last_move']
@@ -1672,16 +1672,17 @@ class HerdQueryDashboard(Dashboard):
         if pmov is not None:
             self.moves_pane.value = pmov.reset_index().drop(columns=['geometry'])
         #get moves relevant to movement pathway
-        moves_in = movement.query_herd_moves_all(herd, start, end)
-        #also include moves between herds with this strain? - good for movement dash?
+        moves_in = movement.query_all_herd_moves_in(herd, start, end)
+        moves_in = movement.get_moves_spans(moves_in)
+        #also include moves between herds with this strain?
         if self.moves_btn.value is True:
             target_herds = found.HERD_NO
-            strain_herd_moves = moves_in[moves_in.herd.isin(target_herds)]
+            strain_herd_moves = moves_in[(moves_in.move_from.isin(target_herds)) & (moves_in.move_to==herd)]
             G,pos = movement.create_herd_network(strain_herd_moves, herd, self.lpis_cent)
             bokeh_plot.plot_herd_network(G, pos, p, line_width=2, line_color='black', radius=0)
 
         self.plot_herd_testing(herd)
-        direct_moves = moves_in[moves_in.herd==self.herd]
+        direct_moves = moves_in[moves_in.move_to==self.herd]
         self.plot_movements_summary(herd, direct_moves)
 
         tldf = bokeh_plot.get_timeline_data(pmov, self.meta)

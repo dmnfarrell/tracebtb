@@ -47,7 +47,8 @@ def write_delta_lake(csv_file, outdir):
         csv_file,
         infer_schema_length=10000,
         truncate_ragged_lines=True,
-        low_memory=True,
+        rechunk=False,
+        quote_char=None,
         schema_overrides={
             "tag": pl.Utf8,
             "move_date": pl.Utf8,
@@ -60,7 +61,7 @@ def write_delta_lake(csv_file, outdir):
     )
     .select(keep_columns)
     .with_columns(pl.col(pl.String, pl.Categorical).cast(pl.String))
-    .with_columns(pl.col(pl.Utf8).str.strip_chars())
+    #.with_columns(pl.col(pl.Utf8).str.strip_chars())
     .with_columns([
         pl.col("move_date").str.strptime(pl.Date, "%Y%m%d", strict=False)
     ])
@@ -100,7 +101,10 @@ def check_delta_lake(basedir):
     return
 
 def query_tags(tags):
-    """All moves for sampled tags"""
+    """
+    All moves for sampled tags.
+    Returns: A pandas dataframe.
+    """
 
     if BASEDIR == None:
         print ('BASEDIR is not set')
@@ -113,8 +117,8 @@ def query_tags(tags):
     return res.sort(['tag','move_date']).to_pandas()
 
 def query_herd_moves_in(herds, start_date, end_date):
-    """Query for herds in time frame.
-        Returns: A polars dataframe.
+    """Query for direct moves into herds in time frame.
+        Returns: A pandas dataframe.
         Usage:
             herd_moves = query_herds(
             ['herdA','herd'B'],
@@ -137,8 +141,11 @@ def query_herd_moves_in(herds, start_date, end_date):
         .collect(engine='streaming')
     ).to_pandas()
 
-def query_herd_moves_all(herds, start_date, end_date):
-    """Query for all animal moves who were in the herds in time frame"""
+def query_all_herd_moves_in(herds, start_date, end_date):
+    """
+    Query for all animal moves in to herds, including intermediate moves.
+    Returns: A pandas dataframe.
+    """
 
     if type(herds) is str:
         herds = [herds]
@@ -146,8 +153,54 @@ def query_herd_moves_all(herds, start_date, end_date):
     res = query_tags(list(moves_in['tag']))
     return res
 
-def convert_moves_to_spans(df):
-    """Convert moves for animal to get spans"""
+def query_herd_moves_out(herds, start_date, end_date):
+    """Query for herds in time frame.
+        Returns: A pandas dataframe.
+        Usage:
+            herd_moves = query_herds(
+            ['herdA','herd'B'],
+            date(2018, 1, 1),
+            date(2022, 12, 30)
+            )
+    """
+
+    if BASEDIR == None:
+        print ('BASEDIR is not set')
+        return
+    if type(herds) is str:
+        herds = [herds]
+    return (
+        pl.scan_delta(BASEDIR)
+        .filter([
+            pl.col("move_from").is_in(herds),
+            pl.col("move_date").is_between(start_date, end_date)
+        ])
+        .collect(engine='streaming')
+    ).to_pandas()
+
+def query_herd_moves_all(herds, start_date, end_date):
+    """
+    Query for herds moves in and out.
+    """
+
+    if BASEDIR == None:
+        print ('BASEDIR is not set')
+        return
+    if type(herds) is str:
+        herds = [herds]
+    return (
+        pl.scan_delta(BASEDIR)
+        .filter([
+            pl.col("move_from").is_in(herds),
+            pl.col("move_to").is_in(herds),
+            pl.col("move_date").is_between(start_date, end_date)
+        ])
+        .collect(engine='streaming')
+    ).to_pandas()
+    return
+
+def get_moves_spans(df):
+    """Get moves time spans"""
 
     df['move_date'] = pd.to_datetime(df['move_date'])
     # Sort by tag and date to ensure chronological order

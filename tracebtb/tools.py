@@ -729,11 +729,13 @@ def herd_summary(df, moves, snpdist=None):
             hbred = None
         if 'County' in sdf.columns:
             cty = ';'.join(list(sdf.dropna(subset='County').County.unique()))
+        if 'Region' in sdf.columns:
+            region = sdf.Region.values[0]
         if 'short_name' in sdf.columns:
             cl = ';'.join(list(sdf.short_name.astype(str).unique()))
-        res.append([herd,len(sdf),clades,len(m),mediandist,hbred,cl,cty,sdf.iloc[0].class_2021])
+        res.append([herd,len(sdf),clades,len(m),mediandist,hbred,cl,cty,region,sdf.iloc[0].class_2021])
     res = pd.DataFrame(res, columns=['HERD_NO','isolates','strains','moves',
-                                     'median_dist','homebred','strain_names','County','class_2021'])
+                                     'median_dist','homebred','strain_names','County','Region','class_2021'])
     res = res.sort_values('strains',ascending=False)
     return res
 

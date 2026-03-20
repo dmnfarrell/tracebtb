@@ -63,6 +63,8 @@ def run(folder, filename):
     gdf = add_herd_numbers(gdf)
     gdf = tracebtb.tools.jitter_by_farm(gdf, radius=100)
     gdf = tools.add_clusters(gdf, snpdist, linkage='average', method='complex')
+    snp10_cluster_size = gdf.groupby('snp10')['snp10'].transform('count')
+    gdf['is_orphan'] = (snp10_cluster_size == 1)
     #print (gdf.sample(3))
     lpis = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_combined.shp').set_crs('EPSG:29902')
     lpis_cent = gpd.read_file('/storage/btbgenie/monaghan/LPIS/lpis_cent.shp').set_crs('EPSG:29902')
