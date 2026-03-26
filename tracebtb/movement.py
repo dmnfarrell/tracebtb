@@ -113,7 +113,10 @@ def query_tags(tags):
     if type(tags) is str:
         tags=[tags]
     q = table.filter((pl.col("tag").is_in(tags)))
-    res = q.collect(engine='streaming')
+    try:
+        res = q.collect(engine='streaming')
+    except:
+        return None
     return res.sort(['tag','move_date']).to_pandas()
 
 def query_herd_moves_in(herds, start_date, end_date):

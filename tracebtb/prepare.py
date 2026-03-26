@@ -85,11 +85,13 @@ def run(folder, filename):
             moves[col] = pd.to_datetime(moves[col])
     #testing data
     testing = pd.read_csv(os.path.join(folder, 'tb_testing.csv'))
+
     #grid
     iregrid = tools.get_irish_grid()
     cgrid, mask = tools.get_count_grid(gdf,grid=iregrid,n_cells=30)
     cgrid['shannon_diversity'] = tools.grid_shannon_index(cgrid, gdf)
     cgrid['goods_coverage'] = tools.grid_goods_coverage(cgrid, gdf)
+    gdf['grid_id'] = gpd.sjoin(gdf,cgrid, how="left")['grid_id']
 
     #new project
     data={}

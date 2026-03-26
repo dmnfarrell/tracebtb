@@ -35,7 +35,7 @@ from Bio import SeqIO
 from Bio import Phylo, AlignIO, Align
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
-from . import core
+from . import core, movement
 
 module_path = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(module_path,'data')
@@ -1235,7 +1235,7 @@ def plot_grid_cells(cell, gdf, parcels=None, neighbours=None, ax=None):
         sub.plot(column='short_name',markersize=70,legend=True,
                  legend_kwds={'fontsize': 9, 'ncol': 2},
                  cmap='tab20',ax=ax)
-    ax.set_title(f'samples={len(sub)};{row.County};{round(row.goods_coverage,2)}',fontsize=10)
+    ax.set_title(f'id={row.grid_id};samples={len(sub)};{row.County};{round(row.goods_coverage,2)}',fontsize=10)
     ax.axis('off')
     from matplotlib_scalebar.scalebar import ScaleBar
     ax.add_artist(ScaleBar(dx=1, location=4))
@@ -1437,7 +1437,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         nb_sr.columns = nb_sr.columns.str.replace('Sr', '', case=False).astype(int)+2000
         nb_lp.columns = nb_lp.columns.str.replace('Lp', '', case=False).astype(int)+2000
     else:
-        nb_sr=None; nb_lp=N
+        nb_sr=None; nb_lp=None
     #herd metrics (single values)
     area = pcl.geometry.area
     frag = count_fragments(pcl.geometry)
@@ -1536,6 +1536,39 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     }
     herd_context = {'data':data, 'metrics':metrics}
     return herd_context
+
+def get_animal_context(tag, metadata, lpis, lpis_cent, dist=4000):
+    """Animal history, used for movements scoring"""
+
+    animal_moves = movement.query_tags(tag)
+    if animal_moves is None or len(animal_moves)==0:
+        print ('no moves found')
+        return {'metrics':{'tag':tag}}
+    herd = animal_moves.iloc[-1].move_from
+    last_move = animal_moves.move_date.max()
+    #get isolates local to intermediate herds
+    prior_herds = list(animal_moves[:-1].move_from)
+    #get local strains within 4km of prior herds
+    int_parcels = lpis[lpis.SPH_HERD_N.isin(prior_herds)].copy()
+    int_parcels['HERD_NO'] = int_parcels.SPH_HERD_N
+    nb = find_neighbours(int_parcels, dist, lpis_cent, lpis)
+    print (f'{len(nb)} intermediate neighbours')
+    int_nb_herds = list(nb.SPH_HERD_N)
+    int_nb_isolates = metadata[metadata.HERD_NO.isin(int_nb_herds)]
+    int_nb_strains = set(int_nb_isolates.snp5)
+    metrics = {'tag':tag,
+               'herd':herd,
+               'moves':len(animal_moves),
+               'last_move':last_move,
+               'prior_herds':prior_herds,
+               'int_neighbours':len(nb),
+               'int_neighbour_strains':int_nb_strains
+              }
+
+    data = {'int_neighbour_herds':int_nb_herds
+    }
+    context = {'data':data, 'metrics':metrics}
+    return context
 
 def get_sequencing_priority(herd_context):
     """
