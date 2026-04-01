@@ -41,7 +41,8 @@ def write_delta_lake(csv_file, outdir):
     """Write delta lake folder from movement csv file.
         We run this once with new csv."""
 
-    keep_columns = ['tag', 'move_from','move_to','mart','move_date','data_type','year']
+    keep_columns = ['tag', 'move_from','move_to','mart','move_date',
+                    'data_type','year','dob','birth_herd']
 
     (pl.scan_csv(
         csv_file,
@@ -54,6 +55,8 @@ def write_delta_lake(csv_file, outdir):
             "move_date": pl.Utf8,
             "data_type": pl.Categorical,
             "birth_id": pl.Utf8,
+            "birth_herd": pl.Utf8,
+            "dob": pl.Utf8,
             "year": pl.Int64
         },
         null_values=[],
@@ -63,7 +66,8 @@ def write_delta_lake(csv_file, outdir):
     .with_columns(pl.col(pl.String, pl.Categorical).cast(pl.String))
     #.with_columns(pl.col(pl.Utf8).str.strip_chars())
     .with_columns([
-        pl.col("move_date").str.strptime(pl.Date, "%Y%m%d", strict=False)
+        pl.col("move_date").str.strptime(pl.Date, "%Y%m%d", strict=False),
+        pl.col("dob").str.strptime(pl.Date, "%Y%m%d", strict=False)
     ])
     #.with_columns(year = pl.col("data_year").alias("year"))
     #.filter(pl.col("event_type") != 'p')
@@ -100,6 +104,26 @@ def check_delta_lake(basedir):
     print(f"Rows with unparseable dates: {bad_dates.item()}")
     return
 
+def inject_birth_moves(df):
+    """
+    Creates a 'Birth' move for each animal.
+    """
+
+    df['move_date'] = pd.to_datetime(df['move_date']).dt.date
+    df['dob'] = pd.to_datetime(df['dob']).dt.date
+    # Extract the 'First Move' for every animal to get birth context
+    birth_rows = df.groupby('tag').first().reset_index()
+    # set 'move_date' to the 'dob' and 'move_to' to the birth herd
+    birth_df = birth_rows.copy()
+    birth_df['move_date'] = birth_df['dob']
+    birth_df['move_to'] = birth_df['birth_herd']
+    birth_df['move_from'] = None  # It didn't come from anywhere else
+    birth_df['data_type'] = 'Birth'
+    # Combine and Re-sort
+    combined_df = pd.concat([birth_df, df], ignore_index=True)
+    combined_df = combined_df.sort_values(['tag', 'move_date'])
+    return combined_df
+
 def query_tags(tags):
     """
     All moves for sampled tags.
@@ -117,7 +141,9 @@ def query_tags(tags):
         res = q.collect(engine='streaming')
     except:
         return None
-    return res.sort(['tag','move_date']).to_pandas()
+    res = res.sort(['tag','move_date']).to_pandas()
+    res = inject_birth_moves(res)
+    return res
 
 def query_herd_moves_in(herds, start_date, end_date):
     """Query for direct moves into herds in time frame.

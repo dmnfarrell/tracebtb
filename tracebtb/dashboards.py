@@ -729,7 +729,7 @@ class FullDashboard(Dashboard):
         #lockbtn = pnw.Toggle(icon=get_icon('lock'), icon_size='1.8em')
         toolbar = pn.Column(pn.WidgetBox(self.selectregion_btn,self.selectradius_btn,self.tree_btn,
                                         self.parcels_btn,self.parcellabel_btn,self.showcounties_btn,self.moves_btn,self.legend_btn,
-                                        self.neighbours_btn,self.kde_btn,self.hex_btn,self.split_btn),width=70)
+                                        self.neighbours_btn,self.kde_btn,self.split_btn),width=70)
 
         self.date_range_slider = pn.widgets.DateRangeSlider(
             name='Date Range',
@@ -956,19 +956,20 @@ class FullDashboard(Dashboard):
 
         # Timeline plot
         tlc = self.timelinecolor_input.value
-        tldf = bokeh_plot.get_timeline_data(mov, self.meta)
+        #tldf = bokeh_plot.get_timeline_data(mov, self.meta)
+
+        msp = movement.get_moves_spans(mov.reset_index())
         #get colors for timeline data
-        if tldf is not None:
+        if msp is not None:
             if tlc in ['',None]:
                 #match parcel colors by default
                 tlcolors = dict(zip(sp.SPH_HERD_N, sp.color))
-                tldf['color'] = tldf.move_to.map(tlcolors).fillna('grey')
+                msp['color'] = msp.move_to.map(tlcolors).fillna('grey')
             else:
                 #tlcolors = dict(zip(sub['sample'], sub.color))
-                tldf['color'],c = tools.get_color_mapping(tldf, tlc, cmap)
-                #tldf['color'] = tldf['sample'].map(tlcolors).fillna('grey')
-
-            p = bokeh_plot.plot_moves_timeline(tldf)
+                msp['color'],c = tools.get_color_mapping(msp, tlc, cmap)
+            #print (msp)
+            p = bokeh_plot.plot_moves_timeline(msp)
             self.timeline_pane.object = p
             self.timeline_pane.param.trigger('object')
 
@@ -1684,12 +1685,11 @@ class HerdQueryDashboard(Dashboard):
         self.plot_herd_testing(herd)
         direct_moves = moves_in[moves_in.move_to==self.herd]
         self.plot_movements_summary(herd, direct_moves)
-
-        tldf = bokeh_plot.get_timeline_data(pmov, self.meta)
-        if tldf is not None:
-            tldf['color'],c = tools.get_color_mapping(tldf, 'move_to')
-            #print (tldf)
-            p = bokeh_plot.plot_moves_timeline(tldf)
+        print (pmov)
+        msp = movement.get_moves_spans(pmov.reset_index())
+        if msp is not None:
+            msp['color'],c = tools.get_color_mapping(msp, 'move_to')
+            p = bokeh_plot.plot_moves_timeline(msp)
             self.timeline_pane.object = p
 
         priority = tools.get_sequencing_priority(hc)

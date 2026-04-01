@@ -489,55 +489,26 @@ def split_view(gdf, col, parcels=None, provider=None, limit=9, kde=False, **kwar
     grid.sizing_mode = 'stretch_both'
     return grid
 
-def get_timeline_data(mov, meta, limit=300):
-    """Get data for timeline plot"""
-
-    if mov is None:
-        return
-    cols = ['move_to','move_date','end_date','data_type','duration','sample']
-    mcols = ['sample']#,'snp5','snp7']
-    cols = cols+mcols
-    new = []
-    #default end date if no death
-    end = datetime(2022, 12, 31)
-    groups = mov.groupby('tag')
-    if len(groups)>limit:
-        return
-    for tag,t in groups:
-        if len(t)==1:
-            t['end_date'] = end
-        else:
-            t = t.sort_values('move_date')
-            t['end_date'] = t.move_date.shift(-1)
-        t['duration'] = t.end_date-t.move_date
-        #combine meta data for sample
-        row = meta[meta.Animal_ID==tag].iloc[0]
-        t[mcols] = row[mcols]
-        #print (tag)
-        #print (t[cols])
-        new.append(t[cols])
-    df = pd.concat(new).reset_index()
-    return df
-
-def plot_moves_timeline(df, height=300):
+def plot_moves_timeline(moves, height=300):
     """Plot movement timeline.
-        df is derived from get_timeline_data
+    moves are derived from get_moves_spans
     """
 
+    df = moves
     if df is None:
         return figure()
+    df=df.drop(columns=['geometry'])
     groups = df.groupby('tag')
     source = ColumnDataSource(df)
-    source.add(df.duration.astype(str), 'length')
+    source.add(df.days_on_herd.astype(str), 'length')
     p = figure(y_range=groups, width=600, height=height,
                title="timeline", tools='pan,wheel_zoom,reset,save', x_axis_type="datetime")
-    r = p.hbar(source=source, y="tag", left='move_date', right='end_date', height=0.8,
+    r = p.hbar(source=source, y="tag", left='move_date', right='departure_date', height=0.8,
                line_width=0, fill_color='color')#, legend_field="move_to")
     h = HoverTool(renderers=[r], tooltips=([("Herd", "@move_to"),
                                             ("tag", "@tag"),
                                             ("sample", "@sample"),
-                                            ("snp7", "@snp7"),
-                                            ("time", "@length")]),
+                                            ("time", "@days_on_herd")]),
                                            )
     p.add_tools(h)
     p.toolbar.logo = None
@@ -1034,6 +1005,76 @@ def plot_herd_network(G, pos, p=None, line_width=1, line_color="#746969", radius
     p.renderers.append(graph_renderer)
     p.xaxis.visible = False
     p.yaxis.visible = False
+    p.toolbar.logo = None
+    return p
+
+def plot_network(G, df, pos=None, node_size=12, show_node_labels=False,
+                 show_edge_labels=True):
+    """
+    Plot a networkx graph with edge weights displayed.
+    """
+
+    import networkx as nx
+    from bokeh.plotting import from_networkx
+
+    if pos is None:
+        pos = nx.spring_layout(G)  # Default layout if not provided
+
+    graph = from_networkx(G, pos, scale=1)
+
+    df['marker'] = df.Species.map(speciesmarkers).fillna('asterisk')
+    for key in ['sample','Animal_ID','HERD_NO','Year','snp7','marker','color']:
+        if key in df.columns:
+            graph.node_renderer.data_source.data[key] = [df.loc[node][key] for node in G.nodes()]
+
+    graph.node_renderer.glyph.update(size=node_size, fill_color="color", marker='marker')
+
+    # Extract edge weights
+    edge_weights = [G[u][v].get('weight', 1) for u, v in G.edges()]  # Default weight = 1 if not set
+    graph.edge_renderer.data_source.data['edge_weights'] = edge_weights
+
+    p = figure(tools="pan,wheel_zoom,box_zoom,reset,save", tooltips=None,
+               sizing_mode='stretch_both')
+    p.renderers.append(graph)
+
+    if show_edge_labels:
+
+        # Add edge weight labels at edge midpoints
+        edge_labels_source = ColumnDataSource(data={
+            'x': [(pos[u][0] + pos[v][0]) / 2 for u, v in G.edges()],
+            'y': [(pos[u][1] + pos[v][1]) / 2 for u, v in G.edges()],
+            'weight': [str(round(w, 2)) for w in edge_weights]
+        })
+
+        edge_labels = LabelSet(x='x', y='y', text='weight', level='glyph',
+                            text_color='black', text_font_size='8pt',
+                            background_fill_color="white",
+                            source=edge_labels_source)
+        p.add_layout(edge_labels)
+
+    # Add node labels if requested
+    if show_node_labels:
+        x, y = zip(*pos.values())
+        node_labels = graph.node_renderer.data_source.data['sample']
+        node_source = ColumnDataSource(data=dict(x=x, y=y, label=node_labels))
+        node_labels = LabelSet(x='x', y='y', text='label', level='glyph',
+                               text_color='black', text_baseline='middle', x_offset=0,
+                               text_font_size='9pt', source=node_source)
+        p.add_layout(node_labels)
+
+    h = HoverTool(renderers=[graph], tooltips=[
+        ("index", "@index"),
+        ("Animal_id", "@Animal_ID"),
+        ("Herd/Sett", "@HERD_NO"),
+        ("Year", "@Year"),
+        ('snp7', "@snp7"),
+        ('Edge Weight', "@edge_weights")  # Show edge weight in hover
+    ])
+    p.add_tools(h)
+
+    p.xaxis.visible = False
+    p.yaxis.visible = False
+    p.grid.grid_line_color = None
     p.toolbar.logo = None
     return p
 

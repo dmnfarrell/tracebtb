@@ -1373,6 +1373,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     herd_parcels = lpis[lpis.SPH_HERD_N==herd_no].copy()
     herd_parcels['HERD_NO'] = herd_parcels.SPH_HERD_N
     if len(herd_parcels) == 0 or herd_parcels is None:
+        print ('no herd parcels found!')
         return
     pcl = herd_parcels.iloc[0] # get as series
     point = lpis_cent[lpis_cent.SPH_HERD_N==herd_no]
@@ -1543,7 +1544,7 @@ def get_animal_context(tag, metadata, lpis, lpis_cent, dist=4000):
     animal_moves = movement.query_tags(tag)
     if animal_moves is None or len(animal_moves)==0:
         print ('no moves found')
-        return {'metrics':{'tag':tag}}
+        return None
     herd = animal_moves.iloc[-1].move_from
     last_move = animal_moves.move_date.max()
     #get isolates local to intermediate herds
