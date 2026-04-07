@@ -74,9 +74,11 @@ def score_within_herd(animal_row, context, snp_dist=None):
         An integer score (0-10).
     """
 
+    days_diff = 150
     snp5_cluster = animal_row['snp5']
     snp10_cluster = animal_row['snp10']
     is_homebred = animal_row['Homebred']
+    last_move = animal_row.last_move
     metrics = context['metrics']
     data = context['data']
     sr = data['std_reactors']
@@ -92,37 +94,27 @@ def score_within_herd(animal_row, context, snp_dist=None):
     cluster5 = sub[sub['snp5'] == snp5_cluster]
     cluster10 = sub[sub['snp10'] == snp10_cluster]
 
-    #are animals slaughtered within 60 days of each other?
-    #print (cluster5.groupby('last_move')['snp5'].count())
-    #filter for rows within 60 days of any other
+    print (animal_row.Animal_ID,snp5_cluster,snp10_cluster,last_move)
 
     if len(cluster5) <= 1 and len(cluster10)<=1:
         return 0, "Multi isolate herd with no strain match"
-    try:
+    if len(cluster5) > 1:
         df = cluster5.sort_values('last_move')
         df['days_diff'] = df['last_move'].diff().dt.days
-        close_rows = df[df['days_diff'] <= 90]
-        if len(close_rows)==0:
-            #animals are >60 days apart in death - need total overlap time too?
-            return 3, 'matching isolates but >60 days apart'
-    except:
-        pass
-
-    #switch scoring to use scale based on snp dist?
-    if snp_dist is not None:
-        names = list(cluster10['sample'])
-        dm = snp_dist.loc[names, names]
-        md = dm.stack().min()
-        #print (dm)
-        print (f'snp dist={md},score={math.ceil(scale_value(md))}')
-
-    if len(cluster5) > 1:
-        # Strong evidence: The animal shares a recent genetic ancestor
-        # (SNP5 cluster) with another animal currently in the herd.
-        return 10, f"SNP5 Cluster match, size={len(cluster5)}"
+        close_rows = df[df['days_diff'] < days_diff]
+        if len(close_rows)>0:
+            return 10, f"SNP5 Cluster match, size={len(cluster5)}"
+        else:
+            return 1, f'Isolates >{days_diff} days apart'
     elif len(cluster10) > 1:
-        # Medium evidence, shares less recent ancestor
-        return 5, f"SNP10 Cluster match, size={len(cluster10)}"
+        df = cluster10.sort_values('last_move')
+        df['days_diff'] = df['last_move'].diff().dt.days
+        close_rows = df[df['days_diff'] < days_diff]
+        #print(df[['Animal_ID','snp10','days_diff']])
+        if len(close_rows)>0:
+            return 5, f"SNP10 Cluster match, size={len(cluster10)}"
+        else:
+            return 1, f'Isolates >{days_diff} days apart'
 
 def score_residual(animal_row, context):
     """
@@ -136,6 +128,7 @@ def score_residual(animal_row, context):
         An integer score (0-10).
     """
 
+    days_diff = 150
     tag = animal_row['sample']
     my_herd = animal_row['HERD_NO']
     curr_year = animal_row['Year']
@@ -151,19 +144,24 @@ def score_residual(animal_row, context):
     # --- Check testing first ---
     if sr is None or sr.sum()==0:
         # No known previous breakdowns.
-        return 0, 'No known previous breakdowns'
+        return 1, 'No known previous breakdowns found'
 
     # find Historical Strains - prior to this animals breakdown
+    # must be >70 days prior to death date
     cols = ['snp5','snp10','last_move']
     #print (sub.last_move)
-    historic = sub[(sub.last_move<last_move)][cols]
-    print (tag,curr_year,snp5_cluster,snp10_cluster,last_move)
+    try:
+        last_date = last_move-relativedelta(days=days_diff)
+    except:
+        last_date = last_move
+    historic = sub[(sub.last_move<last_date)][cols]
+    #print (tag,curr_year,snp5_cluster,snp10_cluster,last_move)
     #print (historic)
     previous_snp5 = set(historic.snp5)
     previous_snp10 = set(historic.snp10)
     #print (snp5_cluster,previous_snp5)
     if len(historic) == 0:
-        return 1, 'No previous breakdown prior to this sample'
+        return 1, 'No previous breakdowns found'
     elif snp5_cluster in previous_snp5:
         return 10, 'Current breakdown strain same as previous at snp5 level'
     elif snp10_cluster in previous_snp10:
@@ -189,7 +187,7 @@ def score_local(animal_row, context):
     badgers = data['near_badger']
     last_move = animal_row.last_move
 
-    print (len(nb),snp5_cluster,len(badgers))
+    #print (len(nb),snp5_cluster,len(badgers))
     # Check if any neighboring herds were identified in the context setup
     if len(nb) == 0 and len(nb10) == 0:
         # Cannot attribute to local spread if no neighbors are defined or found
@@ -205,10 +203,11 @@ def score_local(animal_row, context):
     mask = (nb_lp.columns <= year) & (nb_lp.columns >= year - 1)
     nb_lp = nb_lp.loc[:, mask]
     #print (nb_lp.values.sum())
-    print (len(nb_isolates),len(nb10_isolates))
+    #print (len(nb_isolates),len(nb10_isolates))
     #is neighbour contiguous?
     #how far is neighbour exactly?
     #badgers?
+    badger = nb_isolates[nb_isolates.Species=='Badger']
 
     # Check for Strong Evidence: Exact SNP5 Cluster Match
     if len(nb_isolates) == 0 and len(nb10_isolates) == 0:
@@ -230,7 +229,7 @@ def score_local(animal_row, context):
     #    return 3, f"Lesion positive animal within 4km 1 year prior"
     return 0, f"{len(nb_isolates)} neighbouring isolates with no related cluster"
 
-def score_movement(animal_row, context, lpis_cent, moves_in=None):
+def score_movement(animal_row, herd_context, lpis, lpis_cent, metadata, moves_in=None):
     """
     Scores the likelihood of long distance movement-based transmission (0-10)
     by checking the herds movement history against any related strain isolates.
@@ -244,30 +243,31 @@ def score_movement(animal_row, context, lpis_cent, moves_in=None):
         An integer score (0-10).
     """
 
-    data = context['data']
+    months_prior = 36
+    data = herd_context['data']
     sub = data['herd_isolates']
     herd = animal_row.HERD_NO
     tag = animal_row.Animal_ID
     last_move = animal_row.last_move
     snp5_cluster = animal_row['snp5']
     snp10_cluster = animal_row['snp10']
-    data = context['data']
-    #first check if any strains outside local area
+    #check if animal is homebred?
+    homebred = animal_row['Homebred']
+    data = herd_context['data']
 
     x = data['snp5_related']
     r5 = x[x.snp5==snp5_cluster]
-    x = data['snp10_related']
-    r10 = x[x.snp10==snp10_cluster]
-    print (herd, snp5_cluster, len(r5),len(r10), last_move)
+    #x = data['snp10_related']
+    #r10 = x[x.snp10==snp10_cluster]
     target_herds = list(r5.HERD_NO)
     #print (target_herds)
 
-    if len(r5) == 0:# and len(r12) == 0:
+    if len(r5) == 0:
         return 1, 'No related strains outside herd at snp5 or snp10'
-    elif len(r5) >= 1:
+    if len(r5) >= 1:
         #get all moves from sources to herd in 1 year prior to breakdown
         try:
-            date1 = last_move - relativedelta(months=24)
+            date1 = last_move - relativedelta(months=months_prior)
         except:
             return 1, 'Cannot parse last_move date'
         if moves_in is None:
@@ -279,22 +279,46 @@ def score_movement(animal_row, context, lpis_cent, moves_in=None):
             v = v[v.dist_km>=15]
 
         animal_moves = moves_in[moves_in.tag==tag]
-        #print (animal_moves)
-        print (set(target_herds))
+        #print (set(target_herds))
         any_from_strain_herds = v[v.move_from.isin(target_herds)]
         #print (any_from_strain_herds)
         sample_from_strain_herds =  v[(v.move_from.isin(target_herds)) & (v.tag==tag)]
-        #print (any_from_strain_herds)
+
         if len(sample_from_strain_herds)>0:
             #did animal move directly from a strain herd?
             return 10, 'Direct move of sampled animal from herd with same strain'
         elif len(any_from_strain_herds)>0:
             #any direct moves of any animals from herds with related isolates
+            #hard to do manually
             return 7, 'Move into this herd from another herd with same strain'
         elif set(animal_moves.move_from).intersection(set(target_herds)):
-            #strain seem in intermediate herds of the animal
+            #strain seen in intermediate herds of the animal
             return 5, 'Same strain seen in intermediate herd of animal'
-        return 3, 'Related strain in herd >10km but no move'
+        else:
+            #try intermediate neighbours - score 7 too high?
+            #get isolates local to intermediate herds
+            ac = tools.get_animal_context(tag, metadata, lpis, lpis_cent)
+            if ac is not None:
+                int_nb_strains = ac['metrics']['int_neighbour_strains']
+                if snp5_cluster in int_nb_strains:
+                    return 7, 'Related strain within 4km of an intermediate herd'
+        return 5, 'Related strain in herd >10km away but no move'
+
+def bin_confidence(df):
+    """
+    Bins pathway results into High, Low, and Inconclusive
+    based on the winning score value.
+    """
+    score_cols = ['W', 'L', 'M', 'R']
+    df['max_score'] = df[score_cols].max(axis=1)
+    conditions = [
+        (df['max_score'] >= 8),                          # High: Clear WGS evidence
+        (df['max_score'] >= 2) & (df['max_score'] < 8),  # Low: Circumstantial/Weak evidence
+        (df['max_score'] <= 1)                           # Inconclusive/Orphan
+    ]
+    choices = ['High', 'Low', 'Inconclusive']
+    df['confidence'] = np.select(conditions, choices, default='Unknown')
+    return df
 
 def run_pathways(herds, *args):
     """Run attribution on a set of herds"""
@@ -302,8 +326,12 @@ def run_pathways(herds, *args):
     results = []
     for herd_no in herds:
         result = run_pathway(herd_no, *args)
+        print (result)
         results.append(result)
-    return pd.concat(results)
+        print ('-----------------')
+    df = pd.concat(results)
+    df = bin_confidence(df)
+    return df
 
 def run_pathway(herd_no, gdf, moves, testing, feedlots,
                  lpis, lpis_cent, grid, hc=None, moves_in=None,
@@ -318,6 +346,7 @@ def run_pathway(herd_no, gdf, moves, testing, feedlots,
         hc = tools.get_herd_context(herd_no, gdf, moves, testing, feedlots,
                  lpis, lpis_cent, grid=grid, dist=dist)
     if hc is None:
+        print ('herd context is null')
         return
     data = hc['data']
     sub = data['herd_isolates']
@@ -326,7 +355,7 @@ def run_pathway(herd_no, gdf, moves, testing, feedlots,
         s_within, e_within = score_within_herd(row, hc)
         #print (herd_no, row.Animal_ID, s_within)
         s_local, e_local = score_local(row, hc)
-        s_movement, e_movement = score_movement(row, hc, lpis_cent)
+        s_movement, e_movement = score_movement(row, hc, lpis, lpis_cent, gdf)
         s_residual, e_residual = score_residual(row, hc)
 
         # Package the final score results
@@ -340,19 +369,15 @@ def run_pathway(herd_no, gdf, moves, testing, feedlots,
                 'M': e_movement,
                 'R': e_residual,
                 'I': 'NA' }
-        '''pathway = max(scores, key=scores.get)
-        if max(scores.values()) == 1:
-            pathway = 'U'
-        elif len(set(scores.values()))==1:
-            #multiple non-zero ties - hand this.
-            pathway = 'I'
-        '''
+
         # Find the maximum score
         max_val = max(scores.values())
         # Identify if any pathways share the maximum
         winners = [k for k, v in scores.items() if v == max_val]
         # Apply conditional logic
-        if max_val <= 1:
+        if sum(scores.values())==0:
+            pathway = 'E'
+        elif max_val <= 1:
             pathway = 'U'
         elif len(winners) > 1:
             # Sort winners alphabetically to ensure consistency
@@ -361,8 +386,10 @@ def run_pathway(herd_no, gdf, moves, testing, feedlots,
             # Only one clear winner
             pathway = winners[0]
 
-        result = {'HERD_NO': row.HERD_NO,
+        result = {'sample': row['sample'],
+                  'HERD_NO': row.HERD_NO,
                   'Animal_ID': row.Animal_ID}
+                  #'max_score':max_val}
         if meta_cols == True:
             #add other cols
             scols=[c for c in cols if c in sub.columns]
@@ -375,7 +402,7 @@ def run_pathway(herd_no, gdf, moves, testing, feedlots,
 
         #print (scores.values(),max(scores), pathway)
         results_list.append(result)
-    return pd.DataFrame(results_list).set_index('Animal_ID')
+    return pd.DataFrame(results_list).set_index('sample')
 
 def summarize_pathways(df):
     """

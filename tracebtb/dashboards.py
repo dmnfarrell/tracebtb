@@ -472,7 +472,9 @@ class Dashboard:
                         legend=False, labels=False):
         """Show herd parcels and its neighbours - used in multiple dashboards"""
 
-        if len(parcels)>0:
+        if parcels is None or len(parcels)==0:
+            p = bokeh_plot.init_figure(provider='CartoDB Positron')
+        else:
             point = parcels.to_crs('EPSG:3857').iloc[0].geometry.centroid
             x1,y1,x2,y2 = df.union_all().bounds
             pad = (x2-x1)*pad
@@ -485,8 +487,7 @@ class Dashboard:
             p = bokeh_plot.plot_lpis(parcels, fill_alpha=0.5, line_width=0.2, labels=labels)
             if legend == True:
                 bokeh_plot.add_legend(p, parcels, column, fontsize=12)
-        else:
-            p = bokeh_plot.init_figure(provider='CartoDB Positron')
+
         df['color'] = 'blue'
         bokeh_plot.plot_lpis(df, p, fill_alpha=0.7, line_width=3)
         return p
@@ -1512,16 +1513,19 @@ class HerdQueryDashboard(Dashboard):
                                      width=36,height=38,align='center')
         self.neighbours_btn = pnw.Toggle(icon=get_icon('neighbours'), icon_size=icsize,
                                      width=36,height=38,align='center')
+        #self.related_parcels_btn = pnw.Toggle(icon=get_icon('parcels-related'), icon_size=icsize,
+        #                             width=36,height=38,align='center')
         self.parcellabel_btn = pnw.Toggle(icon=get_icon('parcel-label'), icon_size=icsize,
                                      width=36,height=38,align='center')
-        self.moves_btn = pnw.Toggle(icon=get_icon('moves-link'), icon_size=icsize,
+        self.strain_moves_btn = pnw.Toggle(icon=get_icon('moves-link'), icon_size=icsize,
                                      width=36,height=38,align='center')
 
         widgets = pn.Column(search_widgets,self.sampled_herds_select,sim_btn,refresh_btn,
                             self.dist_method,self.dist_input,self.provider_input,self.colorby_input,
                             self.savesettings_btn)
         widgets2 = pn.Row(self.date_range_slider,self.radius_btn,self.related_btn,
-                          self.neighbours_btn,self.parcellabel_btn,self.moves_btn)
+                          self.neighbours_btn,self.parcellabel_btn,
+                          self.strain_moves_btn)
         self.about_pane = pn.pane.Markdown('',styles=styles)
         self.about()
         #self.rules_pane = pn.pane.Markdown('',styles=styles, sizing_mode='stretch_both')
@@ -1623,8 +1627,8 @@ class HerdQueryDashboard(Dashboard):
             found = pd.concat([found,related5]).drop_duplicates()
             #also add parcels of these herds
             related_pcl = lpis[lpis.SPH_HERD_N.isin(related5.HERD_NO)]
-            nb = pd.concat([nb,related_pcl])
-
+        else:
+            related_pcl = pd.DataFrame()
         #filter by dates
         start, end = self.date_range_slider.value
         start = pd.to_datetime(start)
@@ -1638,7 +1642,7 @@ class HerdQueryDashboard(Dashboard):
         if self.neighbours_btn.value == True:
             p = self.plot_neighbours(pcl, nb, column=parcelcol, labels=labels)
         else:
-            p = self.plot_neighbours(pcl, [])
+            p = self.plot_neighbours(pcl, related_pcl)
         bokeh_plot.plot_selection(found, col='snp5', legend=True, ms=15, lw=2, p=p)
 
         #plot local radius around herd
@@ -1675,17 +1679,21 @@ class HerdQueryDashboard(Dashboard):
         #get moves relevant to movement pathway
         moves_in = movement.query_all_herd_moves_in(herd, start, end)
         moves_in = movement.get_moves_spans(moves_in)
+
         #also include moves between herds with this strain?
-        if self.moves_btn.value is True:
-            target_herds = found.HERD_NO
-            strain_herd_moves = moves_in[(moves_in.move_from.isin(target_herds)) & (moves_in.move_to==herd)]
-            G,pos = movement.create_herd_network(strain_herd_moves, herd, self.lpis_cent)
+        if self.strain_moves_btn.value is True:
+            sm = movement.get_strain_moves_in(herd, hc)
+            print (sm)
+            G,pos = movement.create_herd_network(sm, herd, self.lpis_cent)
             bokeh_plot.plot_herd_network(G, pos, p, line_width=2, line_color='black', radius=0)
+
+        #if self.related_parcels_btn == True:
+            #show parcels of related herds
+            #p = self.plot_neighbours(pcl, nb, column=parcelcol, labels=labels)
 
         self.plot_herd_testing(herd)
         direct_moves = moves_in[moves_in.move_to==self.herd]
         self.plot_movements_summary(herd, direct_moves)
-        print (pmov)
         msp = movement.get_moves_spans(pmov.reset_index())
         if msp is not None:
             msp['color'],c = tools.get_color_mapping(msp, 'move_to')

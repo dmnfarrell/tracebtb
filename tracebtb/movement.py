@@ -172,15 +172,20 @@ def query_herd_moves_in(herds, start_date, end_date):
 
 def query_all_herd_moves_in(herds, start_date, end_date):
     """
-    Query for all animal moves in to herds, including intermediate moves.
-    Returns: A pandas dataframe.
+    Returns moves into 'herds' and moves of animals in leading up to that arrival.
     """
-
-    if type(herds) is str:
+    if isinstance(herds, str):
         herds = [herds]
-    moves_in = query_herd_moves_in(herds, start_date, end_date)
-    res = query_tags(list(moves_in['tag']))
-    return res
+
+    # Get the 'arrival' moves (the moment they entered your study herds)
+    arrivals = query_herd_moves_in(herds, start_date, end_date)
+    # Create a mapping of Tag -> Latest allowed date (Arrival Date)
+    max_dates = arrivals.groupby('tag')['move_date'].max().to_dict()
+    full_history = query_tags(list(arrivals['tag'].unique()))
+    # remove subsequent moves
+    full_history['max_allowed'] = full_history['tag'].map(max_dates)
+    filtered_history = full_history[full_history['move_date'] <= full_history['max_allowed']]
+    return filtered_history.drop(columns=['max_allowed'])
 
 def query_herd_moves_out(herds, start_date, end_date):
     """Query for herds in time frame.
@@ -227,6 +232,24 @@ def query_herd_moves_all(herds, start_date, end_date):
         .collect(engine='streaming')
     ).to_pandas()
     return
+
+def get_strain_moves_in(herd, hc, moves_in=None,
+                        start=date(2015, 1, 1),
+                        end=date(2024, 1, 1)):
+    """
+    Returns moves from herds with shared strains.
+    """
+    r5 = hc['data']['snp5_related']
+    target_herds = list(r5.HERD_NO)
+    if moves_in is None:
+        moves_in = query_all_herd_moves_in(herd, start, end)
+    msp = get_moves_spans(moves_in)
+    #moves from or to target herds
+    amoves = msp[(msp['move_from'].isin(target_herds)) | msp['move_to'].isin(target_herds)]
+    #get all moves for those animals
+    tags = list(amoves.tag)
+    moves = msp[msp.tag.isin(tags)]
+    return moves
 
 def get_moves_spans(df):
     """Get moves time spans"""
