@@ -734,8 +734,8 @@ class FullDashboard(Dashboard):
 
         self.date_range_slider = pn.widgets.DateRangeSlider(
             name='Date Range',
-            start=datetime(2008, 1, 1), end=datetime(2022, 1, 1),
-            value=(datetime(2017, 1, 1), datetime(2022, 1, 1)),
+            start=datetime(2008, 1, 1), end=datetime(2022, 12, 31),
+            value=(datetime(2017, 1, 1), datetime(2024, 12, 31)),
             step=30,format='%Y-%m',width=200
         )
         self.clustersizeslider = pnw.IntSlider(name='Min. Cluster Size',width=150,
@@ -1475,8 +1475,11 @@ class HerdQueryDashboard(Dashboard):
                     colors=[(0, "red"), (1, "green")])
         mstyles={"margin": "10px", "font-size": "17px", "color": 'red'}
         self.seq_priority_pane = pn.pane.Markdown('',width=480,height=20,styles=mstyles)
-        self.pathways_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet],
+        self.pathways_table = pn.pane.DataFrame(stylesheets=[df_stylesheet],
                                            sizing_mode='stretch_both')
+        score_pathways_btn = pnw.Button(name='Score Pathways',button_type='primary',width=w)
+        self.pathways_pane = pn.Column(score_pathways_btn, self.pathways_table)
+        pn.bind(self.score_pathways, score_pathways_btn, watch=True)
         search_widgets = self.search_widgets(4)
         herds_with_samples = self.get_sampled_herds()
         self.sampled_herds_select = pnw.Select(name='Sampled Herds',value='',
@@ -1503,13 +1506,15 @@ class HerdQueryDashboard(Dashboard):
         self.savesettings_btn = pnw.Button(name='Save Settings',button_type='primary',width=w)
         self.date_range_slider = pn.widgets.DateRangeSlider(
             name='Date Range',
-            start=datetime(2008, 1, 1), end=datetime(2022, 12, 31),
-            value=(datetime(2017, 1, 1), datetime(2022, 12, 31)),
+            start=datetime(2008, 1, 1), end=datetime(2024, 12, 31),
+            value=(datetime(2017, 1, 1), datetime(2024, 12, 31)),
             step=30,format='%Y-%m',width=200
         )
+        self.radius_btn = pnw.Toggle(icon=get_icon('radius'), icon_size=icsize,
+                                     width=36,height=38,align='center', value=True)
+        self.neighbour_isolates_btn = pnw.Toggle(icon=get_icon('neighbour_isolates'), icon_size=icsize,
+                                     width=36,height=38,align='center', value=True)
         self.related_btn = pnw.Toggle(icon=get_icon('clusters'), icon_size=icsize,
-                                     width=36,height=38,align='center')
-        self.radius_btn = pnw.Toggle(icon=get_icon('radius'), icon_size=icsize, value=True,
                                      width=36,height=38,align='center')
         self.neighbours_btn = pnw.Toggle(icon=get_icon('neighbours'), icon_size=icsize,
                                      width=36,height=38,align='center')
@@ -1523,8 +1528,8 @@ class HerdQueryDashboard(Dashboard):
         widgets = pn.Column(search_widgets,self.sampled_herds_select,sim_btn,refresh_btn,
                             self.dist_method,self.dist_input,self.provider_input,self.colorby_input,
                             self.savesettings_btn)
-        widgets2 = pn.Row(self.date_range_slider,self.radius_btn,self.related_btn,
-                          self.neighbours_btn,self.parcellabel_btn,
+        widgets2 = pn.Row(self.date_range_slider,self.radius_btn,self.neighbour_isolates_btn,
+                          self.related_btn, self.neighbours_btn,self.parcellabel_btn,
                           self.strain_moves_btn)
         self.about_pane = pn.pane.Markdown('',styles=styles)
         self.about()
@@ -1618,10 +1623,13 @@ class HerdQueryDashboard(Dashboard):
         #nearby badgers
         bdg = hdata['near_badger']
 
-        #then get any known strains present in neighbours, including in herd itself
-        qry = list(nb.SPH_HERD_N) + list(bdg.HERD_NO) + [herd]
+        #get any known strains present in neighbours, including in herd itself
+        if self.neighbour_isolates_btn.value == True:
+            qry = list(nb.SPH_HERD_N) + list(bdg.HERD_NO) + [herd]
+        else:
+            qry = [herd]
         found = meta[meta.HERD_NO.isin(qry)]
-        #print (found[['HERD_NO','Animal_ID','Year','snp5','last_move']])
+
         #add related isolates if needed
         if self.related_btn.value == True:
             found = pd.concat([found,related5]).drop_duplicates()
@@ -1642,7 +1650,7 @@ class HerdQueryDashboard(Dashboard):
         if self.neighbours_btn.value == True:
             p = self.plot_neighbours(pcl, nb, column=parcelcol, labels=labels)
         else:
-            p = self.plot_neighbours(pcl, related_pcl)
+            p = self.plot_neighbours(pcl, related_pcl, labels=labels)
         bokeh_plot.plot_selection(found, col='snp5', legend=True, ms=15, lw=2, p=p)
 
         #plot local radius around herd
@@ -1686,10 +1694,12 @@ class HerdQueryDashboard(Dashboard):
             print (sm)
             G,pos = movement.create_herd_network(sm, herd, self.lpis_cent)
             bokeh_plot.plot_herd_network(G, pos, p, line_width=2, line_color='black', radius=0)
-
-        #if self.related_parcels_btn == True:
-            #show parcels of related herds
-            #p = self.plot_neighbours(pcl, nb, column=parcelcol, labels=labels)
+            #add parcels for herds moved from?
+            smovherds = list(sm.move_from.dropna())
+            if len(smovherds)>0:
+                mpcl = self.lpis[self.lpis.SPH_HERD_N.isin(smovherds)]
+                mpcl['color'] = 'red'
+                bokeh_plot.plot_lpis(mpcl, p=p, fill_alpha=0.5, labels=labels)
 
         self.plot_herd_testing(herd)
         direct_moves = moves_in[moves_in.move_to==self.herd]
@@ -1702,12 +1712,23 @@ class HerdQueryDashboard(Dashboard):
 
         priority = tools.get_sequencing_priority(hc)
         self.seq_priority_pane.object = priority
+        #clear other tables
+        self.pathways_table.object = pd.DataFrame()
+        self.summary_pane.object = None
+        self.moves_in = moves_in
+        self.herd_context = hc
+        return
+
+    def score_pathways(self, event=None):
 
         print ('scoring pathways..')
+        hc = self.herd_context
+        moves_in = self.moves_in
         p_scores = source_attribution.run_pathway(self.herd, self.meta,
                                                 self.moves, self.sr, self.feedlots,
-                                                self.lpis, self.lpis_cent, self.iregrid, hc, moves_in)
-        self.pathways_pane.object = p_scores
+                                                self.lpis, self.lpis_cent, self.iregrid,
+                                                hc, moves_in)
+        self.pathways_table.object = p_scores
         self.summary_pane.object = source_attribution.summarize_pathways(p_scores)
         return
 
@@ -1868,8 +1889,8 @@ class MovesDashboard(Dashboard):
 
         self.date_range_slider = pn.widgets.DateRangeSlider(
             name='Date Range',
-            start=datetime(2008, 1, 1), end=datetime(2022, 1, 1),
-            value=(datetime(2020, 1, 1), datetime(2022, 1, 1)),
+            start=datetime(2008, 1, 1), end=datetime(2024, 12, 31),
+            value=(datetime(2020, 1, 1), datetime(2024, 12, 31)),
             step=30,format='%Y-%m',width=200
         )
         self.info_pane = pn.pane.Markdown('', styles={'color': "red",'font_size':'18px'})

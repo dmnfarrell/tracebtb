@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 import pylab as plt
 import matplotlib as mpl
+import matplotlib.colors as mcolors
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from Bio import SeqIO
@@ -170,33 +171,34 @@ def show_colors(colors):
     plt.axis('off')
     return
 
-def get_color_mapping(df, col, cmap=None, seed=12):
+def get_color_mapping(df, col, cmap=None, seed=12, na_color='#808080'):
     """
     Get colors for a dataframe column using a mapping.
     If type is object or categorical, is cmap is None we use random colors.
     If numeric column use viridis map and add colorbar.
     """
 
-    import matplotlib.colors as mcolors
-    # 1. Identify unique values
-    unique_vals = np.sort(df[col].unique())
+    unique_vals = np.sort(df[col].dropna().unique())
     n = len(unique_vals)
-    if cmap == None:
-        clrs = random_colors(n,seed)
+
+    if cmap is None:
+        clrs = random_colors(n, seed)
     else:
         c_map = mpl.colormaps.get(cmap)
         if pd.api.types.is_numeric_dtype(df[col]):
-            # NUMERIC: Normalize index to [0, 1] for a smooth gradient
             if n > 1:
                 clrs = [mcolors.rgb2hex(c_map(i/(n-1))) for i in range(n)]
             else:
                 clrs = [mcolors.rgb2hex(c_map(0.5))]
         else:
-            clrs = [mcolors.rgb2hex(c_map(i)) for i in range(n)]
+            # For categorical, use discrete steps of the colormap
+            clrs = [mcolors.rgb2hex(c_map(i/max(1, n-1))) for i in range(n)]
 
     colormap = dict(zip(unique_vals, clrs))
-    values = df[col].fillna(0)
-    newcolors = [colormap[val] for val in values]
+    #  Map the full column, using .get() to provide a fallback for NaNs
+    # This avoids the KeyError and allows you to keep NaNs as NaNs (or 0)
+    newcolors = [colormap.get(val, na_color) for val in df[col]]
+
     return newcolors, colormap
 
 def alignment_from_snps(df):
