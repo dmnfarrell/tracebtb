@@ -741,6 +741,30 @@ def herd_summary(df, moves, snpdist=None):
     res = res.sort_values('strains',ascending=False)
     return res
 
+def get_herd_metrics(herd, radius=4000):
+    """
+    Calculates all herd metrics for herd.
+    REPLACE get_herd_summary with this?
+    """
+
+    hc = get_herd_context(herd, gdf, moves, testing, feedlots,
+                 lpis, lpis_cent, grid, dist=radius)
+    if hc is None:
+        return
+    metrics = hc['metrics']
+    print (herd)
+    #moves_in = movement.query_herd_moves_in(herd)
+    return pd.Series(metrics)
+
+def herd_metrics(herds):
+    """Get all herd metrics"""
+
+    x=[get_herd_metrics(h) for h in herds]
+    x=[i for i in x if i is not None]
+    hs = pd.DataFrame(x)
+    hs = hs.rename(columns={'name':'HERD_NO'})
+    return hs
+
 def cluster_summary(df, col, min_size=5, snpdist=None):
     """Group summary e.g. by cluster"""
 
@@ -972,7 +996,8 @@ def find_neighbours(gdf, dist, lpis_cent, lpis):
     Find neighbouring herds from lpis given a set of points.
     Returns: herd land parcels
     """
-
+    gdf=gdf.copy()
+    gdf['HERD_NO'] = gdf.SPH_HERD_N
     found = []
     for x in gdf.geometry:
         dists = lpis_cent.distance(x)
@@ -1485,12 +1510,20 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     else:
         sample_moves_in = None
 
+    #reactors in neighbours
+    therds = [i for i in nb_herds if i in testing.index]
+    srn = testing.filter(regex='^Sr').loc[therds]
+    lpn = testing.filter(regex='^Lp').loc[therds]
+    #totals for last 10 years
+    nbsrtotal = srn.iloc[:,-10:].sum().sum()
+    nblptotal = lpn.iloc[:,-10:].sum().sum()
+    #
     # Assemble context dict
     metrics = {'name':herd_no,
                 'area':area,
                 'coords':xycoords,
                 'herd_fragments':frag,
-                'contiguous herds':len(cont_parcels),
+                'contiguous_herds':len(cont_parcels),
                 'herd_isolates':len(herd_isolates),
                 'neighbour_isolates':len(neighbour_isolates),
                 'neighbour10_isolates':len(neighbour10_isolates),
@@ -1505,6 +1538,8 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
                 'CFU':cfu,
                 'std_reactors': srtotal,
                 'lesion_positives': lptotal,
+                'neighbour_reactors': nbsrtotal,
+                'neighbour_positives': nblptotal,
                 'sample_moves_in': sample_moves_in,
                 #'local_moves': '?',
                 #'risky_moves': '?',
@@ -1540,38 +1575,64 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     herd_context = {'data':data, 'metrics':metrics}
     return herd_context
 
-def get_animal_context(tag, metadata, lpis, lpis_cent, dist=4000):
-    """Animal history, used for movements scoring"""
+def get_animal_context(tag, metadata, lpis, lpis_cent, dist=4000, animal_moves=None):
+    """Animal history, used for movements scoring."""
 
-    animal_moves = movement.query_tags(tag)
+    #print (f'dist={dist}')
+    animal_row = metadata[metadata.Animal_ID==tag].iloc[0]
+    if animal_moves is None:
+        animal_moves = movement.query_tags(tag)
     if animal_moves is None or len(animal_moves)==0:
         print ('no moves found')
         return None
-    herd = animal_moves.iloc[-1].move_from
+    try:
+        herd = animal_moves[animal_moves.data_type=='FACT'].iloc[0].move_from
+    except:
+        herd = animal_moves.iloc[-1].move_from
     last_move = animal_moves.move_date.max()
     #get isolates local to intermediate herds
-    prior_herds = list(animal_moves[:-1].move_from)
+    animal_moves = animal_moves[animal_moves.data_type!='FACT']
+    prior_herds = list(animal_moves.move_from.dropna())
+    print (prior_herds)
     #get local strains within 4km of prior herds
-    int_parcels = lpis[lpis.SPH_HERD_N.isin(prior_herds)].copy()
-    int_parcels['HERD_NO'] = int_parcels.SPH_HERD_N
-    nb = find_neighbours(int_parcels, dist, lpis_cent, lpis)
-    print (f'{len(nb)} intermediate neighbours')
-    int_nb_herds = list(nb.SPH_HERD_N)
+    int_parcels = lpis[lpis.SPH_HERD_N.isin(prior_herds)]
+    int_nb = find_neighbours(int_parcels, dist, lpis_cent, lpis)
+    #remove this herd
+    int_nb = int_nb[int_nb.SPH_HERD_N!=herd]
+    #remove int nb herds within 10km of this herd
+    parcels = lpis[lpis.SPH_HERD_N==herd]
+    nb = find_neighbours(parcels, 10000, lpis_cent, lpis)
+    int_nb = int_nb[~int_nb.SPH_HERD_N.isin(nb.SPH_HERD_N)]
+
+    print (f'{len(int_nb)} intermediate neighbours')
+    int_nb_herds = list(int_nb.SPH_HERD_N)
     int_nb_isolates = metadata[metadata.HERD_NO.isin(int_nb_herds)]
     int_nb_strains = set(int_nb_isolates.snp5)
     metrics = {'tag':tag,
                'herd':herd,
+               'snp5':animal_row.snp5,
                'moves':len(animal_moves),
                'last_move':last_move,
                'prior_herds':prior_herds,
-               'int_neighbours':len(nb),
+               'int_neighbours':len(int_nb),
                'int_neighbour_strains':int_nb_strains
               }
 
-    data = {'int_neighbour_herds':int_nb_herds
+    data = {'int_neighbour_herds':int_nb_herds,
+            'int_neighbour_isolates':int_nb_isolates
     }
     context = {'data':data, 'metrics':metrics}
     return context
+
+def get_animals_context(tags, metadata, lpis, lpis_cent, dist=4000):
+    """Context for multiple animals"""
+
+    moves = movement.query_tags(tags)
+    print (moves)
+    for tag in tags:
+        moves = moves[moves.tag==tag]
+        get_animal_context(tag, metadata, lpis, lpis_cent, animal_moves=moves)
+    return
 
 def get_sequencing_priority(herd_context):
     """

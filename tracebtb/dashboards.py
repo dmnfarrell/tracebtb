@@ -325,7 +325,7 @@ class Dashboard:
         """Quick search widgets"""
 
         w=140
-        self.search_input = pnw.TextInput(name="Query", value='', width=w)
+        self.search_input = pnw.TextInput(name='Query', value='', width=w)
         self.search_btn = pnw.Button(name='Search', icon=get_icon('search'), icon_size='1.8em', width=w)
         pn.bind(self.quick_search, self.search_btn, watch=True)
         #self.search_input.bind('return', self.quick_search)
@@ -1445,6 +1445,7 @@ class HerdQueryDashboard(Dashboard):
                 return
             return x.last_move
         self.meta['last_move'] = self.meta.apply(fixlastmove,1)
+        self.lastherd = None
         return
 
     def setup_widgets(self):
@@ -1513,7 +1514,7 @@ class HerdQueryDashboard(Dashboard):
         self.radius_btn = pnw.Toggle(icon=get_icon('radius'), icon_size=icsize,
                                      width=36,height=38,align='center', value=True)
         self.neighbour_isolates_btn = pnw.Toggle(icon=get_icon('neighbour_isolates'), icon_size=icsize,
-                                     width=36,height=38,align='center', value=True)
+                                     width=36,height=38,align='center')
         self.related_btn = pnw.Toggle(icon=get_icon('clusters'), icon_size=icsize,
                                      width=36,height=38,align='center')
         self.neighbours_btn = pnw.Toggle(icon=get_icon('neighbours'), icon_size=icsize,
@@ -1522,15 +1523,18 @@ class HerdQueryDashboard(Dashboard):
         #                             width=36,height=38,align='center')
         self.parcellabel_btn = pnw.Toggle(icon=get_icon('parcel-label'), icon_size=icsize,
                                      width=36,height=38,align='center')
+        self.moves_btn = pnw.Toggle(icon=get_icon('moves'), icon_size=icsize,
+                                     width=36,height=38,align='center')
         self.strain_moves_btn = pnw.Toggle(icon=get_icon('moves-link'), icon_size=icsize,
                                      width=36,height=38,align='center')
-
+        self.intermediate_moves_btn = pnw.Toggle(icon=get_icon('moves-intermediate'), icon_size=icsize,
+                                     width=36,height=38,align='center')
         widgets = pn.Column(search_widgets,self.sampled_herds_select,sim_btn,refresh_btn,
                             self.dist_method,self.dist_input,self.provider_input,self.colorby_input,
                             self.savesettings_btn)
         widgets2 = pn.Row(self.date_range_slider,self.radius_btn,self.neighbour_isolates_btn,
                           self.related_btn, self.neighbours_btn,self.parcellabel_btn,
-                          self.strain_moves_btn)
+                          self.moves_btn, self.strain_moves_btn,self.intermediate_moves_btn)
         self.about_pane = pn.pane.Markdown('',styles=styles)
         self.about()
         #self.rules_pane = pn.pane.Markdown('',styles=styles, sizing_mode='stretch_both')
@@ -1663,8 +1667,49 @@ class HerdQueryDashboard(Dashboard):
         p.title.text_font_size = '20pt'
         self.map_pane.object = p
 
-        #nearest sampled herd
-        self.nearest = tools.find_nearest_point(pcl.iloc[0].geometry, found)
+        amov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
+        if amov is not None:
+            self.moves_pane.value = amov.reset_index().drop(columns=['geometry'])
+            if self.moves_btn.value is True:
+                bokeh_plot.plot_moves(p, amov, self.lpis_cent)
+        #get moves relevant to movement pathway
+        moves_in = movement.query_all_herd_moves_in(herd, start, end)
+        moves_in = movement.get_moves_spans(moves_in)
+
+        #also include moves between herds with this strain?
+        if self.strain_moves_btn.value is True:
+            sm = movement.get_strain_moves_in(herd, hc)
+            #print (sm)
+            G,pos = movement.create_herd_network(sm, herd, self.lpis_cent)
+            bokeh_plot.plot_herd_network(G, pos, p, line_width=2, line_color='black', radius=0)
+            #add parcels for herds moved from?
+            smovherds = list(sm.move_from.dropna())
+            if len(smovherds)>0:
+                mpcl = self.lpis[self.lpis.SPH_HERD_N.isin(smovherds)]
+                mpcl['color'] = 'red'
+                bokeh_plot.plot_lpis(mpcl, p=p, fill_alpha=0.5, line_width=0.2, labels=labels)
+
+        if self.intermediate_moves_btn.value is True:
+            #get isolates local to intermediate herds
+            tags = list(sub.Animal_ID)
+            int_iso = []
+            for tag in tags:
+                print (tag)
+                ac = tools.get_animal_context(tags, self.meta, lpis, self.lpis_cent,
+                                          animal_moves=amov)
+                if ac is not None:
+                    #int_herds = ac['data']['int_neighbour_herds']
+                    x = ac['data']['int_neighbour_isolates']
+                    x = x[x.snp5.isin(list(sub.snp5))]
+                    print (x[['HERD_NO','snp5']])
+                    int_iso.append(x)
+            int_iso = pd.concat(int_iso)
+            #found = pd.concat([found,int_iso])
+            ipcl = self.lpis[self.lpis.SPH_HERD_N.isin(int_iso.HERD_NO)]
+            ipcl['color'] = 'green'
+            bokeh_plot.plot_lpis(ipcl, p=p, fill_alpha=0.5, line_width=0.2, labels=labels)
+
+        #self.nearest = tools.find_nearest_point(pcl.iloc[0].geometry, found)
         #tree
         self.update_tree(sub=found, col='short_name', labelcol='HERD_NO')
         #plot fragments
@@ -1679,32 +1724,11 @@ class HerdQueryDashboard(Dashboard):
         #samples
         cols = ['sample','HERD_NO','Animal_ID','Species','X_COORD','Y_COORD','short_name','snp5','last_move']
         self.samples_pane.value = found[cols]
-        #moves
-        #mov = hdata['isolate_moves']
-        pmov = tools.get_moves_bytag(found, self.moves, self.lpis_cent)
-        if pmov is not None:
-            self.moves_pane.value = pmov.reset_index().drop(columns=['geometry'])
-        #get moves relevant to movement pathway
-        moves_in = movement.query_all_herd_moves_in(herd, start, end)
-        moves_in = movement.get_moves_spans(moves_in)
-
-        #also include moves between herds with this strain?
-        if self.strain_moves_btn.value is True:
-            sm = movement.get_strain_moves_in(herd, hc)
-            print (sm)
-            G,pos = movement.create_herd_network(sm, herd, self.lpis_cent)
-            bokeh_plot.plot_herd_network(G, pos, p, line_width=2, line_color='black', radius=0)
-            #add parcels for herds moved from?
-            smovherds = list(sm.move_from.dropna())
-            if len(smovherds)>0:
-                mpcl = self.lpis[self.lpis.SPH_HERD_N.isin(smovherds)]
-                mpcl['color'] = 'red'
-                bokeh_plot.plot_lpis(mpcl, p=p, fill_alpha=0.5, labels=labels)
 
         self.plot_herd_testing(herd)
         direct_moves = moves_in[moves_in.move_to==self.herd]
         self.plot_movements_summary(herd, direct_moves)
-        msp = movement.get_moves_spans(pmov.reset_index())
+        msp = movement.get_moves_spans(amov.reset_index())
         if msp is not None:
             msp['color'],c = tools.get_color_mapping(msp, 'move_to')
             p = bokeh_plot.plot_moves_timeline(msp)
@@ -1712,11 +1736,13 @@ class HerdQueryDashboard(Dashboard):
 
         priority = tools.get_sequencing_priority(hc)
         self.seq_priority_pane.object = priority
-        #clear other tables
-        self.pathways_table.object = pd.DataFrame()
-        self.summary_pane.object = None
+        #clear other tables if new herd
+        if self.lastherd != herd:
+            self.pathways_table.object = pd.DataFrame()
+            self.summary_pane.object = None
         self.moves_in = moves_in
         self.herd_context = hc
+        self.lastherd = herd
         return
 
     def score_pathways(self, event=None):
