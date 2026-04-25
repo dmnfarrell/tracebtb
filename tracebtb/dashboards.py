@@ -44,6 +44,7 @@ selections_file = os.path.join(configpath,'selections.json')
 layers_file = os.path.join(configpath,'layers.gpkg')
 report_file = 'report.html'
 
+
 speciescolors = {'Bovine':'blue','Badger':'red','Ovine':'green'}
 colormaps = ['Paired', 'Dark2', 'Set1', 'Set2', 'Set3',
             'tab10', 'tab20', 'tab20b', 'tab20c', 'RdBu']
@@ -567,9 +568,10 @@ class FullDashboard(Dashboard):
                                 sizing_mode='stretch_both')
         self.showselected_btn = pnw.Button(name='Select Samples', button_type='primary', align="end")
         pn.bind(self.select_from_table, self.showselected_btn, watch=True)
-        self.selectrelated_btn = pnw.Button(name='Find Related', button_type='primary', align="end")
-        pn.bind(self.select_related, self.selectrelated_btn, watch=True)
-        self.threshold_input = pnw.IntInput(name='Threshold', value=5, step=1, start=1, end=20,width=60)
+        self.findrelated_btn = pnw.Button(icon=get_icon('clusters'), name='Find Related', align="end")
+        pn.bind(self.find_related, self.findrelated_btn, watch=True)
+        snplvls = ['snp5','snp10','snp15']
+        self.threshold_input = pnw.Select(name='Cluster level',options=snplvls,value='snp5',width=100)
         #search  table
         self.search_input = pnw.TextInput(name="Search", value='',sizing_mode='stretch_width')
         self.searchcol_select = pnw.Select(name='Column',value='HERD_NO',options=mainsearchcols,width=100)
@@ -579,7 +581,7 @@ class FullDashboard(Dashboard):
         self.reset_btn = pnw.Button(icon=get_icon('refresh'), icon_size='1.8em', align="end")
         pn.bind(self.reset_table, self.reset_btn, watch=True)
 
-        self.table_widgets = pn.Row(self.showselected_btn, self.selectrelated_btn, self.threshold_input,
+        self.table_widgets = pn.Row(self.showselected_btn, self.findrelated_btn, self.threshold_input,
                             self.search_input, self.searchcol_select, self.search_btn, self.reset_btn,
                             sizing_mode='stretch_width')
         self.table_pane = pn.Column(self.meta_pane,self.table_widgets,sizing_mode='stretch_both')
@@ -714,13 +716,14 @@ class FullDashboard(Dashboard):
                                         self.colorby_input,self.cmap_input,self.tiplabel_input,
                                         self.provider_input,self.pointstyle_input),width=w+30)
         #button toolbar
+        self.radius_btn = pnw.Toggle(icon=get_icon('radius'), icon_size=icsize)
         self.split_btn = pnw.Button(icon=get_icon('plot-grid'), description='split view', icon_size=icsize)
         self.selectregion_btn = pnw.Button(icon=get_icon('plot-region'), description='select in region', icon_size=icsize)
         self.selectradius_btn = pnw.Button(icon=get_icon('plot-centroid'), description='select within radius', icon_size=icsize)
-        self.tree_btn = pnw.Toggle(icon=get_icon('tree'), icon_size=icsize)
-        self.parcels_btn = pnw.Toggle(icon=get_icon('parcels'), icon_size=icsize)
+        self.tree_btn = pnw.Toggle(icon=get_icon('tree'), icon_size=icsize, value=True)
+        self.parcels_btn = pnw.Toggle(icon=get_icon('parcels'), icon_size=icsize, value=True)
         self.moves_btn = pnw.Toggle(icon=get_icon('moves'), icon_size=icsize)
-        self.legend_btn = pnw.Toggle(icon=get_icon('legend'), icon_size=icsize)
+        self.legend_btn = pnw.Toggle(icon=get_icon('legend'), icon_size=icsize, value=True)
         self.neighbours_btn = pnw.Toggle(icon=get_icon('neighbours'), icon_size=icsize)
         self.parcellabel_btn = pnw.Toggle(icon=get_icon('parcel-label'), icon_size=icsize)
         self.showcounties_btn = pnw.Toggle(icon=get_icon('counties'), icon_size=icsize)
@@ -728,8 +731,9 @@ class FullDashboard(Dashboard):
         self.hex_btn = pnw.Toggle(icon=get_icon('hexbin'), icon_size=icsize)
 
         #lockbtn = pnw.Toggle(icon=get_icon('lock'), icon_size='1.8em')
-        toolbar = pn.Column(pn.WidgetBox(self.selectregion_btn,self.selectradius_btn,self.tree_btn,
-                                        self.parcels_btn,self.parcellabel_btn,self.showcounties_btn,self.moves_btn,self.legend_btn,
+        toolbar = pn.Column(pn.WidgetBox(self.radius_btn, self.selectregion_btn,self.selectradius_btn,self.tree_btn,
+                                        self.parcels_btn,self.parcellabel_btn,self.showcounties_btn,
+                                        self.moves_btn,self.legend_btn,
                                         self.neighbours_btn,self.kde_btn,self.split_btn),width=70)
 
         self.date_range_slider = pn.widgets.DateRangeSlider(
@@ -741,11 +745,9 @@ class FullDashboard(Dashboard):
         self.clustersizeslider = pnw.IntSlider(name='Min. Cluster Size',width=150,
                         start=1, end=20, value=1, step=1)
         self.homebredbox = pnw.Checkbox(name='Homebred',value=False)
-        self.findrelated_btn = pnw.Button(name='Find Related', button_type='primary', align="end")
-        pn.bind(self.find_related, self.findrelated_btn, watch=True)
-        #self.related_col_input = pnw.Select(options=cols,value='snp7',width=90)
 
-        filters = pn.Row(self.findrelated_btn,self.threshold_input,self.date_range_slider,self.clustersizeslider,self.info_pane)
+        filters = pn.Row(self.findrelated_btn,self.threshold_input,self.date_range_slider,
+                         self.clustersizeslider,self.info_pane)
 
         self.groupby_input.param.watch(self.update_groups, 'value')
         self.groups_table.param.watch(self.select_group, 'selection')
@@ -754,6 +756,7 @@ class FullDashboard(Dashboard):
         self.cmap_input.param.watch(self.update, 'value')
         self.tiplabel_input.param.watch(self.update, 'value')
         self.pointstyle_input.param.watch(self.update, 'value')
+        self.radius_btn.param.watch(self.update, 'value')
         self.tree_btn.param.watch(self.update, 'value')
         self.parcels_btn.param.watch(self.update, 'value')
         self.parcellabel_btn.param.watch(self.update, 'value')
@@ -921,6 +924,11 @@ class FullDashboard(Dashboard):
             bokeh_plot.plot_counties(p)
         self.show_layers(p)
 
+        if self.radius_btn.value == True:
+            pts = sub.drop_duplicates('HERD_NO').geometry
+            bokeh_plot.plot_radii(pts, p)
+            bokeh_plot.plot_radii(pts, p, radius_km=10, line_width=1)
+
         if self.hex_btn.value is True:
             bins = self.hexbins_input.value
             bokeh_plot.hexbin(sub, n_bins=bins, p=p)
@@ -946,7 +954,7 @@ class FullDashboard(Dashboard):
         self.map_pane.object = p
 
         scols = ['sample','Animal_ID','HERD_NO','snp3','snp5','snp7','lineage','short_name',
-                 'County','Region','SB','last_move','last_move_type']
+                 'County','Region','Homebred','last_move','last_move_type']
         self.selected_table.value = sub[scols].astype(object).fillna('')
 
         def highlight(x):
@@ -1166,6 +1174,17 @@ class FullDashboard(Dashboard):
         return
 
     def find_related(self, event=None):
+        """Find related samples in same cluster"""
+
+        level = self.threshold_input.value
+        sub = self.selected
+        snp_clusts = list(sub[level])
+        found = self.meta[self.meta[level].isin(snp_clusts)]
+        self.update(sub=found)
+        self.add_to_history()
+        return
+
+    '''def find_related(self, event=None):
         """Find related samples"""
 
         sub = self.selected
@@ -1179,7 +1198,7 @@ class FullDashboard(Dashboard):
         sub = self.meta.loc[names]
         self.update(sub=sub)
         self.add_to_history()
-        return
+        return'''
 
     def select_herds(self, event=None):
 
@@ -1446,6 +1465,7 @@ class HerdQueryDashboard(Dashboard):
             return x.last_move
         self.meta['last_move'] = self.meta.apply(fixlastmove,1)
         self.lastherd = None
+        self.animal_filter = None
         return
 
     def setup_widgets(self):
@@ -1460,8 +1480,21 @@ class HerdQueryDashboard(Dashboard):
         self.fragments_pane = pn.pane.Matplotlib(sizing_mode='stretch_both')
         self.grid_pane = pn.pane.Matplotlib(sizing_mode='stretch_both')
         self.summary_pane = pn.pane.Str('', styles={'font-size': '12pt'})
-        self.samples_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
+        self.samples_table = pnw.Tabulator(show_index=False,page_size=100,
+                                           disabled=True, selectable=True,
                                           stylesheets=[stylesheet], sizing_mode='stretch_both')
+
+        self.filterbyselection_btn = pnw.Button(
+            name='Show Selected', button_type='primary', width=w
+        )
+        self.showallanimals_btn = pnw.Button(
+            name='Show All', button_type='warning', width=w
+        )
+        self.filterbyselection_btn.on_click(self.filter_by_selected_animals)
+        self.showallanimals_btn.on_click(self.show_all_animals)
+        self.samples_pane = pn.Column(
+                pn.Row(self.filterbyselection_btn, self.showallanimals_btn),
+                self.samples_table)
         self.moves_pane = pnw.Tabulator(show_index=False,disabled=True,page_size=100,
                                     frozen_columns=['tag'],stylesheets=[stylesheet],
                                     sizing_mode='stretch_both')
@@ -1544,6 +1577,25 @@ class HerdQueryDashboard(Dashboard):
         #from . import agent
         #chat_pane = agent.ai_chat_widget(self.meta)
 
+        self.toggle_right_btn = pnw.Toggle(name='◀ Hide', width=80)
+
+        def toggle_right(event):
+            self.right_panel.visible = not event.new
+            self.toggle_right_btn.name = '▶ Show' if event.new else '◀ Hide'
+
+        self.toggle_right_btn.param.watch(toggle_right, 'value')
+        self.right_panel = pn.Column(
+            pn.Tabs(
+                ('Herd info', pn.Column(self.herdinfo_pane, self.sampling_pane)),
+                ('Metrics', pn.Column(self.testingplot_pane, self.movesplot_pane, self.timeline_pane)),
+                ('Tree', self.tree_pane),
+                ('Grid', self.grid_pane),
+                ('Summary', self.summary_pane)
+            ),
+            self.seq_priority_pane,
+            width=500
+        )
+
         app = pn.Row(widgets,
                   #pn.Column(self.map_pane,sizing_mode='stretch_both'),
                   pn.Column(pn.Tabs(('Map',pn.Column(self.map_pane,widgets2,sizing_mode='stretch_both')),
@@ -1556,14 +1608,8 @@ class HerdQueryDashboard(Dashboard):
                                     ('About',self.about_pane),
                              dynamic=True,
                              sizing_mode='stretch_both')),
-                  pn.Column(pn.Tabs(('Herd info',pn.Column(self.herdinfo_pane,self.sampling_pane)),
-                                    ('Metrics',pn.Column(self.testingplot_pane, self.movesplot_pane,self.timeline_pane)),
-                                    ('Tree',self.tree_pane),
-                                    #('Fragments',self.fragments_pane),
-                                    ('Grid',self.grid_pane),
-                                    ('Summary',self.summary_pane)),
-                            self.seq_priority_pane,width=500),
-                    sizing_mode='stretch_both')
+                  pn.Column(self.toggle_right_btn, self.right_panel),
+                  sizing_mode='stretch_both')
         app.sizing_mode='stretch_both'
         return app
 
@@ -1575,6 +1621,7 @@ class HerdQueryDashboard(Dashboard):
     def random_herd(self, event=None, herd=None):
         """Select herd at random"""
 
+        self.animal_filter = None
         herd = self.random_breakdown_herd()
         self.update(herd=herd)
         self.add_to_recent(herd)
@@ -1589,6 +1636,21 @@ class HerdQueryDashboard(Dashboard):
         s = pd.Series(data)
         self.herdinfo_pane.object = pd.DataFrame(s,columns=['value'])
         return
+
+    def filter_by_selected_animals(self, event=None):
+        """Re-run update with only selected animals"""
+
+        df = self.samples_table.selected_dataframe
+        if df is None or len(df) == 0:
+            return
+        tags = list(df['Animal_ID'])
+        self.animal_filter = tags
+        self.update()
+        return
+
+    def show_all_animals(self, event=None):
+        self.animal_filter=None
+        self.update(herd=self.herd)
 
     def update(self, event=None, herd=None):
         """Update display"""
@@ -1612,6 +1674,13 @@ class HerdQueryDashboard(Dashboard):
         self.herdinfo_pane.object = pd.DataFrame(s,columns=['value'])
         sub = hdata['herd_isolates']
         related5 = hdata['snp5_related']
+        #samples
+        cols = ['sample','HERD_NO','Animal_ID','Species','X_COORD','Y_COORD',
+                'short_name','snp5','last_move','Homebred']
+        self.samples_table.value = sub[cols]
+        if self.animal_filter != None:
+            sub = sub[sub.Animal_ID.isin(self.animal_filter)]
+            related5 = related5[related5.snp5.isin(list(sub.snp5))]
 
         #get neighbours and others
         self.parcels = pcl = hdata['herd_parcels']
@@ -1627,12 +1696,13 @@ class HerdQueryDashboard(Dashboard):
         #nearby badgers
         bdg = hdata['near_badger']
 
-        #get any known strains present in neighbours, including in herd itself
+        #get any known strains present in neighbours
         if self.neighbour_isolates_btn.value == True:
-            qry = list(nb.SPH_HERD_N) + list(bdg.HERD_NO) + [herd]
+            qry = list(nb.SPH_HERD_N) + list(bdg.HERD_NO)
+            found = meta[meta.HERD_NO.isin(qry)]
+            found = pd.concat([sub,found])
         else:
-            qry = [herd]
-        found = meta[meta.HERD_NO.isin(qry)]
+            found = sub
 
         #add related isolates if needed
         if self.related_btn.value == True:
@@ -1655,23 +1725,23 @@ class HerdQueryDashboard(Dashboard):
             p = self.plot_neighbours(pcl, nb, column=parcelcol, labels=labels)
         else:
             p = self.plot_neighbours(pcl, related_pcl, labels=labels)
-        bokeh_plot.plot_selection(found, col='snp5', legend=True, ms=15, lw=2, p=p)
 
         #plot local radius around herd
         if self.radius_btn.value == True:
-            pt = hdata['centroid']
-            bokeh_plot.plot_radius(pt.geometry, p)
-            bokeh_plot.plot_radius(pt.geometry, p, radius_km=10, line_width=1)
+            pt = hdata['centroid'].geometry
+            pts = gpd.GeoSeries([pt], crs='EPSG:29902')
+            bokeh_plot.plot_radii(pts, p)
+            bokeh_plot.plot_radii(pts, p, radius_km=10, line_width=1)
 
         p.title = herd
         p.title.text_font_size = '20pt'
         self.map_pane.object = p
 
-        amov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
-        if amov is not None:
-            self.moves_pane.value = amov.reset_index().drop(columns=['geometry'])
+        allmov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
+        if allmov is not None:
+            self.moves_pane.value = allmov.reset_index().drop(columns=['geometry'])
             if self.moves_btn.value is True:
-                bokeh_plot.plot_moves(p, amov, self.lpis_cent)
+                bokeh_plot.plot_moves(p, allmov, self.lpis_cent)
         #get moves relevant to movement pathway
         moves_in = movement.query_all_herd_moves_in(herd, start, end)
         moves_in = movement.get_moves_spans(moves_in)
@@ -1679,6 +1749,9 @@ class HerdQueryDashboard(Dashboard):
         #also include moves between herds with this strain?
         if self.strain_moves_btn.value is True:
             sm = movement.get_strain_moves_in(herd, hc)
+            print(sm)
+            if self.animal_filter != None:
+                sm = sm[sm.tag.isin(self.animal_filter)]
             #print (sm)
             G,pos = movement.create_herd_network(sm, herd, self.lpis_cent)
             bokeh_plot.plot_herd_network(G, pos, p, line_width=2, line_color='black', radius=0)
@@ -1692,22 +1765,28 @@ class HerdQueryDashboard(Dashboard):
         if self.intermediate_moves_btn.value is True:
             #get isolates local to intermediate herds
             tags = list(sub.Animal_ID)
+            print (tags)
             int_iso = []
             for tag in tags:
-                print (tag)
-                ac = tools.get_animal_context(tags, self.meta, lpis, self.lpis_cent,
+                amov = allmov.loc[tag]
+                ac = tools.get_animal_context(tag, self.meta, lpis, self.lpis_cent,
                                           animal_moves=amov)
                 if ac is not None:
                     #int_herds = ac['data']['int_neighbour_herds']
                     x = ac['data']['int_neighbour_isolates']
-                    x = x[x.snp5.isin(list(sub.snp5))]
-                    print (x[['HERD_NO','snp5']])
+                    #print (x[['HERD_NO','snp5']])
                     int_iso.append(x)
             int_iso = pd.concat(int_iso)
-            #found = pd.concat([found,int_iso])
+            print (f'{len(int_iso)} int neighbours')
+            int_iso = int_iso[int_iso.snp5.isin(list(sub.snp5))]
+            print (f'{len(int_iso)} int neighbours with related isolates')
             ipcl = self.lpis[self.lpis.SPH_HERD_N.isin(int_iso.HERD_NO)]
-            ipcl['color'] = 'green'
-            bokeh_plot.plot_lpis(ipcl, p=p, fill_alpha=0.5, line_width=0.2, labels=labels)
+            ipcl['color'] = 'red'
+            bokeh_plot.plot_lpis(ipcl, p=p, fill_alpha=0.5, line_width=0.6, labels=labels)
+            found=pd.concat([found,int_iso])
+
+        #plot selection at end
+        bokeh_plot.plot_selection(found, col='snp5', legend=True, ms=15, lw=2, p=p)
 
         #self.nearest = tools.find_nearest_point(pcl.iloc[0].geometry, found)
         #tree
@@ -1721,14 +1800,11 @@ class HerdQueryDashboard(Dashboard):
         cell = hdata['grid_cell']
         fig = tools.plot_grid_cells(cell, gdf=self.meta, parcels=pcl, neighbours=None)
         self.grid_pane.object = fig
-        #samples
-        cols = ['sample','HERD_NO','Animal_ID','Species','X_COORD','Y_COORD','short_name','snp5','last_move']
-        self.samples_pane.value = found[cols]
 
         self.plot_herd_testing(herd)
         direct_moves = moves_in[moves_in.move_to==self.herd]
         self.plot_movements_summary(herd, direct_moves)
-        msp = movement.get_moves_spans(amov.reset_index())
+        msp = movement.get_moves_spans(allmov.reset_index())
         if msp is not None:
             msp['color'],c = tools.get_color_mapping(msp, 'move_to')
             p = bokeh_plot.plot_moves_timeline(msp)
@@ -1769,17 +1845,27 @@ class HerdQueryDashboard(Dashboard):
         return
 
     def quick_search(self, event=None, query=None):
-        """Search lpis for a single herd"""
+        """Search lpis for a single herd or animal ID"""
 
-        if query == None:
+        if query is None:
             query = self.search_input.value
-        if len(query)<=1:
+        if len(query) <= 1:
             return
 
-        found = self.lpis[self.lpis.SPH_HERD_N==query]
-        if len(found)==0:
-            return
-        self.update(herd=query)
+        # check if query matches an animal ID first
+        animal_match = self.meta[self.meta['Animal_ID'].astype(str).str.lower() == query.lower()]
+        if len(animal_match) > 0:
+            herd = animal_match.iloc[0].HERD_NO
+            print(f'Animal {query} found in herd {herd}')
+        else:
+            # fall back to direct herd lookup in lpis
+            found = self.lpis[self.lpis.SPH_HERD_N == query]
+            if len(found) == 0:
+                print(f'No herd or animal found for query: {query}')
+                return
+            herd = query
+
+        self.update(herd=herd)
         self.add_to_recent(query)
         return
 
@@ -1854,31 +1940,6 @@ class HerdQueryDashboard(Dashboard):
 
         return
 
-class TestingDashboard(FullDashboard):
-    """Testing app is a wrapper for various test dashboards"""
-    def __init__(self, **kwargs):
-
-        self.query_dashboard = QueryDashboard(parent=self, **kwargs)
-        self.herdselect_dashboard = HerdQueryDashboard(parent=self, **kwargs)
-        self.advanced_dashboard = FullDashboard(parent=self, **kwargs)
-        self.advanced_dashboard.lpis = self.herdselect_dashboard.lpis
-        super(TestingDashboard, self).__init__(**kwargs)
-        return
-
-    def setup_widgets(self):
-        advanced_pane = self.advanced_dashboard.show()
-        query_pane = self.query_dashboard.show()
-        herdselect_pane = self.herdselect_dashboard.show()
-        app = pn.Row(
-            pn.Tabs(('Herd Selection', herdselect_pane),
-                    ('Sample Query', query_pane),
-                    ('Advanced', advanced_pane)),
-                    #('Moves',herds_pane)),
-            max_width=2600,min_height=600)
-
-        app.sizing_mode='stretch_both'
-        return app
-
 class MovesDashboard(Dashboard):
     """Moves dedicated dashboard"""
 
@@ -1903,8 +1964,10 @@ class MovesDashboard(Dashboard):
         search_widgets = self.search_widgets()
         rnd_btn = pnw.Button(name='Random Herd',button_type='primary',width=w)
         refresh_btn = pnw.Button(name='Refresh',button_type='primary',width=w)
-        pn.bind(self.random_herd, rnd_btn, watch=True)
-        pn.bind(self.update, refresh_btn, watch=True)
+        #pn.bind(self.random_herd, rnd_btn, watch=True)
+        #pn.bind(self.update, refresh_btn, watch=True)
+        refresh_btn.on_click(self.update)
+        rnd_btn.on_click(self.random_herd)
 
         #button toolbar
         self.parcels_btn = pnw.Toggle(icon=get_icon('parcels'), icon_size=icsize)

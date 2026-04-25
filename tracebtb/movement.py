@@ -233,6 +233,9 @@ def query_herd_moves_all(herds, start_date, end_date):
     ).to_pandas()
     return
 
+def filter_by_herd(herd, moves):
+    return moves[(moves.move_from==herd) |(moves.move_to==herd)]
+
 def get_strain_moves_in(herd, hc, moves_in=None,
                         start=date(2015, 1, 1),
                         end=date(2024, 1, 1)):

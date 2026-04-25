@@ -883,14 +883,29 @@ def get_largest_poly(x):
     else:
         return x
 
-def calculate_parcel_centroids(parcels):
+'''def calculate_parcel_centroids(parcels):
     """Get centroids of lpis parcels"""
 
     largest = parcels.geometry.apply(get_largest_poly)
     cent = largest.geometry.centroid
     cent = gpd.GeoDataFrame(geometry=cent,crs='EPSG:29902')
     cent['SPH_HERD_N'] = parcels.SPH_HERD_N
-    return cent
+    return cent'''
+
+def calculate_parcel_centroids(parcels, gap=15):
+
+    # Dissolve all parcels by Herd ID into one MultiPolygon per herd
+    dissolved = parcels.dissolve(by='SPH_HERD_N')
+    #  Buffer by 'gap' to bridge roads, then explode into separate contiguous islands
+    # This turns MultiPolygons into separate rows for each "cluster" of land
+    clusters = dissolved.buffer(gap).explode(index_parts=False).reset_index()
+    # Identify the largest island per herd
+    clusters['area'] = clusters.geometry.area
+    cent = clusters.sort_values('area', ascending=False).drop_duplicates('SPH_HERD_N')
+    # 4. Get the centroid of the largest lump of parcels
+    cent['geometry'] = cent.geometry.centroid
+    cent = cent.set_geometry('geometry')
+    return cent[['SPH_HERD_N', 'geometry']]
 
 def get_county(x):
 
@@ -1374,7 +1389,7 @@ def get_testing_total(x, sr):
         return 0
 
 def get_herd_context(herd_no, metadata, moves, testing, feedlots,
-                     lpis, lpis_cent, grid=None, dist=4000):
+                     lpis, lpis_cent, grid=None, dist=4000, tags=None):
     """
     Computes and returns all WGS and epidemiological context for a single target herd.
     Args:
@@ -1388,6 +1403,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         snp_dist: snp disance matrix
         grid: hex grid for ireland
         dist: distance at which to consider near neighbours
+        tags: limit to specific animal ids
     Returns:
         A dictionary containing all context elements for the target herd.
     """
@@ -1396,6 +1412,9 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     badger = metadata[metadata.Species=='Badger']
     # --- Current Herd Data (Isolates) ---
     herd_isolates = metadata[metadata.HERD_NO == herd_no].copy()
+    #filter
+    if tags is not None:
+        herd_isolates = herd_isolates[herd_isolates['Animal_ID'].isin(tags)]
     # --- Parcels ---
     herd_parcels = lpis[lpis.SPH_HERD_N==herd_no].copy()
     herd_parcels['HERD_NO'] = herd_parcels.SPH_HERD_N
@@ -1575,7 +1594,8 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     herd_context = {'data':data, 'metrics':metrics}
     return herd_context
 
-def get_animal_context(tag, metadata, lpis, lpis_cent, dist=4000, animal_moves=None):
+def get_animal_context(tag, metadata, lpis, lpis_cent, dist=4000,
+                        animal_moves=None):
     """Animal history, used for movements scoring."""
 
     #print (f'dist={dist}')

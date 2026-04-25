@@ -375,31 +375,105 @@ def plot_lpis(gdf, p=None, provider='CartoDB Positron',
         p.add_layout(labels)
     return p
 
-def plot_moves(p, moves, lpis_cent, limit=300, name='moves'):
+def plot_moves(p, moves, lpis_cent, limit=300, name='moves', show_labels=True):
     """Plot moves with bokeh - replace with network plot"""
 
     nh = VeeHead(size=12, fill_color='blue', fill_alpha=0.5, line_color='black')
     moves = moves[moves.geometry.notnull()].to_crs('EPSG:3857')
     groups = moves.groupby('tag')
     if len(groups) > limit:
-        print ('too many moves')
+        print('too many moves')
         return
-    for tag,t in groups:
+
+    # collect label data
+    label_x, label_y, label_text = [], [], []
+
+    for tag, t in groups:
         if t is not None:
-            #print (t)
             moved = lpis_cent[lpis_cent.SPH_HERD_N.isin(t.move_to)].to_crs('EPSG:3857')
             coords = tools.get_coords_data(t)
-            if len(coords)>0:
+            if len(coords) > 0:
                 mlines = gpd.GeoDataFrame(geometry=coords)
-                #print (t)
-                for i,l in mlines.iterrows():
-                    #print (list(l.geometry.coords))
-                    p1 =  l.geometry.coords[0]
-                    p2 =  l.geometry.coords[1]
+                for i, l in mlines.iterrows():
+                    p1 = l.geometry.coords[0]
+                    p2 = l.geometry.coords[1]
                     p.add_layout(Arrow(end=nh, line_color='black', line_dash=[10, 5],
-                               x_start=p1[0], y_start=p1[1], x_end=p2[0], y_end=p2[1],
-                               name=name))
+                                       x_start=p1[0], y_start=p1[1],
+                                       x_end=p2[0], y_end=p2[1],
+                                       name=name))
+                    if show_labels:
+                        # midpoint of the line
+                        mid_x = (p1[0] + p2[0]) / 2
+                        mid_y = (p1[1] + p2[1]) / 2
+                        label_x.append(mid_x)
+                        label_y.append(mid_y)
+                        label_text.append(str(tag))
+
+def plot_moves(p, moves, lpis_cent, limit=300, name='moves', show_labels=True):
+    """Plot moves with bokeh"""
+
+    import math
+    nh = VeeHead(size=12, fill_color='blue', fill_alpha=0.5, line_color='black')
+    moves = moves[moves.geometry.notnull()].to_crs('EPSG:3857')
+    groups = moves.groupby('tag')
+    if len(groups) > limit:
+        print('too many moves')
+        return
+
+    # collect label data
+    label_x, label_y, label_text, label_angles = [], [], [], []
+
+    for tag, t in groups:
+        if t is not None:
+            moved = lpis_cent[lpis_cent.SPH_HERD_N.isin(t.move_to)].to_crs('EPSG:3857')
+            coords = tools.get_coords_data(t)
+            if len(coords) > 0:
+                mlines = gpd.GeoDataFrame(geometry=coords)
+                for i, l in mlines.iterrows():
+                    p1 = l.geometry.coords[0]
+                    p2 = l.geometry.coords[1]
+                    p.add_layout(Arrow(end=nh, line_color='black', line_dash=[10, 5],
+                                       x_start=p1[0], y_start=p1[1],
+                                       x_end=p2[0], y_end=p2[1],
+                                       name=name))
+                    if show_labels:
+                        mid_x = (p1[0] + p2[0]) / 2
+                        mid_y = (p1[1] + p2[1]) / 2
+                        angle = math.atan2(p2[1] - p1[1], p2[0] - p1[0])
+                        label_x.append(mid_x)
+                        label_y.append(mid_y)
+                        label_text.append(str(tag))
+                        label_angles.append(angle)
+
+    if show_labels and len(label_x) > 0:
+        # normalise angles so text is never upside down
+        normalised = []
+        for a in label_angles:
+            if a > math.pi / 2 or a < -math.pi / 2:
+                a += math.pi
+            normalised.append(a)
+
+        source = ColumnDataSource(dict(
+            x=label_x,
+            y=label_y,
+            text=label_text,
+            angle=normalised
+        ))
+        labels = LabelSet(
+            x='x', y='y', text='text',
+            angle='angle', angle_units='rad',
+            source=source,
+            text_font_size='9pt',
+            text_color='black',
+            background_fill_color='white',
+            background_fill_alpha=0.6,
+            text_align='center',
+            text_baseline='bottom',
+            name=name
+        )
+        p.add_layout(labels)
     return p
+
 
 def plot_group_symbols(gdf, p, lw=4, ms=50):
     """Plot simplified symbols for herds and setts"""
@@ -412,36 +486,43 @@ def plot_group_symbols(gdf, p, lw=4, ms=50):
                    line_color='black', marker="marker", fill_alpha=0.2, size=ms)
     return p
 
-def plot_radius(geom, p, radius_km=4, source_crs="EPSG:29902", line_width=1.5):
+def plot_radii(geom_series, p, radius_km=4, source_crs="EPSG:29902", line_width=1.5):
     """
-    Takes a single row from a GeoDataFrame and plots a 4km radius.
-    The ColumnDataSource will contain all columns from that row.
+    Takes a GeoSeries of points, projects them, and plots radii for all rows.
     """
+    # 1. Filter out empty or null geometries
+    active_geoms = geom_series[geom_series.notnull() & ~geom_series.is_empty]
 
-    if geom is None or geom.is_empty:
+    if active_geoms.empty:
         return p
 
-    import pyproj
-    from shapely.ops import transform
-    # 1. Project the single point to meters (3857)
-    transformer = pyproj.Transformer.from_crs(source_crs, "EPSG:3857", always_xy=True).transform
-    point_m = transform(transformer, geom)
-    data = {}
-    # Update the coordinates to the projected ones for Bokeh
-    data['x'] = [point_m.x]
-    data['y'] = [point_m.y]
+    # 2. Project the entire series to meters (3857) using GeoPandas native to_crs
+    # This is much faster than manual pyproj loops
+    projected_geoms = active_geoms.to_crs("EPSG:3857")
+
+    # 3. Extract X and Y coordinates
+    data = {
+        'x': projected_geoms.geometry.x,
+        'y': projected_geoms.geometry.y
+    }
+
+    # 4. Add other columns from the original data if geom_series was part of a GeoDataFrame
+    # If geom_series is just a Series, we just use the coordinates.
     source = ColumnDataSource(data=data)
+
+    # 5. Plot all circles in a single call
     p.circle(
         x='x',
         y='y',
-        radius=radius_km * 1000,
+        radius=radius_km * 1000, # Bokeh radius in EPSG:3857 is in meters
         source=source,
         fill_color=None,
         line_color="black",
         line_dash="dashed",
         line_width=line_width
     )
-    return
+
+    return p
 
 def error_message(msg=''):
     """Return plot with message"""

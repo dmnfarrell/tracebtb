@@ -43,6 +43,28 @@ if not os.path.exists(configfile):
         json.dump(defaults, outfile)
     treefile = None
 
+def write_theme_file():
+    themefile = os.path.join(config_path,'theme.yaml')
+    yaml = '''attrs:
+        Text:
+            text_font: helvetica
+        Title:
+            text_font: helvetica
+        Axis:
+            major_label_text_font: helvetica
+            axis_label_text_font: helvetica
+        Legend:
+            label_text_font: helvetica
+        Label:
+            text_font: helvetica
+        LabelSet:
+            text_font: helvetica
+    '''
+    if not os.path.exists(themefile):
+        with open(themefile, 'w') as output:
+            output.write(yaml)
+    return
+
 """Config class to keep settings globally"""
 class Config:
     def __init__(self):
@@ -150,3 +172,4 @@ def git_version() -> str:
     """Get get version"""
     return subprocess.check_output(['git','describe','--tags']).decode('ascii').strip()
 
+write_theme_file()

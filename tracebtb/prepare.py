@@ -58,7 +58,7 @@ def run(folder, filename):
     final = pd.read_csv(os.path.join(folder, 'metadata.csv'))
     final=final.set_index('sample',drop=False)
     final.index.name = 'index'
-    print (f'{len(final)} samples')
+    print (f'{len(final)} samples')    
     gdf = gpd.GeoDataFrame(final,geometry=gpd.points_from_xy(final.X_COORD,final.Y_COORD)).set_crs('EPSG:29902')
     gdf = add_herd_numbers(gdf)
     gdf = tracebtb.tools.jitter_by_farm(gdf, radius=100)

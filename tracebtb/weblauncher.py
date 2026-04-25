@@ -17,19 +17,21 @@ import pylab as plt
 import pandas as pd
 import geopandas as gpd
 
-from bokeh.io import show
+from bokeh.io import show, curdoc
 from bokeh.plotting import figure
 from bokeh.models import Range1d, CustomJS, TapTool
+from bokeh.themes import Theme            
 import panel as pn
 import panel.widgets as pnw
 
+home = os.path.expanduser("~")
+configpath = os.path.join(home, '.config','tracebtb')
 module_path = os.path.dirname(os.path.abspath(__file__)) #path to module
 data_path = os.path.join(module_path,'data')
 logo_path = os.path.join(module_path,'logos')
 logoimg = os.path.join(logo_path, 'logo.png')
+theme_file = os.path.join(configpath,'theme.yaml')
 
-home = os.path.expanduser("~")
-configpath = os.path.join(home, '.config','tracebtb')
 report_file = 'report.html'
 selections_file = os.path.join(configpath,'selections.json')
 layers_file = os.path.join(configpath,'layers.gpkg')
@@ -90,6 +92,9 @@ def create_bootstrap_layout_cls(dashboard_cls, title, bkgr, logo=None, **kwargs)
 
     def _layout():
         # create a fresh dashboard instance for this session
+        if os.path.exists(theme_file):
+            print (theme_file)
+            curdoc().theme = Theme(filename=theme_file)        
         app = dashboard_cls(**kwargs)
         layout = app.show()
         bootstrap = pn.template.BootstrapTemplate(
