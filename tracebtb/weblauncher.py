@@ -20,7 +20,7 @@ import geopandas as gpd
 from bokeh.io import show, curdoc
 from bokeh.plotting import figure
 from bokeh.models import Range1d, CustomJS, TapTool
-from bokeh.themes import Theme            
+from bokeh.themes import Theme
 import panel as pn
 import panel.widgets as pnw
 
@@ -93,8 +93,7 @@ def create_bootstrap_layout_cls(dashboard_cls, title, bkgr, logo=None, **kwargs)
     def _layout():
         # create a fresh dashboard instance for this session
         if os.path.exists(theme_file):
-            print (theme_file)
-            curdoc().theme = Theme(filename=theme_file)        
+            curdoc().theme = Theme(filename=theme_file)
         app = dashboard_cls(**kwargs)
         layout = app.show()
         bootstrap = pn.template.BootstrapTemplate(

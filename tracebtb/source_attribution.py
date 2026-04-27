@@ -214,22 +214,22 @@ def score_local(animal_row, context):
         # Low Evidence: No Match Found
         # Neighbours exist, but they do not share this specific genetic cluster.
         # We assign a baseline score of 1 to ensure this pathway is considered,
-        return 1, f"No sampled herds in {len(nb)} neighbours"
+        return 1, f"No sampled herds in any neighbours"
     elif snp5_cluster in nb_snp5:
         # High likelihood: The animal's specific, highly related cluster
         # is in a neighbouring herd with 4km.
         match = nb_isolates[nb_isolates.snp5==snp5_cluster]
-        return 10, f"Cluster match within 4km. {len(match.HERD_NO)} herds"
+        return 10, f"Cluster match within 4km"
     elif snp5_cluster in nb10_snp5:
         # The animal's specific, highly related cluster
         # is in a neighbouring herd with 10km.
         match = nb10_isolates[nb10_isolates.snp5==snp5_cluster]
-        return 5, f"Cluster match within 10km {len(match.HERD_NO)} herds"
+        return 5, f"Cluster match within 10km"
     #elif nb_lp.values.sum()>0:
     #    return 3, f"Lesion positive animal within 4km 1 year prior"
-    return 0, f"{len(nb_isolates)} neighbouring isolates with no related cluster"
+    return 0, f"Neighbouring isolates with no related cluster"
 
-def score_movement(animal_row, herd_context, lpis, lpis_cent, metadata, moves_in=None):
+def score_movement(animal_row, herd_context, lpis, lpis_cent, metadata, moves, moves_in=None):
     """
     Scores the likelihood of long distance movement-based transmission (0-10)
     by checking the herds movement history against any related strain isolates.
@@ -237,6 +237,7 @@ def score_movement(animal_row, herd_context, lpis, lpis_cent, metadata, moves_in
     Args:
         animal_row: The specific animal being scored.
         context: The pre-computed dictionary for the animal's current herd.
+        moves: precalcuated isolate moves, used to get animal moves
         moves_in: All moves into herd can be provided, else we calculate
 
     Returns:
@@ -244,6 +245,7 @@ def score_movement(animal_row, herd_context, lpis, lpis_cent, metadata, moves_in
     """
 
     months_prior = 36
+    dist = 4
     data = herd_context['data']
     sub = data['herd_isolates']
     herd = animal_row.HERD_NO
@@ -252,19 +254,26 @@ def score_movement(animal_row, herd_context, lpis, lpis_cent, metadata, moves_in
     snp5_cluster = animal_row['snp5']
     snp10_cluster = animal_row['snp10']
     #check if animal is homebred?
-    homebred = animal_row['Homebred']
+    homebred = animal_row['homebred']
     data = herd_context['data']
-
+    print (tag)
+    #print (sub[['Animal_ID','snp5','last_move']])
     x = data['snp5_related']
     r5 = x[x.snp5==snp5_cluster]
-    #x = data['snp10_related']
-    #r10 = x[x.snp10==snp10_cluster]
+    #remove related isolates <10km away
+    nb4 = data['neighbour_isolates']
+    r5 = r5[~r5.HERD_NO.isin(nb4.HERD_NO)]
+    #print (len(r5))
     target_herds = list(r5.HERD_NO)
     #print (target_herds)
 
     if len(r5) == 0:
-        return 1, 'No related strains outside herd at snp5 or snp10'
+        if homebred == True:
+            return 0, 'No related strains >4km and animal is homebred'
+        else:
+            return 1, 'No related strains outside herd'
     if len(r5) >= 1:
+        #print (r5)
         #get all moves from sources to herd in 1 year prior to breakdown
         try:
             date1 = last_move - relativedelta(months=months_prior)
@@ -272,14 +281,17 @@ def score_movement(animal_row, herd_context, lpis, lpis_cent, metadata, moves_in
             return 1, 'Cannot parse last_move date'
         if moves_in is None:
             moves_in = movement.query_all_herd_moves_in(herd, date1, last_move)
-            msp = movement.get_moves_spans(moves_in)
-            v = movement.get_movement_vectors(msp, lpis_cent)
-            #remove local moves
-            #print (v)
-            v = v[v.dist_km>=15]
+        msp = movement.get_moves_spans(moves_in)
+        v = movement.get_movement_vectors(msp, lpis_cent)
+        #print(v)
+        #remove local moves
+        v = v[v.dist_km>dist]
 
-        animal_moves = moves_in[moves_in.tag==tag]
-        #print (set(target_herds))
+        #animal_moves = moves_in[moves_in.tag==tag]
+        animal_moves = moves[moves.tag==tag]
+        #animal_moves = movement.query_tags(tag)
+        #print (animal_moves)
+
         any_from_strain_herds = v[v.move_from.isin(target_herds)]
         #print (any_from_strain_herds)
         sample_from_strain_herds =  v[(v.move_from.isin(target_herds)) & (v.tag==tag)]
@@ -287,22 +299,25 @@ def score_movement(animal_row, herd_context, lpis, lpis_cent, metadata, moves_in
         if len(sample_from_strain_herds)>0:
             #did animal move directly from a strain herd?
             return 10, 'Direct move of sampled animal from herd with same strain'
-        elif len(any_from_strain_herds)>0:
+        if len(any_from_strain_herds)>0:
             #any direct moves of any animals from herds with related isolates
             #hard to do manually
             return 7, 'Move into this herd from another herd with same strain'
-        elif set(animal_moves.move_from).intersection(set(target_herds)):
+
+        #get isolates local to intermediate herds
+        ac = tools.get_animal_context(tag, metadata, lpis, lpis_cent,
+                                      animal_moves=animal_moves)
+        if ac is not None:
+            int_nb_strains = ac['metrics']['int_neighbour_strains']
+            #print(int_nb_strains)
+            nb_iso = ac['data']['int_neighbour_isolates']
+            print (nb_iso.snp5)
+            if snp5_cluster in int_nb_strains:
+                return 7, 'Related strain within 4km of an intermediate herd'
+        if set(animal_moves.move_from).intersection(set(target_herds)):
             #strain seen in intermediate herds of the animal
             return 5, 'Same strain seen in intermediate herd of animal'
-        else:
-            #try intermediate neighbours - score 7 too high?
-            #get isolates local to intermediate herds
-            ac = tools.get_animal_context(tag, metadata, lpis, lpis_cent)
-            if ac is not None:
-                int_nb_strains = ac['metrics']['int_neighbour_strains']
-                if snp5_cluster in int_nb_strains:
-                    return 7, 'Related strain within 4km of an intermediate herd'
-        return 5, 'Related strain in herd >10km away but no move'
+        return 5, 'Related strain in herd >4km away but no move'
 
 def bin_confidence(df):
     """

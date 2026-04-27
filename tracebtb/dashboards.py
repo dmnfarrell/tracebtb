@@ -470,10 +470,10 @@ class Dashboard:
         return
 
     def plot_neighbours(self, df, parcels, column='SPH_HERD_N', pad=.3,
-                        legend=False, labels=False):
+                        legend=False, labels=False, p=None):
         """Show herd parcels and its neighbours - used in multiple dashboards"""
 
-        if parcels is None or len(parcels)==0:
+        if parcels is None or len(parcels)==0 or p is None:
             p = bokeh_plot.init_figure(provider='CartoDB Positron')
         else:
             point = parcels.to_crs('EPSG:3857').iloc[0].geometry.centroid
@@ -1457,13 +1457,14 @@ class HerdQueryDashboard(Dashboard):
         self.iregrid = kwargs['ireland_grid']
         self.herd = None
         #temp fix for last_move < Year - because death move not yet present yet)
-        def fixlastmove(x):
+        '''def fixlastmove(x):
             if pd.isna(x.last_move) or pd.isna(x.Year):
                 return
             if x.last_move.year<x.Year:
                 return
-            return x.last_move
-        self.meta['last_move'] = self.meta.apply(fixlastmove,1)
+            return x.last_move'''
+        #self.meta['last_move'] = self.meta.apply(fixlastmove,1)
+        self.hc = None
         self.lastherd = None
         self.animal_filter = None
         return
@@ -1567,7 +1568,7 @@ class HerdQueryDashboard(Dashboard):
                             self.savesettings_btn)
         widgets2 = pn.Row(self.date_range_slider,self.radius_btn,self.neighbour_isolates_btn,
                           self.related_btn, self.neighbours_btn,self.parcellabel_btn,
-                          self.moves_btn, self.strain_moves_btn,self.intermediate_moves_btn)
+                          self.moves_btn, self.strain_moves_btn)#,self.intermediate_moves_btn)
         self.about_pane = pn.pane.Markdown('',styles=styles)
         self.about()
         #self.rules_pane = pn.pane.Markdown('',styles=styles, sizing_mode='stretch_both')
@@ -1621,6 +1622,7 @@ class HerdQueryDashboard(Dashboard):
     def random_herd(self, event=None, herd=None):
         """Select herd at random"""
 
+        self.hc = None
         self.animal_filter = None
         herd = self.random_breakdown_herd()
         self.update(herd=herd)
@@ -1667,8 +1669,12 @@ class HerdQueryDashboard(Dashboard):
         dist = self.dist_input.value
         parcelcol = self.colorby_input.value
         #herd context gets everything about the herd in a dict
-        hc = tools.get_herd_context(self.herd, self.meta, self.moves, self.testing,
+        if self.hc is None:
+            hc = tools.get_herd_context(self.herd, self.meta, self.moves, self.testing,
                                self.feedlots, self.lpis, self.lpis_cent, self.iregrid, dist=dist)
+            self.hc = hc
+        else:
+            hc = self.hc
         hdata = hc['data']
         s = pd.Series(hc['metrics'])
         self.herdinfo_pane.object = pd.DataFrame(s,columns=['value'])
@@ -1724,7 +1730,20 @@ class HerdQueryDashboard(Dashboard):
         if self.neighbours_btn.value == True:
             p = self.plot_neighbours(pcl, nb, column=parcelcol, labels=labels)
         else:
-            p = self.plot_neighbours(pcl, related_pcl, labels=labels)
+            p = self.plot_neighbours(pcl, None, labels=labels)
+
+        allmov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
+        if allmov is not None:
+            self.moves_pane.value = allmov.reset_index().drop(columns=['geometry'])
+            if self.moves_btn.value is True:
+                bokeh_plot.plot_moves(p, allmov, self.lpis_cent)
+                moved_herds = list(set(list(allmov.move_from.dropna()) + list(allmov.move_to.dropna())))
+                moved_pcl = self.lpis[self.lpis.SPH_HERD_N.isin(moved_herds)]
+                related_pcl = pd.concat([related_pcl,moved_pcl])
+
+        if self.related_btn.value == True:
+            related_pcl['color'],cm = tools.get_color_mapping(related_pcl,'SPH_HERD_N')
+            bokeh_plot.plot_lpis(related_pcl, labels=labels, p=p)
 
         #plot local radius around herd
         if self.radius_btn.value == True:
@@ -1737,11 +1756,6 @@ class HerdQueryDashboard(Dashboard):
         p.title.text_font_size = '20pt'
         self.map_pane.object = p
 
-        allmov = tools.get_moves_bytag(sub, self.moves, self.lpis_cent)
-        if allmov is not None:
-            self.moves_pane.value = allmov.reset_index().drop(columns=['geometry'])
-            if self.moves_btn.value is True:
-                bokeh_plot.plot_moves(p, allmov, self.lpis_cent)
         #get moves relevant to movement pathway
         moves_in = movement.query_all_herd_moves_in(herd, start, end)
         moves_in = movement.get_moves_spans(moves_in)
@@ -1804,7 +1818,10 @@ class HerdQueryDashboard(Dashboard):
         self.plot_herd_testing(herd)
         direct_moves = moves_in[moves_in.move_to==self.herd]
         self.plot_movements_summary(herd, direct_moves)
-        msp = movement.get_moves_spans(allmov.reset_index())
+        if allmov is not None:
+            msp = movement.get_moves_spans(allmov.reset_index())
+        else:
+            msp = None
         if msp is not None:
             msp['color'],c = tools.get_color_mapping(msp, 'move_to')
             p = bokeh_plot.plot_moves_timeline(msp)
@@ -1847,6 +1864,8 @@ class HerdQueryDashboard(Dashboard):
     def quick_search(self, event=None, query=None):
         """Search lpis for a single herd or animal ID"""
 
+        self.animal_filter = None
+        self.hc = None
         if query is None:
             query = self.search_input.value
         if len(query) <= 1:
@@ -1856,6 +1875,8 @@ class HerdQueryDashboard(Dashboard):
         animal_match = self.meta[self.meta['Animal_ID'].astype(str).str.lower() == query.lower()]
         if len(animal_match) > 0:
             herd = animal_match.iloc[0].HERD_NO
+            #filter to this animal
+            self.animal_filter = [animal_match.iloc[0].Animal_ID]
             print(f'Animal {query} found in herd {herd}')
         else:
             # fall back to direct herd lookup in lpis

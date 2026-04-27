@@ -827,8 +827,8 @@ def get_moves_locations(move_df, lpis_cent):
 def get_last_move(df, moves):
     """Add last move to animal level data"""
 
-    last_moves = moves.loc[moves.groupby('tag')['move_date'].idxmax()].reset_index(drop=True)[['tag','move_date','data_type']]
-    last_moves.columns=['tag','last_move','last_move_type']
+    last_moves = moves.loc[moves.groupby('tag')['move_date'].idxmax()].reset_index(drop=True)[['tag','move_date','data_type','move_from']]
+    last_moves.columns=['tag','last_move','last_move_type','last_move_herd']
     df = df.merge(last_moves,left_on='Animal_ID',right_on='tag',how='left').set_index(df.index).drop(columns='tag')
     return df
 
@@ -1595,24 +1595,34 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     return herd_context
 
 def get_animal_context(tag, metadata, lpis, lpis_cent, dist=4000,
-                        animal_moves=None):
-    """Animal history, used for movements scoring."""
+                       animal_moves=None):
+    """
+    Animal history, used for movements scoring.
+    Args:
+        tag: animal ID
+        metadata: df of metadata
+        lpis: lips parcels, gdf
+    Returns: dict of animal data
+    """
 
-    #print (f'dist={dist}')
     animal_row = metadata[metadata.Animal_ID==tag].iloc[0]
+    herd = animal_row.HERD_NO
     if animal_moves is None:
         animal_moves = movement.query_tags(tag)
     if animal_moves is None or len(animal_moves)==0:
         print ('no moves found')
         return None
-    try:
-        herd = animal_moves[animal_moves.data_type=='FACT'].iloc[0].move_from
-    except:
-        herd = animal_moves.iloc[-1].move_from
+    #try:
+    #    herd = animal_moves[animal_moves.data_type=='FACT'].iloc[0].move_from
+    #except:
+    #    herd = animal_moves.iloc[-1].move_from
     last_move = animal_moves.move_date.max()
     #get isolates local to intermediate herds
     animal_moves = animal_moves[animal_moves.data_type!='FACT']
-    prior_herds = list(animal_moves.move_from.dropna())
+    prior_moves = animal_moves[animal_moves.move_from!=herd]
+    #print (prior_moves)
+    prior_herds = list(prior_moves.move_from.dropna())
+    print (herd)
     print (prior_herds)
     #get local strains within 4km of prior herds
     int_parcels = lpis[lpis.SPH_HERD_N.isin(prior_herds)]
