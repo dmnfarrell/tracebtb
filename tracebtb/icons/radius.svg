@@ -28,12 +28,12 @@
      showgrid="false"
      width="209mm"
      inkscape:zoom="0.32382505"
-     inkscape:cx="518.79865"
-     inkscape:cy="983.55578"
-     inkscape:window-width="1866"
-     inkscape:window-height="1016"
-     inkscape:window-x="54"
-     inkscape:window-y="27"
+     inkscape:cx="500.27013"
+     inkscape:cy="982.01174"
+     inkscape:window-width="2504"
+     inkscape:window-height="1305"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
      inkscape:window-maximized="1"
      inkscape:current-layer="layer1" />
   <defs
@@ -68,12 +68,15 @@
        sodipodi:arc-type="arc"
        d="M 480.70998,164.66701 A 241.5452,243.32011 0 0 1 345.53768,479.16892 241.5452,243.32011 0 0 1 32.247821,345.54922 241.5452,243.32011 0 0 1 162.35686,28.887803 241.5452,243.32011 0 0 1 477.74949,157.38976" />
     <path
-       style="fill:none;stroke:#7e0000;stroke-width:22.9941;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
-       d="M 180.35127,170.598 316.38643,302.47304"
-       id="path971" />
-    <path
        style="fill:none;stroke:#7e0000;stroke-width:22.9471;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
        d="M 315.20353,170.43994 179.75566,302.34568"
        id="path971-5" />
+    <path
+       id="path1434"
+       style="fill:#4bc940;stroke:#060617;stroke-width:20.245;stroke-linecap:square;paint-order:fill markers stroke;stroke-miterlimit:4;stroke-dasharray:none"
+       inkscape:transform-center-x="-7.9036603"
+       inkscape:transform-center-y="0.15543126"
+       d="m 316.38643,302.47304 -51.23849,76.67688 -80.68876,-26.63368 -53.48179,-89.9159 54.49105,-50.99172 32.36276,-58.55699 62.96162,-18.52072 79.36928,56.79474 -84.30523,49.39966 z"
+       sodipodi:nodetypes="cccccccccc" />
   </g>
 </svg>

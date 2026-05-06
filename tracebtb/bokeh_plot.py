@@ -160,32 +160,47 @@ def add_scalebar(p):
 
     # CustomJS callback for updating scale bar on zoom/pan
     callback = CustomJS(args=dict(scale_source=scale_source, scale_label=scale_label, plot=p), code="""
-        // Get the current extents of the x_range and y_range
         var x_range = plot.x_range;
         var y_range = plot.y_range;
 
-        // Compute the scale bar length as approximately 1/4 of the x range
-        var scale_length = (x_range.end - x_range.start) / 4;
+        // --- Mercator latitude correction ---
+        // Get the centre latitude in radians from the y_range (Web Mercator metres → lat)
+        var y_centre = (y_range.start + y_range.end) / 2;
+        var lat_rad = 2 * Math.atan(Math.exp(y_centre / 6378137.0)) - Math.PI / 2;
+        var cos_lat = Math.cos(lat_rad);
 
-        // Round the scale length to a nice number (significant digits)
-        var nice_scale = Math.pow(10, Math.floor(Math.log10(scale_length)));
-        scale_length = Math.round(scale_length / nice_scale) * nice_scale;
+        // Web Mercator x-units are metres at the equator; correct for latitude stretch
+        var x_extent_metres = (x_range.end - x_range.start) * cos_lat;
 
-        // Compute the bottom-left corner position for the scale bar
+        // Compute a nice scale bar length (~1/4 of visible width, in true metres)
+        var scale_length_m = x_extent_metres / 4;
+        var nice_scale = Math.pow(10, Math.floor(Math.log10(scale_length_m)));
+        scale_length_m = Math.round(scale_length_m / nice_scale) * nice_scale;
+
+        // Convert back to Web Mercator units for drawing on the plot
+        var scale_length_wm = scale_length_m / cos_lat;
+
+        // Position: bottom-left corner of the plot
         var x_start = x_range.start + (x_range.end - x_range.start) * 0.05;
-        var x_end = x_start + scale_length;
+        var x_end = x_start + scale_length_wm;
         var y_pos = y_range.start + (y_range.end - y_range.start) * 0.05;
 
-        // Update the scale bar data source
         scale_source.data = {
             'x': [x_start, x_end],
             'y': [y_pos, y_pos]
         };
 
-        // Update the label to show the scale length
+        // Label: show in metres or km depending on size
+        var label_text;
+        if (scale_length_m >= 1000) {
+            label_text = (scale_length_m / 1000).toFixed(0) + ' km';
+        } else {
+            label_text = scale_length_m.toFixed(0) + ' m';
+        }
+
         scale_label.x = x_start;
         scale_label.y = y_pos + (y_range.end - y_range.start) * 0.01;
-        scale_label.text = scale_length.toFixed(2)/1000 + 'km';
+        scale_label.text = label_text;
 
         scale_source.change.emit();
         scale_label.change.emit();
@@ -474,7 +489,6 @@ def plot_moves(p, moves, lpis_cent, limit=300, name='moves', show_labels=True):
         p.add_layout(labels)
     return p
 
-
 def plot_group_symbols(gdf, p, lw=4, ms=50):
     """Plot simplified symbols for herds and setts"""
 
@@ -489,39 +503,96 @@ def plot_group_symbols(gdf, p, lw=4, ms=50):
 def plot_radii(geom_series, p, radius_km=4, source_crs="EPSG:29902", line_width=1.5):
     """
     Takes a GeoSeries of points, projects them, and plots radii for all rows.
+    Buffers in the source metric CRS to get accurate circles, then reprojects
+    to Web Mercator for display.
     """
-    # 1. Filter out empty or null geometries
     active_geoms = geom_series[geom_series.notnull() & ~geom_series.is_empty]
-
     if active_geoms.empty:
         return p
-
-    # 2. Project the entire series to meters (3857) using GeoPandas native to_crs
-    # This is much faster than manual pyproj loops
-    projected_geoms = active_geoms.to_crs("EPSG:3857")
-
-    # 3. Extract X and Y coordinates
-    data = {
-        'x': projected_geoms.geometry.x,
-        'y': projected_geoms.geometry.y
-    }
-
-    # 4. Add other columns from the original data if geom_series was part of a GeoDataFrame
-    # If geom_series is just a Series, we just use the coordinates.
-    source = ColumnDataSource(data=data)
-
-    # 5. Plot all circles in a single call
-    p.circle(
-        x='x',
-        y='y',
-        radius=radius_km * 1000, # Bokeh radius in EPSG:3857 is in meters
+    # Ensure input is in the source CRS (assumed metric, e.g. Irish Grid)
+    if active_geoms.crs is None:
+        active_geoms = active_geoms.set_crs(source_crs)
+    else:
+        active_geoms = active_geoms.to_crs(source_crs)
+    # Buffer in the metric source CRS — radius is accurate here
+    buffered = active_geoms.buffer(radius_km * 1000)
+    # Reproject the circle polygons to Web Mercator for Bokeh
+    buffered_wm = buffered.to_crs("EPSG:3857")
+    # Extract exterior ring coordinates as patch lists
+    xs = [list(geom.exterior.coords.xy[0]) for geom in buffered_wm]
+    ys = [list(geom.exterior.coords.xy[1]) for geom in buffered_wm]
+    source = ColumnDataSource(data={'xs': xs, 'ys': ys})
+    p.patches(
+        xs='xs',
+        ys='ys',
         source=source,
         fill_color=None,
-        line_color="black",
-        line_dash="dashed",
+        line_color="red",
+        line_alpha=0.6,
+        #line_dash="dashed",
         line_width=line_width
     )
+    return p
 
+def plot_sampling_years(df):
+    """Plot sampling years with bokeh"""
+
+    df = df[df.Year.notnull()].copy()
+    df['Year'] = df['Year'].astype(int)
+
+    def spread_points(group, spacing=0.15):
+        n = len(group)
+        if n == 1:
+            offsets = [0.0]
+        else:
+            offsets = [(i - (n - 1) / 2) * spacing for i in range(n)]
+        group = group.copy()
+        group['y_jitter'] = offsets
+        return group
+
+    df = df.groupby('Year', group_keys=False).apply(
+        spread_points, include_groups=False
+    )
+    df['Year'] = df.index.get_level_values('Year')
+    df['year_str'] = df['Year'].astype(str)
+
+    # drop geometry column before passing to ColumnDataSource
+    cols = ['year_str', 'Year', 'y_jitter', 'color', 'sample', 'HERD_NO', 'snp5']
+    cols = [c for c in cols if c in df.columns]
+    source = ColumnDataSource(df[cols])
+
+    years = sorted(df.Year.unique())
+    p = figure(
+        x_range=[str(y) for y in years],
+        height=150,
+        sizing_mode='stretch_width',
+        toolbar_location=None,
+        x_axis_label='Year',
+    )
+    points = p.scatter(
+        x='year_str',
+        y='y_jitter',
+        size=12,
+        color='color',
+        alpha=0.85,
+        line_color='white',
+        line_width=0.5,
+        source=source,
+        name='samples'
+    )
+    p.add_tools(HoverTool(renderers=[points], tooltips=[
+        ('Sample', '@sample'),
+        ('Year', '@Year'),
+        ('Herd', '@HERD_NO'),
+        ('SNP5', '@snp5'),
+    ]))
+    p.yaxis.visible = False
+    p.ygrid.grid_line_color = None
+    p.xgrid.grid_line_color = None
+    p.outline_line_color = None
+    p.xaxis.major_label_text_font_size = '13pt'
+    p.y_range.start = -1
+    p.y_range.end = 1
     return p
 
 def error_message(msg=''):
@@ -1076,7 +1147,7 @@ def plot_herd_network(G, pos, p=None, line_width=1, line_color="#746969", radius
     graph_renderer.node_renderer.glyph = Circle(radius=radius, radius_units='screen',
                                                 fill_color=mapper, fill_alpha=0.2, line_color='black')
     graph_renderer.node_renderer.hover_glyph = Circle(radius=8, fill_alpha=0.6, radius_units='screen')
-    graph_renderer.edge_renderer.glyph = MultiLine(line_color=line_color, line_alpha=0.6, line_width=line_width)
+    graph_renderer.edge_renderer.glyph = MultiLine(line_color=line_color, line_alpha=0.4, line_width=line_width)
     graph_renderer.edge_renderer.hover_glyph = MultiLine(line_color='green', line_width=3)
     # Add Interactive Hover Policy
     graph_renderer.inspection_policy = NodesAndLinkedEdges()

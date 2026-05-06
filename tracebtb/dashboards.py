@@ -473,7 +473,7 @@ class Dashboard:
                         legend=False, labels=False, p=None):
         """Show herd parcels and its neighbours - used in multiple dashboards"""
 
-        if parcels is None or len(parcels)==0 or p is None:
+        if parcels is None or len(parcels)==0:
             p = bokeh_plot.init_figure(provider='CartoDB Positron')
         else:
             point = parcels.to_crs('EPSG:3857').iloc[0].geometry.centroid
@@ -966,8 +966,9 @@ class FullDashboard(Dashboard):
         # Timeline plot
         tlc = self.timelinecolor_input.value
         #tldf = bokeh_plot.get_timeline_data(mov, self.meta)
-
-        msp = movement.get_moves_spans(mov.reset_index())
+        msp=None
+        if mov is not None:
+            msp = movement.get_moves_spans(mov.reset_index())
         #get colors for timeline data
         if msp is not None:
             if tlc in ['',None]:
@@ -1503,6 +1504,7 @@ class HerdQueryDashboard(Dashboard):
         self.movesplot_pane = pn.pane.Bokeh(height=200)
         self.herdinfo_pane = pn.pane.DataFrame(stylesheets=[df_stylesheet], sizing_mode='stretch_both')
         self.sampling_pane = pn.pane.Matplotlib(height=100,sizing_mode='stretch_width')
+        #self.sampling_pane = pn.pane.Bokeh(height=100,sizing_mode='stretch_width')
         self.timeline_pane = pn.pane.Bokeh(sizing_mode='stretch_height')
         self.indicator = pn.indicators.Number(
                     name='Priority',
@@ -1530,8 +1532,8 @@ class HerdQueryDashboard(Dashboard):
         self.dist_input = pnw.IntSlider(name='Dist Threshold',width=w,value=4000,
                                         start=100,end=10000,step=100)
         opts = ['within any parcel','contiguous parcels']
-        self.dist_method = pnw.Select(name='Neighbour Dist Method',value='within any parcel',
-                                      options=opts,width=w)
+        #self.dist_method = pnw.Select(name='Neighbour Dist Method',value='within any parcel',
+        #                              options=opts,width=w)
         self.provider_input = pnw.Select(name='Provider',options=['']+bokeh_plot.providers,
                                          value='CartoDB Positron',width=w)
         self.provider_input.param.watch(self.set_provider, 'value')
@@ -1564,17 +1566,15 @@ class HerdQueryDashboard(Dashboard):
         self.intermediate_moves_btn = pnw.Toggle(icon=get_icon('moves-intermediate'), icon_size=icsize,
                                      width=36,height=38,align='center')
         widgets = pn.Column(search_widgets,self.sampled_herds_select,sim_btn,refresh_btn,
-                            self.dist_method,self.dist_input,self.provider_input,self.colorby_input,
+                           self.dist_input,self.provider_input,self.colorby_input,
                             self.savesettings_btn)
-        widgets2 = pn.Row(self.date_range_slider,self.radius_btn,self.neighbour_isolates_btn,
+        widgets2 = pn.Row(self.date_range_slider,self.radius_btn,
+                          self.neighbour_isolates_btn,
                           self.related_btn, self.neighbours_btn,self.parcellabel_btn,
                           self.moves_btn, self.strain_moves_btn)#,self.intermediate_moves_btn)
         self.about_pane = pn.pane.Markdown('',styles=styles)
         self.about()
-        #self.rules_pane = pn.pane.Markdown('',styles=styles, sizing_mode='stretch_both')
-        #doc_path = os.path.join(module_path,'docs','selection_framework.md')
-        #rules_txt = open(doc_path,'r').read()
-        #self.rules_pane.object = rules_txt
+
         #from . import agent
         #chat_pane = agent.ai_chat_widget(self.meta)
 
@@ -1692,11 +1692,9 @@ class HerdQueryDashboard(Dashboard):
         self.parcels = pcl = hdata['herd_parcels']
         self.neighbours = hdata['neighbour_parcels']
         self.cont_parcels = hdata['contiguous_parcels']
+        nb10 = hdata['neighbour10_parcels']
+        nb = self.neighbours
 
-        if self.dist_method.value=='within any parcel':
-            nb = self.neighbours
-        else:
-            nb = self.cont_parcels
         #total pos tests over time
         nb['sr_total'] = nb.apply(lambda x: tools.get_testing_total(x,self.sr),1)
         #nearby badgers
@@ -1728,7 +1726,7 @@ class HerdQueryDashboard(Dashboard):
 
         labels = self.parcellabel_btn.value
         if self.neighbours_btn.value == True:
-            p = self.plot_neighbours(pcl, nb, column=parcelcol, labels=labels)
+            p = self.plot_neighbours(pcl, nb10, column=parcelcol, labels=labels)
         else:
             p = self.plot_neighbours(pcl, None, labels=labels)
 
@@ -1738,6 +1736,7 @@ class HerdQueryDashboard(Dashboard):
             if self.moves_btn.value is True:
                 bokeh_plot.plot_moves(p, allmov, self.lpis_cent)
                 moved_herds = list(set(list(allmov.move_from.dropna()) + list(allmov.move_to.dropna())))
+                moved_herds.remove(herd)
                 moved_pcl = self.lpis[self.lpis.SPH_HERD_N.isin(moved_herds)]
                 related_pcl = pd.concat([related_pcl,moved_pcl])
 
@@ -1747,10 +1746,11 @@ class HerdQueryDashboard(Dashboard):
 
         #plot local radius around herd
         if self.radius_btn.value == True:
-            pt = hdata['centroid'].geometry
-            pts = gpd.GeoSeries([pt], crs='EPSG:29902')
-            bokeh_plot.plot_radii(pts, p)
+            #pt = hdata['centroid'].geometry
+            #pts = gpd.GeoSeries([pt], crs='EPSG:29902')
+            pts = tools.get_clustered_fragments(pcl)
             bokeh_plot.plot_radii(pts, p, radius_km=10, line_width=1)
+            bokeh_plot.plot_radii(pts, p)
 
         p.title = herd
         p.title.text_font_size = '20pt'
@@ -1868,6 +1868,7 @@ class HerdQueryDashboard(Dashboard):
         self.hc = None
         if query is None:
             query = self.search_input.value
+            query = query.strip()
         if len(query) <= 1:
             return
 
@@ -1934,6 +1935,7 @@ class HerdQueryDashboard(Dashboard):
         return p
 
     def plot_sampling_years(self, df):
+        """Plot sampling years with seaborn"""
 
         fig,ax=plt.subplots(figsize=(10,2))
         df = df[df.Year.notnull()]
@@ -1955,11 +1957,6 @@ class HerdQueryDashboard(Dashboard):
         #sr=sr.sort_values('sum')
         x=sr[sr.total>5]
         return x.sample(1).index[0]
-
-    def plot_breakdown_history(self, herds):
-        """Track multiple herds tests as line graph?"""
-
-        return
 
 class MovesDashboard(Dashboard):
     """Moves dedicated dashboard"""

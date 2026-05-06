@@ -92,6 +92,8 @@ def run(folder, filename):
     cgrid['shannon_diversity'] = tools.grid_shannon_index(cgrid, gdf)
     cgrid['goods_coverage'] = tools.grid_goods_coverage(cgrid, gdf)
     gdf['grid_id'] = gpd.sjoin(gdf,cgrid, how="left")['grid_id']
+    #other
+    gdf['homebred'] = gdf.Homebred.map({'yes': True, 'no': False})
 
     #new project
     data={}

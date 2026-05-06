@@ -1006,12 +1006,34 @@ def find_neighbouring_points(gdf, sub, dist, key='HERD_NO'):
     p = p[~p[key].isin(list(sub[key]))]
     return p
 
-def find_neighbours(gdf, dist, lpis_cent, lpis):
+def find_neighbours(parcels, gdf, dist=4000):
+    """
+    Find neighbouring points within a certain distance of parcels
+    using spatial joins.
+    """
+    # Create a buffer around the source parcels
+    buffered = parcels.copy()
+    buffered['geometry'] = buffered.geometry.buffer(dist)
+    # Spatial join: Find all lpis parcels that intersect the buffer
+    # 'inner' ensures we only get matches.
+    neighbours = gpd.sjoin(
+        gdf,
+        buffered[['geometry', 'SPH_HERD_N']],
+        how='inner',
+        predicate='intersects'
+    )
+    # Exclude the original herds (source) from the results
+    source_herd_ids = parcels.SPH_HERD_N.unique()
+    neighbours = neighbours[~neighbours.HERD_NO.isin(source_herd_ids)]
+    # Removing duplicates in case one neighbor touched multiple source parcels
+    return neighbours.drop_duplicates(subset=['HERD_NO'])
+
+def find_neighbouring_herds(parcels, dist, lpis_cent, lpis):
     """
     Find neighbouring herds from lpis given a set of points.
     Returns: herd land parcels
     """
-    gdf=gdf.copy()
+    gdf = parcels.copy()
     gdf['HERD_NO'] = gdf.SPH_HERD_N
     found = []
     for x in gdf.geometry:
@@ -1025,6 +1047,30 @@ def find_neighbours(gdf, dist, lpis_cent, lpis):
     #exclude those in source gdf
     x = x[~x.SPH_HERD_N.isin(gdf.HERD_NO)]
     return x
+
+def find_neighbouring_herds_optimized(parcels, dist, lpis):
+    """
+    Find neighbouring herds within a certain distance using spatial joins.
+    Uses parcel to parcel differences.
+    """
+    # 1. Create a buffer around the source parcels
+    # This creates the "search area"
+    parcels_buffered = parcels.copy()
+    parcels_buffered['geometry'] = parcels_buffered.geometry.buffer(dist)
+    # 2. Spatial join: Find all lpis parcels that intersect the buffer
+    # 'inner' ensures we only get matches. 'predicate' can be 'intersects'
+    neighbours = gpd.sjoin(
+        lpis,
+        parcels_buffered[['geometry', 'SPH_HERD_N']],
+        how='inner',
+        predicate='intersects'
+    )
+    # 3. Exclude the original herds (source) from the results
+    source_herd_ids = parcels.SPH_HERD_N.unique()
+    neighbours = neighbours[~neighbours.SPH_HERD_N_left.isin(source_herd_ids)]
+    # 4. Clean up results
+    # Removing duplicates in case one neighbor touched multiple source parcels
+    return neighbours.drop_duplicates(subset=['SPH_HERD_N_left'])
 
 def shared_borders(parcels, lpis):
     """
@@ -1044,6 +1090,24 @@ def shared_borders(parcels, lpis):
     found = pd.concat(found)
     found = found[~found.SPH_HERD_N.isin(parcels.SPH_HERD_N)]
     return found
+
+def get_clustered_fragments(gdf, grouping_dist=2000, crs='EPSG:29902'):
+    """
+    Groups nearby fragments into clusters based on a distance threshold
+    and returns the centroid of each cluster.
+    """
+    # Explode MultiPolygons into individual Polygon parts
+    frags = gdf.geometry if hasattr(gdf, 'geometry') else gdf
+    exploded = frags.explode(index_parts=False)
+    # Buffer by half the threshold so nearby shapes 'touch'
+    merged_blobs = exploded.buffer(grouping_dist / 2).unary_union
+    # unary_union can return a single Polygon or a MultiPolygon.
+    if hasattr(merged_blobs, 'geoms'):
+        clusters = list(merged_blobs.geoms)
+    else:
+        clusters = [merged_blobs]
+    # Return the centroids of these clusters as a new GeoSeries
+    return gpd.GeoSeries([c.centroid for c in clusters], crs=crs)
 
 def plot_neighbours(pcl,df,col=None,pad=.3,ax=None):
 
@@ -1067,7 +1131,7 @@ def herd_parcel_metrics(herd, lpis, lpis_cent, dist=1000):
     #get all farms within radius or contiguous parcels
     cont_parcels = shared_borders(pcl, lpis)
     #nb = tools.shared_borders(row, lpis)
-    nb = find_neighbours(pcl, dist, lpis_cent, lpis)
+    nb = find_neighbouring_herds(pcl, dist, lpis_cent, lpis)
     buffered_area = pcl.geometry.union_all().buffer(dist)
 
     bdg = badger[badger.geometry.within(buffered_area)]
@@ -1430,7 +1494,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
 
     # --- Neighbouring Herd Samples ---
     cont_parcels = shared_borders(pcl, lpis)
-    nb = find_neighbours(herd_parcels, dist, lpis_cent, lpis)
+    nb = find_neighbouring_herds(herd_parcels, dist, lpis_cent, lpis)
     #nearby badgers
     buffered_area = herd_parcels.geometry.union_all().buffer(dist)
     near_badger = badger[badger.geometry.within(buffered_area)]
@@ -1441,7 +1505,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
     nearest = find_nearest_point(pcl.geometry, herd_isolates)
 
     #10km neighbours
-    nb10 = find_neighbours(herd_parcels, 10000, lpis_cent, lpis)
+    nb10 = find_neighbouring_herds(herd_parcels, 10000, lpis_cent, lpis)
     buffered_area = herd_parcels.geometry.union_all().buffer(10000)
     nb_badger10 = badger[badger.geometry.within(buffered_area)]
     qry = list(nb10.SPH_HERD_N) + list(nb_badger10.HERD_NO)
@@ -1560,8 +1624,6 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
                 'neighbour_reactors': nbsrtotal,
                 'neighbour_positives': nblptotal,
                 'sample_moves_in': sample_moves_in,
-                #'local_moves': '?',
-                #'risky_moves': '?',
                 'grid_id':grid_id, #grid this sample belongs to
                 'goods_coverage': coverage,
                 'shannon_diversity': diversity
@@ -1571,8 +1633,6 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         # Core data for this breakdown
         'herd_isolates': herd_isolates,
         'herd_parcels': herd_parcels,
-        'neighbour_parcels': nb,
-        'contiguous_parcels': cont_parcels,
         'badger_isolates':bdg,
         'near_badger': near_badger,
         'centroid': cent,
@@ -1581,6 +1641,9 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         'snp5_related': snp5_related,
         'snp10_related': snp10_related,
         # Spatial Context
+        'neighbour_parcels': nb,
+        'neighbour10_parcels': nb10,
+        'contiguous_parcels': cont_parcels,
         'neighbour_isolates': neighbour_isolates,
         'neighbour10_isolates': neighbour10_isolates,
         'neighbour_strains': neighbour_strains,
@@ -1622,21 +1685,23 @@ def get_animal_context(tag, metadata, lpis, lpis_cent, dist=4000,
     prior_moves = animal_moves[animal_moves.move_from!=herd]
     #print (prior_moves)
     prior_herds = list(prior_moves.move_from.dropna())
-    print (herd)
+    #remove prior herds within 10km of this herd
+    parcels = lpis[lpis.SPH_HERD_N==herd]
+    nb = find_neighbouring_herds(parcels, 10000, lpis_cent, lpis)
+    near_herds = list(nb.SPH_HERD_N)
+    prior_herds = [x for x in prior_herds if x not in near_herds]
     print (prior_herds)
     #get local strains within 4km of prior herds
     int_parcels = lpis[lpis.SPH_HERD_N.isin(prior_herds)]
-    int_nb = find_neighbours(int_parcels, dist, lpis_cent, lpis)
+    int_nb = find_neighbouring_herds(int_parcels, dist, lpis_cent, lpis)
     #remove this herd
     int_nb = int_nb[int_nb.SPH_HERD_N!=herd]
-    #remove int nb herds within 10km of this herd
-    parcels = lpis[lpis.SPH_HERD_N==herd]
-    nb = find_neighbours(parcels, 10000, lpis_cent, lpis)
-    int_nb = int_nb[~int_nb.SPH_HERD_N.isin(nb.SPH_HERD_N)]
+    int_nb = int_nb[~int_nb.SPH_HERD_N.isin(near_herds)]
 
     print (f'{len(int_nb)} intermediate neighbours')
     int_nb_herds = list(int_nb.SPH_HERD_N)
-    int_nb_isolates = metadata[metadata.HERD_NO.isin(int_nb_herds)]
+    int_nb_isolates = find_neighbours(int_parcels, metadata)
+    int_nb_isolates = int_nb_isolates[~int_nb_isolates.HERD_NO.isin(near_herds)]
     int_nb_strains = set(int_nb_isolates.snp5)
     metrics = {'tag':tag,
                'herd':herd,
