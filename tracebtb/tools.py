@@ -40,6 +40,7 @@ from . import core, movement
 
 module_path = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(module_path,'data')
+ireland_mask = core.counties_gdf.to_crs('EPSG:29902').union_all()
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -480,42 +481,94 @@ def create_hex_grid(gdf=None, bounds=None, n_cells=10, overlap=False, crs="EPSG:
         grid = grid.sjoin(gdf, how='inner').drop_duplicates('geometry')[cols]
     return grid
 
-def count_points_in_grid(grid, gdf, value_column='count', threshold=0):
+def grid_metrics(grid, gdf, threshold=0):
     """
-    Count the number of points in a gdf in each grid cell.
-
+    Count the number of points in a gdf in each grid cell. Also gets some bin metrics using
+    gdf points.
     Parameters:
-    - grid: GeoDataFrame, the hexagonal grid created by `create_hex_grid`.
-    - gdf: GeoDataFrame, the GeoDataFrame of points.
-    - value_column: str, the name of the column to store point counts in the grid GeoDataFrame.
-    - threshold: only return cells with counts above this value, None to ignore
-
+        grid: GeoDataFrame, the hexagonal grid created by `create_hex_grid`.
+        gdf: GeoDataFrame, the GeoDataFrame of points.
+        threshold: only return cells with counts above this value, None to ignore
     Returns:
-    - grid: GeoDataFrame with a new column `value_column` containing the count of points.
+        grid: GeoDataFrame with a new column `value_column` containing the count of points.
     """
-
-    import matplotlib.pyplot as plt
-
-    # Perform a spatial join to find points within each hexagon
+    # Perform spatial join
     joined = gpd.sjoin(gdf, grid, how='inner', predicate='within')
-    # Count the number of points in each grid cell
-    point_counts = joined.groupby('grid_id').size()
-    # Add point counts to the grid GeoDataFrame
-    grid[value_column] = grid['grid_id'].map(point_counts).fillna(0).astype(int)
-    if threshold != None:
-        grid = grid[grid['count']>threshold].copy()
+    # Add geometry to the joined table so the dispersion function can see it
+    # We join the grid geometry onto the points based on grid_id
+    joined = joined.merge(grid[['grid_id', 'geometry']], on='grid_id', suffixes=('', '_hex'))
+
+    # wrapper function for the apply
+    def calc_disp_for_group(group):
+        # 'group' contains the points. The geometry of the hex is stored
+        #  in 'geometry_hex', they are all the same for the group
+        hex_geom = group['geometry_hex'].iloc[0]
+        return calculate_spatial_dispersion(group, hex_geom)
+
+    # We aggregate spatial_dispersion by applying it to the grouped object
+    stats = joined.groupby('grid_id').apply(lambda x: pd.Series({
+        'count': x.shape[0],
+        'n_herds': x['HERD_NO'].nunique(),
+        'spat_disp': calc_disp_for_group(x)
+    }))
+    # map back to original grid
+    grid = grid.merge(stats, on='grid_id', how='left').fillna(0)
+    grid = grid.set_index('grid_id',drop=False)
+    grid.index.name='index'
+    # calculate area ratio
+    clipped_area = grid['geometry'].intersection(ireland_mask).area
+    grid['area_ratio'] = clipped_area / grid['geometry'].area
+    x = gdf[['sample','HERD_NO','short_name','geometry']]
+    grid['shannon_diversity'] = grid_shannon_index(grid, x)
+    grid['goods_coverage'] = grid_goods_coverage(grid, x)
+    k=0.2
+    grid['adj_goods_coverage'] = (
+        grid['goods_coverage'] * (1 - np.exp(-k * grid['n_herds'])) * (grid['spat_disp'])
+    )
+    if threshold >0:
+        grid = grid[grid['count'] > threshold].copy()
     return grid
 
-def get_count_grid(df, grid=None, n_cells=30):
-    """Get hex grid of counts for a gdf of points"""
+def get_grid_with_metrics(df, grid=None, n_cells=30):
+    """Get hex grid of counts using a df of points.
+    We can provide a grid or compute one with n_cells"""
 
     if grid is None:
         grid = create_hex_grid(df, n_cells=n_cells)
-    grid = count_points_in_grid(grid, df)
+    else:
+        grid = grid.copy()
+    grid = grid_metrics(grid, df)
     #mask grid to map
-    mask = core.counties_gdf.to_crs('EPSG:29902').union_all()
-    grid = grid[grid.intersects(mask)].copy()
-    return grid, mask
+    grid = grid[grid.intersects(ireland_mask)].copy()
+    return grid, ireland_mask
+
+def calculate_spatial_dispersion(group, hex_geom):
+    """
+    Calculates a spatial factor (0 to 1) based on the dispersion
+    of points within a polygon. Applied to gdf groups.
+    Args:
+        group: polygon geometry
+    """
+
+    land_geom = hex_geom.intersection(ireland_mask)
+    #print (land_geom.area, hex_geom.area)
+    #get centroid
+    cx, cy = hex_geom.centroid.x, hex_geom.centroid.y
+    # Calculate distance of each point to the centroid
+    dists = np.sqrt((group.geometry.x - cx)**2 + (group.geometry.y - cy)**2)
+    # Calculate mean distance
+    mean_dist = dists.mean()
+    # Normalize based on hex radius (~15km diameter = 7.5km radius)
+    # The area_ratio is a secondary scaling factor to account for coastal bins
+    area_ratio = (land_geom.area / hex_geom.area)
+    if area_ratio>0.999:
+        area_ratio=1.0
+    #print (area_ratio)
+    hex_radius = 7500
+    # Normalize by area_ratio so that 'full' bins and 'coastal' bins
+    # use the same scale
+    #return min(dists.mean() / hex_radius, 1.0)
+    return min(dists.mean() / (hex_radius * np.sqrt(area_ratio)), 1.0)
 
 def nearest(point, gdf):
     """Get nearest neighbours to point in gdf, vector based"""
@@ -1440,7 +1493,7 @@ def grid_goods_coverage(grid, gdf, min_isolates=5):
     # Apply to your count matrix 'sm' (where rows are grid_id and columns are strain counts)
     sm_filtered = sm[sm.sum(axis=1) >= min_isolates].copy()
     grid_coverage_scores = sm_filtered.apply(calculate_goods_coverage, axis=1).rename('goods_coverage')
-    undersampled_grids = grid_coverage_scores[grid_coverage_scores > 0.95].index.tolist()
+    #undersampled_grids = grid_coverage_scores[grid_coverage_scores > 0.95].index.tolist()
     return grid.index.map(grid_coverage_scores)
 
 def get_testing_total(x, sr):
@@ -1566,11 +1619,13 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
         grid_id='NA'
         diversity='NA'
         coverage='NA'
+        adj_coverage='NA'
     else:
         c1=cell.iloc[0]
         grid_id = c1.grid_id
         diversity = round(c1.shannon_diversity,2)
         coverage = round(c1.goods_coverage,2)
+        adj_coverage = round(c1.adj_goods_coverage,2)
     if len(herd_isolates)>0:
         current_strains = set(herd_isolates['short_name'].dropna())
         nearest_herd = nearest.HERD_NO
@@ -1626,6 +1681,7 @@ def get_herd_context(herd_no, metadata, moves, testing, feedlots,
                 'sample_moves_in': sample_moves_in,
                 'grid_id':grid_id, #grid this sample belongs to
                 'goods_coverage': coverage,
+                'adj_coverage': adj_coverage,
                 'shannon_diversity': diversity
                 }
 

@@ -88,7 +88,7 @@ def run(folder, filename):
 
     #grid
     iregrid = tools.get_irish_grid()
-    cgrid, mask = tools.get_count_grid(gdf,grid=iregrid,n_cells=30)
+    cgrid, mask = tools.get_grid_with_metrics(gdf,grid=iregrid,n_cells=30)
     cgrid['shannon_diversity'] = tools.grid_shannon_index(cgrid, gdf)
     cgrid['goods_coverage'] = tools.grid_goods_coverage(cgrid, gdf)
     gdf['grid_id'] = gpd.sjoin(gdf,cgrid, how="left")['grid_id']
