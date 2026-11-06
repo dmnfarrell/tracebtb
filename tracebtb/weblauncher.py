@@ -108,7 +108,7 @@ def create_bootstrap_layout_cls(dashboard_cls, title, bkgr, logo=None, **kwargs)
         <div style="display:flex; align-items:center; gap:1.2rem; font-size:.9rem;">
         <a href="/" style="color:white; text-decoration:none;">Main Dashboard</a>
         <a href="/herd" style="color:white; text-decoration:none;">Herd Query</a>
-        <a href="/moves" style="color:white; text-decoration:none;">Movements</a>
+        <a href="/badger" style="color:white; text-decoration:none;">Badgers</a>
         </div>
         """ , width=150)
         bootstrap.header.append(menu_html)
@@ -176,7 +176,8 @@ def main():
         nav_links = pn.Row(
             pn.pane.Markdown("[🏠 Main](/)", sizing_mode="fixed", width=100),
             pn.pane.Markdown("[🐄 Herd](/herd)", sizing_mode="fixed", width=100),
-            pn.pane.Markdown("[🚚 Moves](/moves)", sizing_mode="fixed", width=100),
+            #pn.pane.Markdown("[🚚 Moves](/moves)", sizing_mode="fixed", width=100),
+            pn.pane.Markdown("[🚚 Badgers](/badger)", sizing_mode="fixed", width=100),
             align="center",
             margin=(10, 20),
         )
@@ -205,7 +206,7 @@ def main():
         layout3 = create_bootstrap_layout_cls(
             dashboards.MovesDashboard,
             'Moves',
-            "#903E3E",
+            "#713683",
             logo=os.path.join(logo_path, 'moves.png'),
             layers=layers,
             treefile=treefile,
@@ -213,7 +214,20 @@ def main():
             settings=settings,
             **data
         )
-        layouts = {'/':layout1, '/herd':layout2, '/moves':layout3}
+        from tracebtb.badgerselection import BadgerSelectionDashboard
+      
+        layout4 = create_bootstrap_layout_cls(
+            BadgerSelectionDashboard,
+            'Badgers',
+            "#7F372D",
+            logo=os.path.join(logo_path, 'badger.png'),
+            layers=layers,
+            treefile=treefile,
+            lpis=lpis,
+            settings=settings,
+            **data
+        )
+        layouts = {'/':layout1, '/herd':layout2, '/badger':layout4}
         port = int(args.port)
         if 'reverse_proxy' in settings:
             #using nginx proxy with basic auth

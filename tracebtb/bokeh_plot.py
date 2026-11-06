@@ -42,6 +42,7 @@ try:
     from shapely.geometry import Polygon, Point
     from bokeh.transform import jitter, factor_cmap
     from bokeh.plotting import figure, output_file, save
+    from bokeh.models import WMTSTileSource
 except:
     print ('bokeh not installed')
 from shapely.geometry import Polygon, Point
@@ -59,6 +60,12 @@ speciesmarkers = {'Bovine':'circle','Badger':'square',
 module_path = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(module_path,'data')
 counties_gdf = core.counties_gdf
+
+# Define the tile source with your API key
+cartodb_source = WMTSTileSource(
+    url="https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key=cb1_4f71_1_6013c4dd66e8659b1133a9eb",
+    attribution="© CARTO"
+)
 
 def calculate_grid_dimensions(n):
     """Calculate the number of rows and columns that best approximate a square layout"""
@@ -144,7 +151,10 @@ def init_figure(title=None, provider=None, width=600, height=600, sizing_mode='s
             width=width, height=height,
             match_aspect=True)
     if provider in providers:
-        p.add_tile(provider, retina=True)
+        if provider == 'CartoDB Positron':
+            p.add_tile(cartodb_source)
+        else:
+            p.add_tile(provider, retina=True)
     p.sizing_mode = sizing_mode
     if title != None:
         p.title.text_font_size = '12pt'
