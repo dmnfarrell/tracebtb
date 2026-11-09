@@ -25,6 +25,7 @@
 """
 
 import os
+import base64
 from functools import lru_cache
 import numpy as np
 import pandas as pd
@@ -43,6 +44,9 @@ import panel.widgets as pnw
 from tracebtb import core, tools, bokeh_plot
 from tracebtb.dashboards import Dashboard, stylesheet, df_stylesheet, get_icon
 
+module_path = os.path.dirname(os.path.abspath(__file__))
+data_path = os.path.join(module_path,'data')
+
 IRISH_GRID = 'EPSG:29902'
 WEB_MERCATOR = 'EPSG:3857'
 
@@ -55,6 +59,7 @@ INPUT_CRS = {
 }
 DEFAULT_INPUT_CRS = 'Irish Grid (EPSG:29902)'
 
+THRESHOLD = 2
 #priority score thresholds (0-100), PLACEHOLDER values
 TIERS = [(66, 'Tier 1: High'), (33, 'Tier 2: Medium'), (0, 'Tier 3: Low')]
 #columns of the hex grid (as made by tools.grid_metrics) that we report
@@ -94,6 +99,11 @@ NARROW_MAP_CSS = f"""
 
 host_colors = core.host_colors
 
+def get_base64_image(image_path):
+    with open(image_path, "rb") as img_file:
+        encoded = base64.b64encode(img_file.read()).decode("utf-8")
+    return f"data:image/png;base64,{encoded}"
+
 @lru_cache(maxsize=None)
 def _transformer(src, dst):
     return Transformer.from_crs(src, dst, always_xy=True)
@@ -110,6 +120,22 @@ def empty_pm_table():
 
     return gpd.GeoDataFrame(pd.DataFrame(columns=PM_COLUMNS),
                             geometry=gpd.GeoSeries([], crs=IRISH_GRID), crs=IRISH_GRID)
+
+def load_sett_table(path):
+    """
+    Load the table of badger setts.
+    """
+
+    if not path or not os.path.exists(path):
+        return empty_pm_table()
+    df = pd.read_csv(path, dtype={'SETT': str})
+    df['LAT'] = pd.to_numeric(df['LAT'], errors='coerce')
+    df['LONG'] = pd.to_numeric(df['LONG'], errors='coerce')
+    nocoords = df['LAT'].isnull() | df['LONG'].isnull()
+    df = df[~nocoords].copy()
+    gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['LONG'], df['LAT']),
+                           crs='EPSG:4326').to_crs(IRISH_GRID)
+    return gdf.reset_index(drop=True)
 
 def load_badger_pm_table(path=None):
     """
@@ -183,8 +209,16 @@ def get_location_context(pt, meta, grid, pm=None, radius=4000):
     cattle = meta[meta.Species == 'Bovine']
     nb, ctx['nearest_badger_seq_km'] = _nearby(badger, pt, radius)
     nc, _ = _nearby(cattle, pt, radius)
-    ctx['n_badger_seq'] = len(nb)
-    ctx['n_cattle_seq'] = len(nc)
+    ctx['n_badger_seq_near'] = len(nb)
+    ctx['n_cattle_seq_near'] = len(nc)
+
+    #sequenced isolates within the grid cell itself (cell is None if outside the grid)
+    if cell is not None:
+        ctx['n_badger_seq'] = int(badger.geometry.within(cell.geometry).sum())
+        ctx['n_cattle_seq'] = int(cattle.geometry.within(cell.geometry).sum())
+    else:
+        ctx['n_badger_seq'] = ctx['n_cattle_seq_cell'] = 0
+
     local = pd.concat([nb, nc])
     ctx['n_strains_local'] = local['short_name'].nunique() if 'short_name' in local else np.nan
 
@@ -196,11 +230,12 @@ def get_location_context(pt, meta, grid, pm=None, radius=4000):
 def pm_adjustment(ctx):
     """
     PLACEHOLDER. How the PM records should change the score (points added to
-    the 0-100 score, can be negative). e.g. many PM badgers nearby but few
+    the 0-10 score, can be negative). e.g. many PM badgers nearby but few
     sequenced might raise priority. Not decided yet so no effect for now.
     """
-
-    return 0.0
+    if ctx['n_badger_seq']==0:
+        return 10
+    return 0
 
 def compute_priority(ctx):
     """
@@ -214,7 +249,7 @@ def compute_priority(ctx):
     """
 
     if ctx['grid_id'] is None:
-        return {'score': None, 'tier': 'N/A',
+        return {'score': None,
                 'reasons': ['Location is outside the sampling grid (not on land in Ireland?)']}
     reasons = []
     adj = ctx['adj_goods_coverage']
@@ -225,14 +260,18 @@ def compute_priority(ctx):
     else:
         coverage = float(adj)
         reasons.append(f"Adjusted Good's coverage of grid cell {ctx['grid_id']} is {coverage:.2f}.")
-    reasons.append(f"{ctx['n_badger_seq']} sequenced badgers and {ctx['n_cattle_seq']} "
+    reasons.append(f"{ctx['n_badger_seq_near']} sequenced badgers and {ctx['n_cattle_seq_near']} "
                    f"sequenced cattle within {ctx['radius_m']/1000:g} km.")
     if ctx['n_pm']:
         reasons.append(f"{ctx['n_pm']} badger PM records within {ctx['radius_m']/1000:g} km.")
-    score = 100 * (1 - coverage) + pm_adjustment(ctx)
-    score = float(np.clip(score, 0, 100))
-    tier = next(name for threshold, name in TIERS if score >= threshold)
-    return {'score': score, 'tier': tier, 'reasons': reasons}
+    score = 10 * (1 - coverage) + pm_adjustment(ctx)
+    score = float(np.clip(score, 0, 10))
+    if score > THRESHOLD:
+        status = 'Yes'
+    else:
+        status = 'No'
+    #tier = next(name for threshold, name in TIERS if score >= threshold)
+    return {'score': score, 'status': status, 'reasons': reasons}
 
 def _txt(series):
     """Series to strings for hover text, blanks for missing"""
@@ -256,7 +295,7 @@ def hover_for(renderer, fields):
 
     return HoverTool(renderers=[renderer], tooltips=[(l, f'@{c}') for l, c in fields])
 
-class BadgerSelectionDashboard(Dashboard):
+class SampleSelectionDashboard(Dashboard):
     """
     Triage new badger samples by location using sequence sampling coverage.
     Takes the same project data as the other dashboards (meta, ireland_grid, ..).
@@ -275,7 +314,7 @@ class BadgerSelectionDashboard(Dashboard):
         self.pm = pm
         self.results = []
         self.new_point = None
-        super(BadgerSelectionDashboard, self).__init__(**kwargs)
+        super(SampleSelectionDashboard, self).__init__(**kwargs)
         if self.meta.crs is not None and str(self.meta.crs) != IRISH_GRID:
             self.meta = self.meta.to_crs(IRISH_GRID)
         return
@@ -324,20 +363,27 @@ class BadgerSelectionDashboard(Dashboard):
         #results
         self.status_pane = pn.pane.Alert('', alert_type='warning', visible=False, **sw)
         self.score_indicator = pn.indicators.Number(
-            name='Priority score (0-100)', value=0, format='{value:.0f}', font_size='48pt',
+            name='Priority score (0-10)', value=0, format='{value:.1f}', font_size='48pt',
             title_size='13pt', visible=False,
             colors=[(33, '#7f8c8d'), (66, '#e6a100'), (100, '#c0392b')])
         mstyles = {'font-size': '16px', 'margin-left': '10px'}
+        self.decision_pane = pn.pane.Markdown('', **sw)
         #self.tier_pane = pn.pane.Markdown('', styles=mstyles, **sw)
         self.reasons_pane = pn.pane.Markdown('', **sw)
         self.context_table = pn.pane.DataFrame(stylesheets=[df_stylesheet], **sw)
-        result = pn.Column(self.status_pane, self.score_indicator, #self.tier_pane,
+        result = pn.Column(self.status_pane, pn.Row(self.score_indicator, self.decision_pane),
                            self.reasons_pane, self.context_table, **sw)
         self.history_table = pnw.Tabulator(show_index=False, disabled=True, page_size=50,
                                            stylesheets=[stylesheet], sizing_mode='stretch_both',
                                            min_height=250)
         self.history_table.value = pd.DataFrame()
-        self.about_pane = pn.pane.Markdown(self.notes(), **sw)
+
+        markdown_path = os.path.join(module_path, 'assets', 'notes.md')
+        with open(markdown_path, 'r', encoding='utf-8') as f:
+            markdown_content = f.read()
+        # Load it into your Panel pane
+        self.about_pane = pn.pane.Markdown(markdown_content, **sw)
+        #self.about_pane = pn.pane.Markdown(self.notes(), **sw)
         right_panel = pn.Tabs(('Result', result), ('History', self.history_table),
                               ('Notes', self.about_pane), width=430, dynamic=True,
                               stylesheets=[NARROW_PANEL_CSS])
@@ -361,8 +407,8 @@ class BadgerSelectionDashboard(Dashboard):
                   'cattle': ('Cattle (sequenced)', get_icon('cow'), False)}
         self.layer_toggles = {}
         for key, (label, icon, shown) in layers.items():
-    
-            t = pnw.ToggleIcon(icon=icon, size='2.4em', active_icon=icon,
+
+            t = pnw.ToggleIcon(icon=icon, size='2.8em', active_icon=icon,
                                description=label, value=shown, width=32, height=32)
             t.param.watch(lambda event, key=key: self.toggle_layer(key, event.new), 'value')
             self.layer_toggles[key] = t
@@ -376,19 +422,6 @@ class BadgerSelectionDashboard(Dashboard):
         for model in self.layer_renderers.get(key, []):
             model.visible = bool(visible)
         return
-
-    def notes(self):
-        """Explanatory text"""
-
-        return ("### How the score works (placeholder)\n"
-                "Priority = 100 x (1 - adjusted Good's coverage) of the hex grid cell "
-                "containing the location. The Adjusted coverage is Good's coverage x herd count "
-                "factor x spatial dispersion. This takes into account the previous sampling"
-                "of all sequenced samples (all species) and how well distibuted they are in the cell"
-                "Cells with too few isolates are treated as unsampled.\n\n"
-                "Badger PM records and nearby isolates are shown as context but do not "
-                "change the score yet (`pm_adjustment`).\n\n"
-                "Replace `compute_priority` in `badgerselection.py` with the real calculation.")
 
     def build_map(self):
         """Build the map once. Layers are toggled by the legend and the sample
@@ -439,8 +472,8 @@ class BadgerSelectionDashboard(Dashboard):
         cols = [c for _, c in fields]
         meta = self.meta
         csrc = points_source(meta[meta.Species == 'Bovine'], cols)
-        rc = p.scatter('x', 'y', source=csrc, marker='circle', size=5, fill_alpha=0.6,
-                       fill_color=host_colors['Bovine'], line_color='black', line_width=0.3,
+        rc = p.scatter('x', 'y', source=csrc, marker='circle', size=8, fill_alpha=0.6,
+                       fill_color=host_colors['Bovine'], line_color='black', line_width=0.6,
                        legend_label='Cattle (sequenced)')
         rc.visible = False #many points, off by default (matches the toolbar default)
         self.layer_renderers['cattle'] = [rc]
@@ -455,8 +488,8 @@ class BadgerSelectionDashboard(Dashboard):
         #badger PM records
         pmfields = [('PM id', 'pm_id'), ('Year', 'Year'), ('Sett', 'HERD_NO'), ('Result', 'result')]
         psrc = points_source(self.pm, [c for _, c in pmfields])
-        rp = p.scatter('x', 'y', source=psrc, marker='triangle', size=10, fill_alpha=0.6,
-                       fill_color='#7b3fa0', line_color='black', line_width=1,
+        rp = p.scatter('x', 'y', source=psrc, marker='triangle', size=6, fill_alpha=0.6,
+                       fill_color='#7b3fa0', line_color='black', line_width=.6,
                        legend_label='Badger PM record')
         self.layer_renderers['pm'] = [rp]
         p.add_tools(hover_for(rp, pmfields))
@@ -476,6 +509,7 @@ class BadgerSelectionDashboard(Dashboard):
         p.legend.glyph_height = p.legend.glyph_width = 14
         p.legend.spacing = 1
         p.legend.padding = 4
+        bokeh_plot.add_scalebar(p)
         p.on_event(Tap, self.map_tapped)
         self.fig = p
         return p
@@ -546,7 +580,7 @@ class BadgerSelectionDashboard(Dashboard):
         mx, my = transform_xy(pt.x, pt.y, IRISH_GRID, WEB_MERCATOR)
         self.sample_source.data = {'x': [mx], 'y': [my]}
         #buffer in metres in the grid CRS then reproject for display
-        circle = gpd.GeoSeries([pt.buffer(4000)], crs=IRISH_GRID).to_crs(WEB_MERCATOR)
+        circle = gpd.GeoSeries([pt.buffer(10000)], crs=IRISH_GRID).to_crs(WEB_MERCATOR)
         xs, ys = circle.iloc[0].exterior.coords.xy
         self.radius_source.data = {'xs': [list(xs)], 'ys': [list(ys)]}
         if zoom:
@@ -572,7 +606,7 @@ class BadgerSelectionDashboard(Dashboard):
         except Exception as e:
             self.show_status(f'Scoring failed: {type(e).__name__}: {e}')
             raise
-        self.update_marker(zoom=True)
+        self.update_marker(zoom=False)
         self.show_result(ctx, res)
         return
 
@@ -587,10 +621,13 @@ class BadgerSelectionDashboard(Dashboard):
         msg = '' if ctx['in_ireland'] else 'Location is outside the Ireland county boundaries.'
         self.show_status(msg)
         score = res['score']
+        status = res['status']
         self.score_indicator.visible = score is not None
+        self.decision_pane.object = ''
         if score is not None:
-            self.score_indicator.value = round(score)
-        #self.tier_pane.object = f"**{res['tier']}**"
+            self.score_indicator.value = round(score,1)
+            self.decision_pane.object = f'<h3>Proceed:</h3><p><h1 style="color: red;">{status}</h1>'
+
         self.reasons_pane.object = '\n'.join(f'* {r}' for r in res['reasons'])
         self.context_table.object = self.context_frame(ctx)
 
@@ -619,7 +656,8 @@ class BadgerSelectionDashboard(Dashboard):
             'Spatial dispersion': f(ctx['spat_disp']),
             "Adj. Good's coverage": f(ctx['adj_goods_coverage']),
             #'Shannon diversity': f(ctx['shannon_diversity']),
-            f'Sequenced badgers within {r}': f(ctx['n_badger_seq']),
+            f'Sequenced badgers in grid cell': f(ctx['n_badger_seq']),
+            f'Sequenced badgers within {r}': f(ctx['n_badger_seq_near']),
             'Nearest sequenced badger (km)': f(ctx['nearest_badger_seq_km'], 1),
             f'Sequenced cattle within {r}': f(ctx['n_cattle_seq']),
             f'Distinct strains within {r}': f(ctx['n_strains_local']),
@@ -636,6 +674,177 @@ class BadgerSelectionDashboard(Dashboard):
         self.sample_input.value = ''
         self.score_indicator.visible = False
         #self.tier_pane.object = ''
+        self.reasons_pane.object = ''
+        self.context_table.object = None
+        self.show_status('')
+        return
+
+class BadgerPMDashboard(Dashboard):
+    """
+    Simpler badger PM dashboard subclassing SampleSelectionDashboard.
+    Allows entering or looking up a Sett ID to retrieve its location,
+    skipping manual coordinate inputs and map interactions, while
+    retaining the scoring and results panel logic.
+    """
+    def __init__(self, **kwargs):
+        settings = kwargs.get('settings') or {}
+        self.iregrid = kwargs.get('ireland_grid')
+        # Load or retrieve sett locations table (similar format to pm table)
+        sett_table = kwargs.get('sett_table')
+        if sett_table is None and 'sett_locs' in settings:
+            sett_file = settings['sett_locs']
+            self.sett_table = load_sett_table(sett_file)
+
+        else:
+            self.sett_table = sett_table
+        pm = kwargs.get('badger_pm')
+        if pm is None:
+            pm = load_badger_pm_table(settings.get('badger_pm'))
+        self.pm = pm
+        self.results = []
+        self.new_point = None
+        Dashboard.__init__(self, **kwargs)
+        if self.meta.crs is not None and str(self.meta.crs) != IRISH_GRID:
+            self.meta = self.meta.to_crs(IRISH_GRID)
+        return
+
+    def _sett_ids(self):
+        """Return a sorted list of unique SETT values from the sett table."""
+        if self.sett_table is None or len(self.sett_table) == 0:
+            return []
+        if 'SETT' not in self.sett_table.columns:
+            return []
+        return sorted(self.sett_table['SETT'].dropna().astype(str).unique().tolist())
+
+    def setup_widgets(self):
+        """Create simplified widgets without map interactions or manual coordinates."""
+        sw = {'sizing_mode': 'stretch_width'}
+        self.sett_input_free = pnw.TextInput(name='Sett ID (free text)', **sw)
+
+        # --- Sett ID: searchable dropdown + free text ---
+        '''self.sett_input = pnw.EditableChoice(
+            name='Sett ID / Animal ID',
+            options=self._sett_ids(),
+            placeholder='Select from list or type an ID…',
+            **sw
+        )'''
+        self.sett_ids = sorted(self.sett_table['SETT'].dropna().astype(str).unique().tolist())
+        self.sett_input = pnw.Select(name='Sett ID', options=self.sett_ids)
+
+        self.score_btn = pnw.Button(name='Score Sample', button_type='primary', height=42, **sw)
+        self.clear_btn = pnw.Button(name='Clear', button_type='default', **sw)
+        hint = pn.pane.Markdown(
+            'Select a **Sett ID** from the dropdown (or type one) and press *Score Sample*.', **sw
+        )
+        self.score_btn.on_click(self.score_sample)
+        self.clear_btn.on_click(self.clear)
+
+        # Results pane setup
+        self.status_pane = pn.pane.Alert('', alert_type='warning', visible=False, **sw)
+        self.score_indicator = pn.indicators.Number(
+            name='Priority score (0-10)', value=0, format='{value:.1f}', font_size='48pt',
+            title_size='13pt', visible=False,
+            colors=[(33, '#7f8c8d'), (66, '#e6a100'), (100, '#c0392b')])
+        self.decision_pane = pn.pane.Markdown('', **sw)
+        self.reasons_pane = pn.pane.Markdown('', **sw)
+        self.context_table = pn.pane.DataFrame(stylesheets=[df_stylesheet], **sw)
+        result = pn.Column(self.status_pane, pn.Row(self.score_indicator, self.decision_pane),
+                           self.reasons_pane, self.context_table, **sw)
+        self.history_table = pnw.Tabulator(show_index=False, disabled=True, page_size=50,
+                                           stylesheets=[stylesheet], sizing_mode='stretch_both',
+                                           min_height=250)
+        self.history_table.value = pd.DataFrame()
+        markdown_path = os.path.join(module_path, 'assets', 'notes.md')
+        if os.path.exists(markdown_path):
+            with open(markdown_path, 'r', encoding='utf-8') as f:
+                markdown_content = f.read()
+        else:
+            markdown_content = "### Badger PM Dashboard Notes\nNo additional notes available."
+        self.about_pane = pn.pane.Markdown(markdown_content, **sw)
+        right_panel = pn.Tabs(('Result', result), ('History', self.history_table),
+                              ('Notes', self.about_pane), width=430, dynamic=True,
+                              stylesheets=[NARROW_PANEL_CSS])
+        widgets = pn.Column(self.sett_input_free, self.sett_input,
+                            self.score_btn, self.clear_btn, hint,
+                            width=300, stylesheets=[NARROW_PANEL_CSS])
+        app = pn.Row(widgets, right_panel, sizing_mode='stretch_both',
+                     stylesheets=[NARROW_ROW_CSS])
+        return app
+
+    def get_input_point(self):
+        """Lookup location from sett_table using the value in sett_input."""
+
+        sett_id = self.sett_input.value
+        if sett_id is None or len(self.sett_table) == 0:
+            return None
+        # Match against SETT column
+        match = self.sett_table[self.sett_table['SETT'] == sett_id]
+        if len(match) == 0:
+            return None
+        geom = match.iloc[0].geometry
+        if geom is None or geom.is_empty:
+            return None
+        # Ensure point is in Irish Grid (EPSG:29902)
+        if self.sett_table.crs is not None and str(self.sett_table.crs) != IRISH_GRID:
+            pt_gdf = gpd.GeoDataFrame([match.iloc[0]], geometry=[geom],
+                                      crs=self.sett_table.crs).to_crs(IRISH_GRID)
+            geom = pt_gdf.geometry.iloc[0]
+        return geom if isinstance(geom, Point) else geom.centroid
+
+    def update_marker(self, event=None, zoom=False):
+        """Override to do nothing since there is no map."""
+        pass
+
+    def score_sample(self, event=None):
+        """Score the entered location and show the result."""
+        pt = self.get_input_point()
+        if pt is None:
+            self.show_status('Enter a valid Sett ID / Animal ID or ensure it exists in the sett table.')
+            return
+        try:
+            ctx = get_location_context(pt, self.meta, self.iregrid, self.pm, radius=4000)
+            res = compute_priority(ctx)
+        except Exception as e:
+            self.show_status(f'Scoring failed: {type(e).__name__}: {e}')
+            raise
+        self.show_result(ctx, res)
+        return
+
+    def show_result(self, ctx, res):
+        """Update result panes and history"""
+
+        #msg = '' if ctx['in_ireland'] else 'Location is outside the Ireland county boundaries.'
+        #self.show_status(msg)
+        score = res['score']
+        status = res['status']
+        self.score_indicator.visible = score is not None
+        self.decision_pane.object = ''
+        if score is not None:
+            self.score_indicator.value = round(score,1)
+            self.decision_pane.object = f'<h3>Proceed:</h3><p><h1 style="color: red;">{status}</h1>'
+
+        self.reasons_pane.object = '\n'.join(f'* {r}' for r in res['reasons'])
+
+        self.results.append({
+            'sample': self.sett_input.value or f'sample {len(self.results)+1}',
+            'X (IG)': round(ctx['x']), 'Y (IG)': round(ctx['y']),
+            'grid_id': ctx['grid_id'], 'County': ctx['County'],
+            'adj_coverage': None if pd.isna(ctx['adj_goods_coverage']) else round(ctx['adj_goods_coverage'], 2),
+            'score': None if score is None else round(score)})
+        self.history_table.value = pd.DataFrame(self.results)
+        return
+
+    def show_status(self, msg=''):
+        self.status_pane.object = msg
+        self.status_pane.visible = bool(msg)
+        return
+
+    def clear(self, event=None):
+        """Clear entered inputs and results."""
+        self.sett_input.value = ''
+        self.sample_input.value = ''
+        self.score_indicator.visible = False
+        self.decision_pane.object = ''
         self.reasons_pane.object = ''
         self.context_table.object = None
         self.show_status('')

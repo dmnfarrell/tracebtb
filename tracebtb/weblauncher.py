@@ -31,6 +31,7 @@ data_path = os.path.join(module_path,'data')
 logo_path = os.path.join(module_path,'logos')
 logoimg = os.path.join(logo_path, 'logo.png')
 theme_file = os.path.join(configpath,'theme.yaml')
+asset_path = os.path.join(module_path,'assets')
 
 report_file = 'report.html'
 selections_file = os.path.join(configpath,'selections.json')
@@ -108,7 +109,8 @@ def create_bootstrap_layout_cls(dashboard_cls, title, bkgr, logo=None, **kwargs)
         <div style="display:flex; align-items:center; gap:1.2rem; font-size:.9rem;">
         <a href="/" style="color:white; text-decoration:none;">Main Dashboard</a>
         <a href="/herd" style="color:white; text-decoration:none;">Herd Query</a>
-        <a href="/badger" style="color:white; text-decoration:none;">Badgers</a>
+        <a href="/surveillance" style="color:white; text-decoration:none;">Surveillance</a>
+        <a href="/badgerpm" style="color:white; text-decoration:none;">Badger PM</a>
         </div>
         """ , width=150)
         bootstrap.header.append(menu_html)
@@ -177,7 +179,8 @@ def main():
             pn.pane.Markdown("[🏠 Main](/)", sizing_mode="fixed", width=100),
             pn.pane.Markdown("[🐄 Herd](/herd)", sizing_mode="fixed", width=100),
             #pn.pane.Markdown("[🚚 Moves](/moves)", sizing_mode="fixed", width=100),
-            pn.pane.Markdown("[🚚 Badgers](/badger)", sizing_mode="fixed", width=100),
+            pn.pane.Markdown("[🚚 Surveillance](/surveillance)", sizing_mode="fixed", width=100),
+            #pn.pane.Markdown("[🚚 Badgers](/badgerpm)", sizing_mode="fixed", width=100),
             align="center",
             margin=(10, 20),
         )
@@ -214,11 +217,11 @@ def main():
             settings=settings,
             **data
         )
-        from tracebtb.badgerselection import BadgerSelectionDashboard
-      
+        from tracebtb.selection_dashboards import SampleSelectionDashboard, BadgerPMDashboard
+
         layout4 = create_bootstrap_layout_cls(
-            BadgerSelectionDashboard,
-            'Badgers',
+            SampleSelectionDashboard,
+            'Surveillance',
             "#7F372D",
             logo=os.path.join(logo_path, 'badger.png'),
             layers=layers,
@@ -227,14 +230,27 @@ def main():
             settings=settings,
             **data
         )
-        layouts = {'/':layout1, '/herd':layout2, '/badger':layout4}
+        layout5 = create_bootstrap_layout_cls(
+            BadgerPMDashboard,
+            'Badger PM',
+            "#236452",
+            logo=os.path.join(logo_path, 'badger.png'),
+            layers=layers,
+            treefile=treefile,
+            lpis=lpis,
+            settings=settings,
+            **data
+        )
+        layouts = {'/':layout1, '/herd':layout2, '/surveillance':layout4, '/badgerpm':layout5}
         port = int(args.port)
         if 'reverse_proxy' in settings:
             #using nginx proxy with basic auth
             s = settings['reverse_proxy']
             pn.serve(layouts, port=port, prefix=s['prefix'],
                 websocket_origin=s['origin'], #basic_auth='credentials.json',
-                cookie_secret='cookie_secret', show=False)
+                cookie_secret='cookie_secret',
+                static_dirs={"assets": f"{asset_path}"},
+                show=False)
         else:
             #default - no security
             if port in settings:
